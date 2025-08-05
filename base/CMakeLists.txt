@@ -1,0 +1,1 @@
+add_executable(01_check_dimmension 01_check_dimmension.cu)
