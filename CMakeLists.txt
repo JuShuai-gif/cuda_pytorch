@@ -15,6 +15,8 @@ find_package(CUDAToolkit REQUIRED)
 # 启用可重定位设备代码（便于调试）
 set(CUDA_SEPARABLE_COMPILATION ON)
 
+include_directories(./include)
+
 # 添加可执行文件
 # add_executable(cuda_test src/vector_add.cu)
 
