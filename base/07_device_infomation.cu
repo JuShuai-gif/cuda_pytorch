@@ -27,6 +27,7 @@ int main(int argc,char** argv){
     cudaSetDevice(dev);
     cudaDeviceProp deviceProp;
     cudaGetDeviceProperties(&deviceProp,dev);
+    
     printf("Device %d:\"%s\"\n",dev,deviceProp.name);
     cudaDriverGetVersion(&driverVersion);
     cudaRuntimeGetVersion(&runtimeVersion);
