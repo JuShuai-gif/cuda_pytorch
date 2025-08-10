@@ -114,7 +114,7 @@ int main(int argc, char **argv)
 
 	//run kernel 3
 	iStart = cpuSecond();
-	mathKernel3 << <grid, block >> > (C_dev);
+	mathKernel3 <<<grid, block >>> (C_dev);
 	cudaDeviceSynchronize();
 	iElaps = cpuSecond() - iStart;
 	printf("mathKernel3<<<%4d,%4d>>>elapsed %lf sec \n", grid.x, block.x, iElaps);
