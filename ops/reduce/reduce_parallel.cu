@@ -1,6 +1,5 @@
 #include "common.h"
-#include <__clang_cuda_builtin_vars.h>
-#include <__clang_cuda_runtime_wrapper.h>
+
 #include <cstdlib>
 #include <stdio.h>
 #include <cooperative_groups.h>
