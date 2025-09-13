@@ -1,0 +1,3 @@
+add_executable(PMPP_ch05_matrix_mul_benchmark matrix_mul_benchmark.cu)
+
+add_executable(PMPP_ch05_matrix_mul_with_optimal_dynamic_tile_size matrix_mul_with_optimal_dynamic_tile_size.cu)

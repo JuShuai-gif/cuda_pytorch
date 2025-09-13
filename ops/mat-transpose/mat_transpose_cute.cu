@@ -1,5 +1,4 @@
-#include <__clang_cuda_builtin_vars.h>
-#include <__clang_cuda_runtime_wrapper.h>
+
 #include <cuda_runtime.h>
 #include <stdio.h>
 #include <torch/extension.h>

@@ -1,0 +1,1 @@
+add_executable(ch2_vecMul vecMul.cu)

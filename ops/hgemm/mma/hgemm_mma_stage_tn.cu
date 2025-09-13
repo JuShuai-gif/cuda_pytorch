@@ -1,5 +1,4 @@
-#include <__clang_cuda_builtin_vars.h>
-#include <__clang_cuda_runtime_wrapper.h>
+
 #include <algorithm>
 #include <cstdint>
 #include <cuda_bf16.h>

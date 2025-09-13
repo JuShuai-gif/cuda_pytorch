@@ -1,4 +1,4 @@
-#include <__clang_cuda_builtin_vars.h>
+
 #include <cmath>
 #include <cstdio>
 #include <cstdint>

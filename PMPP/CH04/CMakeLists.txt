@@ -1,0 +1,1 @@
+add_executable(PMPP_ch04_deviceProperties deviceProperties.cu)

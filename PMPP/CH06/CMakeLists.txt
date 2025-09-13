@@ -1,0 +1,3 @@
+add_executable(PMPP_ch06_excercise1 excercise1.cu)
+
+add_executable(PMPP_ch06_thread_coaersing_matmul thread_coaersing_matmul.cu)

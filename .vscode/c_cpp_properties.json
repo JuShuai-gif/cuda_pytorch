@@ -5,7 +5,8 @@
             "includePath": [
                 "${workspaceFolder}/**",
                 "${workspaceFolder}/include/**",
-                "${workspaceFolder}/include"
+                "${workspaceFolder}/include",
+                "/home/ghr/miniconda3/envs/torch_env/lib/python3.10/site-packages/torch/include"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/g++",

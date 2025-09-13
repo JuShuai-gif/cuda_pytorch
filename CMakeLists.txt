@@ -26,6 +26,8 @@ add_subdirectory(pytorch_bind)
 
 add_subdirectory(ops)
 
+add_subdirectory(PMPP)
+
 # 设置CUDA架构（根据您的GPU调整）
 # set_target_properties(cuda_test PROPERTIES
 #     CUDA_ARCHITECTURES "75"  # Tesla T4/RTX 20xx: 75; A100: 80; RTX 30xx: 86
