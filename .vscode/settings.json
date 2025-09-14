@@ -65,7 +65,8 @@
         "bit": "cpp",
         "buffer": "cpp",
         "netfwd": "cpp",
-        "future": "cpp"
+        "future": "cpp",
+        "cublas_v2.h": "c"
     }
 
 

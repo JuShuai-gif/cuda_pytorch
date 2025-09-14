@@ -4,6 +4,17 @@
 *.ptx
 *.cubin
 *.fatbin
+*.o
+*.obj
+*.so
+*.dll
+*.dylib
+*.exe       
+*.log
+*.out
+*.optrpt
+*.nvvp
+*.ncu-rep
 
 
 /build
