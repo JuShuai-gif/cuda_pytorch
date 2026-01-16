@@ -2,6 +2,7 @@
 #include <cuda_runtime.h>
 #include <stdio.h>
 
+// 全局内存
 __device__ float devData;
 __global__ void checkGlobalVariable(){
     printf("Device: Thre value of the global variable is %f\n",devData);
@@ -11,9 +12,11 @@ __global__ void checkGlobalVariable(){
 int main()
 {
     float value=3.14f;
+    // 从host拷贝device
     cudaMemcpyToSymbol(devData,&value,sizeof(float));
     printf("Host: copy %f to the global variable\n",value);
     checkGlobalVariable<<<1,1>>>();
+    // 从device拷贝到host
     cudaMemcpyFromSymbol(&value,devData,sizeof(float));
     printf("Host: the value changed by the kernel to %f \n",value);
     cudaDeviceReset();

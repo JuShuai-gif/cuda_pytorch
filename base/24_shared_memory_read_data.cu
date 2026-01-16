@@ -10,6 +10,7 @@
 #define BDIMY_RECT 16
 #define IPAD 1
 
+// 预热
 __global__ void warmup(int *out) {
     __shared__ int tile[BDIMY][BDIMY];
     unsigned int idx = threadIdx.y * blockDim.x + threadIdx.x;
@@ -23,7 +24,7 @@ __global__ void setRowReadRow(int *out) {
     __shared__ int tile[BDIMY][BDIMX];
     unsigned int idx = threadIdx.y * blockDim.x + threadIdx.x;
     tile[threadIdx.y][threadIdx.x] = idx;
-    __syncthreads();
+    __syncthreads();// 块内同步
     out[idx] = tile[threadIdx.y][threadIdx.x];
 }
 

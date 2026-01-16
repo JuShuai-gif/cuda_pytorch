@@ -9,6 +9,7 @@ void sumArrays(float *a, float *b, float *res, int offset, const int size) {
     }
 }
 
+// 展开 + 偏移 求和
 __global__ void sumArraysGPU(float *a, float *b, float *res, int offset, int n) {
     int i = blockDim.x * blockIdx.x * 4 + threadIdx.x;
     int k = i + offset;

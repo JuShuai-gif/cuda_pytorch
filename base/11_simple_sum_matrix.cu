@@ -18,6 +18,7 @@ void sumMatrix2D_CPU(float *MatA, float *MatB, float *MatC, int nx, int ny) {
     a += nx;
 }
 
+// 简单的矩阵相加
 __global__ void sumMatrix(float *MatA, float *MatB, float *MatC, int nx, int ny) {
     int ix = threadIdx.x + blockDim.x * blockIdx.x;
     int iy = threadIdx.y + blockIdx.y * blockDim.x;

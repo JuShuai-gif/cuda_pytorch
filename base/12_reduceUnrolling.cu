@@ -44,19 +44,25 @@ __global__ void warmup(int *g_idata, int *g_odata, unsigned int n) {
     }
 }
 
+
 __global__ void reduceUnroll2(int *g_idata, int *g_odata, unsigned int n) {
+    // 获取线程索引
     unsigned int tid = threadIdx.x;
+    // 当前线程索引在块中索引号
     unsigned int idx = blockDim.x * blockIdx.x * 2 + threadIdx.x;
 
     if (tid >= n) {
         return;
     }
 
+    // 数据也要和线程对上
     int *idata = g_idata + blockIdx.x * blockDim.x * 2;
+    // 紧挨着的第二个块的索引号
+    // 这就相当于将紧挨着的两个线程块累加
     if (idx + blockDim.x < n) {
         g_idata[idx] += g_idata[idx + blockDim.x];
     }
-
+    // 这个同步是以warp为单位进行同步的，即每个块中以warp为单位进行同步状态
     __syncthreads();
 
     for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {

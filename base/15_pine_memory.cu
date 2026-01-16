@@ -33,6 +33,7 @@ int main(int argc, char **argv) {
 
     float *a_d, *b_d, *res_d;
     // pine memory malloc
+    // 分配固定页内存
     CHECK(cudaMallocHost((float **)&a_d, nByte));
     CHECK(cudaMallocHost((float **)&b_d, nByte));
     CHECK(cudaMallocHost((float **)&res_d, nByte));
@@ -52,6 +53,7 @@ int main(int argc, char **argv) {
     sumArrays(a_h, b_h, res_h, nElem);
 
     checkResult(res_h, res_from_gpu_h, nElem);
+    // 释放固定页内存
     cudaFreeHost(a_d);
     cudaFreeHost(b_d);
     cudaFreeHost(res_d);

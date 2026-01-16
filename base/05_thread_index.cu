@@ -35,11 +35,13 @@ int main(int argc,char** argv){
 
     printThreadIndex<<<grid,block>>>(A_dev,nx,ny);
 
+    // 设备同步
     CHECK(cudaDeviceSynchronize());
 
     cudaFree(A_dev);
     free(A_host);
 
+    // 设备重置
     cudaDeviceReset();
     return 0;
 }

@@ -29,6 +29,7 @@ int main(int argc, char **argv) {
     memset(res_from_gpu_h, 0, nByte);
 
     float *a_host, *b_host, *res_d;
+    // host端分配内存
     CHECK(cudaHostAlloc((float **)&a_host, nByte, cudaHostAllocMapped));
     CHECK(cudaHostAlloc((float **)&b_host, nByte, cudaHostAllocMapped));
     CHECK(cudaMalloc((float **)&res_d, nByte));

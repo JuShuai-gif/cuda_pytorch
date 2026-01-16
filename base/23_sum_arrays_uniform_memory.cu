@@ -31,6 +31,7 @@ int main(int argc, char **argv) {
     // memset(res_from_gpu_h,0,nByte);
 
     float *a_d, *b_d, *res_d;
+    // 统一内存分配
     CHECK(cudaMallocManaged((float **)&a_d, nByte));
     CHECK(cudaMallocManaged((float **)&b_d, nByte));
     CHECK(cudaMallocManaged((float **)&res_d, nByte));

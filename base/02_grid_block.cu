@@ -1,6 +1,14 @@
 #include <cstdio>
 #include <cuda_runtime.h>
 #include <stdio.h>
+/*
+一般情况下，线程块的大小设置为32的倍数，这样可以避免延迟
+块运行在SM上，块又分为好多warp，SM有最大线程数
+块最多支持线程是1024
+
+nblock = (grid + block - 1)/block
+*/
+
 
 int main(int argc,char** argv){
     int nElem = 1024;

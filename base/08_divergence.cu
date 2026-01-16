@@ -3,6 +3,13 @@
 #include <stdlib.h>
 #include "common.h"
 
+/*
+一个warp32个线程，如果不发生分歧，假如一个指令，32个线程一起执行，然后花费一个时钟周期
+
+假如发生分歧：16个线程走一路，16个线程走一路，那样当第一个16线程走的时候，另外16个线程就闲着，另外16个线程也是一样的
+所以这样会造成一个指令，16个线程执行一遍，花费一个时钟周期，另外16个线程执行一遍，花费一个时钟周期
+*/
+
 __global__ void warmup(float *c){
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     float a = 0.0;

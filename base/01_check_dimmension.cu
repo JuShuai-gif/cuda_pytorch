@@ -6,8 +6,10 @@ __global__ void checkIndex(void)
     /*
     threadIdx: 当前线程在其所属线程块中的三维索引
     blockIdx: 当前线程块在整个网格中的三维索引
-    blockDim: 线程块的三维大小
-    gridDim: 网格的三维大小
+    blockDim: 线程块的三维大小 
+    gridDim: 网格的三维大小 表示线程块的数量
+
+    tid = threadIdx.x + blockIdx.x * blockIdx.x
     */
     printf("threadIdx:(%d,%d,%d) blockIdx:(%d,%d,%d) blockDim:(%d,%d,%d)\
         gridDim(%d,%d,%d)\n",threadIdx.x,threadIdx.y,threadIdx.z,

@@ -10,12 +10,15 @@ struct naiveStruct {
     float b;
 };
 
+// CPU 求和
 void sumArrays(float *a, float *b, float *res, const int size) {
     for (int i = 0; i < size; i++) {
         res[i] = a[i] + b[i];
     }
 }
 
+
+// GPU求和
 __global__ void sumArraysGPU(float *a, float *b, struct naiveStruct *res, int n) {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
     if (i < n) {

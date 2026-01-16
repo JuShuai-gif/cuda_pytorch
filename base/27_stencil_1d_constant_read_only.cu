@@ -17,6 +17,7 @@ void convolution(float *in, float *out, float *template_, const unsigned int arr
 }
 
 __global__ void stencil_1d(float *in, float *out) {
+    // TEMP_RADIO_SIZE 是范围
     __shared__ float smem[BDIM + 2 * TEMP_RADIO_SIZE];
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
     int sidx = threadIdx.x + TEMP_RADIO_SIZE;

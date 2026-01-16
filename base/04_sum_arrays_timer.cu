@@ -78,9 +78,12 @@ int main(int argc, char **argv) {
     CHECK(cudaMemcpy(b_d, b_h, bytes, cudaMemcpyHostToDevice));
 
     int cpu_sum = 0;
+
+    // 记录 CPU 时间
     iStart = cpuSecond();
 
     sumArrayCPU(a_h, b_h, tmp, size);
+    // cpuSecond() 代表的是当前机器的时间
     iElaps = cpuSecond() - iStart;
     printf("cpu reduce                 elapsed %lf ms cpu_sum: %d\n", iElaps, cpu_sum);
 

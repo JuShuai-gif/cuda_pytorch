@@ -26,6 +26,7 @@ int recursiveReduce(int *data, int const size) {
     return recursiveReduce(data, stride);
 }
 
+// 预热 GPU
 __global__ void warmup(int *g_idata, int *g_odata, unsigned int n) {
     // set thread ID
     unsigned int tid = threadIdx.x;
@@ -46,6 +47,7 @@ __global__ void warmup(int *g_idata, int *g_odata, unsigned int n) {
         g_odata[blockIdx.x] = idata[0];
 }
 
+// 规约
 __global__ void reduceGmem(int *g_idata, int *g_odata, unsigned int n) {
     unsigned int tid = threadIdx.x;
     unsigned int idx = blockDim.x * blockIdx.x + threadIdx.x;
@@ -93,7 +95,7 @@ __global__ void reduceSmem(int *g_idata, int *g_odata, unsigned int n) {
 
     int *idata = g_idata + blockIdx.x * blockDim.x;
 
-    smem[tid] = idata[tid];
+    smem[tid] = idata[tid];// 以块为单位
     __syncthreads();
 
     // in-place reduction in global memory

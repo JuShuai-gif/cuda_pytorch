@@ -11,6 +11,7 @@ void transformMatrix2D_CPU(float *MatA, float *MatB, int nx, int ny) {
     }
 }
 
+// 复制行
 __global__ void copyRow(float *MatA, float *MatB, int nx, int ny) {
     int ix = threadIdx.x + blockDim.x * blockIdx.x;
     int iy = threadIdx.y + blockDim.y * blockIdx.y;
@@ -20,6 +21,7 @@ __global__ void copyRow(float *MatA, float *MatB, int nx, int ny) {
     }
 }
 
+// 复制列
 __global__ void copyCol(float *MatA, float *MatB, int nx, int ny) {
     int ix = threadIdx.x + blockDim.x * blockIdx.x;
     int iy = threadIdx.y + blockDim.y * blockIdx.y;
