@@ -13,11 +13,31 @@
 #define FLOAT4(value) (reinterpret_cast<float4 *>(&(value))[0])
 #define LDST128BITS(value) (reinterpret_cast<float4 *>(&(value))[0])
 
-__global__ void embedding_f32_kernel(const int *idx, float *weight, float *output, int n, int emb_size) {
+// CUDA kernel：将 embedding 表中的一行拷贝到输出
+// 等价于：output[bx, :] = weight[idx[bx], :]
+__global__ void embedding_f32_kernel(
+    const int *idx,         // [n]，每个样本对应一个 embedding 的索引
+    float *weight,          // [vocab_size, emb_size]，embedding 权重矩阵（行主序）
+    float *output,  // [n, emb_size]，输出 embedding
+    int n,          // embedding 的行数（batch size）
+    int emb_size)   // 每个 embedding 向量的维度
+{   // 当前线程在 block 内的 x 维索引
     int tx = threadIdx.x;
+    // 当前 block 在 grid 中的 x 维索引
     int bx = blockIdx.x;
+    // 全局线程索引（在该 kernel 中未被使用）
+    // 若 blockDim.x == emb_size，则 tid 等价于 bx * emb_size + tx
     int tid = bx * blockDim.x + tx;
+
+    // 根据 idx[bx] 计算要拷贝的 embedding 行在 weight 中的起始偏移
+    // offset = idx[bx] * emb_size
     int offset = idx[bx] * emb_size;
+
+
+    // 每个 block 负责拷贝一个 embedding 向量
+    // block 内的每个线程拷贝一个 float 元素
+    //
+    // output[bx, tx] = weight[idx[bx], tx]
     output[bx * emb_size + tx] = weight[offset + tx];
 }
 

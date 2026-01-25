@@ -6,8 +6,8 @@
                 "${workspaceFolder}/**",
                 "${workspaceFolder}/include/**",
                 "${workspaceFolder}/include",
-                "/home/ghr/miniconda3/envs/torch_env/lib/python3.10/site-packages/torch/include",
-                "/usr/local/cuda-11.8/targets/x86_64-linux/include"
+                "/home/robot/miniconda3/envs/torch_env/lib/python3.10/site-packages/torch/include",
+                "/usr/local/cuda-12.2/targets/x86_64-linux/include"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/g++",

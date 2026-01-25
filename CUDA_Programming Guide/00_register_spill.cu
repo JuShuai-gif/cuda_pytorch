@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
+#include <cuda_runtime.h>
 
 // CUDA错误检查宏
 #define CHECK_CUDA(call) \

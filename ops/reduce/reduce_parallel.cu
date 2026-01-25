@@ -10,8 +10,7 @@ const int NUM_REPEATS = 100;
 const int N = 100000000;
 const int M = sizeof(float) * N;
 const int BLOCK_SIZE = 128;
-const int GRID_SIZE = 10240;
-
+const int GRID_SIZE = 1024;
 void timing(const float *h_x);
 
 int main(void) {
