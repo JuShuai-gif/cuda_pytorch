@@ -1,0 +1,82 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+../common/helper_cuda ptx.h
+
+../common/helper_cuda.h
+cstdlib
+-
+stdio.h
+-
+
+../common/helper_matrix.h
+helper_cuda.h
+../common/helper_cuda.h
+cmath
+-
+cstdlib
+-
+stdio.h
+-
+string
+-
+
+../common/helper_string.h
+algorithm
+-
+string
+-
+vector
+-
+
+../src/kernels/128x128x8.cuh
+helper_cuda ptx.h
+../src/kernels/helper_cuda ptx.h
+cstdint
+-
+
+../src/kernels/128x128x8_texld.cuh
+helper_cuda ptx.h
+../src/kernels/helper_cuda ptx.h
+cstdint
+-
+
+../src/kernels/128x256x8.cuh
+helper_cuda ptx.h
+../src/kernels/helper_cuda ptx.h
+cstdint
+-
+
+../src/kernels/basic.cuh
+
+../src/sgemm.cuh
+kernels/128x128x8.cuh
+../src/kernels/128x128x8.cuh
+kernels/basic.cuh
+../src/kernels/basic.cuh
+kernels/128x256x8.cuh
+../src/kernels/128x256x8.cuh
+kernels/128x128x8_texld.cuh
+../src/kernels/128x128x8_texld.cuh
+
+/home/robot/WorkCode/sgemm.cu/benchmark.cu
+cublas_v2.h
+-
+cuda_runtime.h
+-
+helper_matrix.h
+-
+helper_string.h
+-
+sgemm.cuh
+-
+filesystem
+-
+fstream
+-
+
