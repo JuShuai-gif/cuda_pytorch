@@ -1,1 +1,0 @@
-/usr/local/cuda-12.6/bin/nvcc -forward-unknown-to-host-compiler -Xcompiler=-fPIC -Wno-deprecated-gpu-targets -shared -dlink CMakeFiles/benchmark.dir/benchmark.cu.o -o CMakeFiles/benchmark.dir/cmake_device_link.o  -lcudart -lcublas -lcudadevrt -lcudart_static -lrt -lpthread -ldl 

@@ -32,26 +32,47 @@ bool check(const float *A,
 }
 
 
+// 把 C/C++ 中的 shared memory 指针转换成 PTX 需要的 32-bit shared 地址
+/*
+在PTX中：
+- shared memory地址是32-bit
+- C指针是generic address(64-bit)
+*/
 __device__ __forceinline__ 
 uint32_t smem_u32addr(const void* smem_ptr){
     uint32_t addr;
-    asm ("{.reg .u64 u64addr;\n"
-        "cvta.to.shared.u64 u64addr, %1;\n"
-        "cvt.u32.u64 %0, u64addr;}\n"
-        : "=r"(addr)
+    asm ("{.reg .u64 u64addr;\n"            // 声明一个64位寄存器，用来存放shared地址的64位形式
+        "cvta.to.shared.u64 u64addr, %1;\n" // 将 generic address -> shared address
+        "cvt.u32.u64 %0, u64addr;}\n"       // shared 地址在硬件上是32-bit 截断为u32,%0 对应 addr
+        : "=r"(addr)                        // 
         : "l"(smem_ptr)
     );
     return addr;
 }
 
+// 如果 guard 为真，聪global memory读取4字节(32bit),异步拷贝到shared memory
+/*
+@p cp.async.ca.shared.global.L2::128B [%0], [%1], 4;
+
+| 字段              | 含义                  |
+| --------------- | ------------------- |
+| `@p`            | predicate 执行        |
+| `cp.async`      | 异步 copy             |
+| `ca`            | cache at all levels |
+| `shared.global` | global → shared     |
+| `L2::128B`      | L2 cache line hint  |
+| `[%0]`          | shared 32-bit 地址    |
+| `[%1]`          | global 64-bit 指针    |
+| `4`             | 传输字节数               |
+*/
 __device__ __forceinline__ 
 void ldgsts32(const uint32_t &smem_addr,
             const void*gmem_ptr,
             bool guard){
     asm volatile(
-        "{.reg .pred p;\n"
-        " step.ne.b32 p, %2, 0;\n"
-#if __CUDACC_VER_MAJOR__ >= 11 && __CUDACC_VER_MINOR__ >= 4
+        "{.reg .pred p;\n"      // 声明 predicate 寄存器
+        " step.ne.b32 p, %2, 0;\n"  // 用 predicate 代替 if 分支（避免 warp divergence）
+#if __CUDACC_VER_MAJOR__ >= 11 && __CUDACC_VER_MINOR__ >= 4  // CUDA于11.4
         " @p cp.async.ca.shared.global.L2::128B [%0], [%1], 4;}\n"
 #else
         " @p cp.async.ca.shared.global [%0], [%1], 4;}\n"
@@ -60,6 +81,16 @@ void ldgsts32(const uint32_t &smem_addr,
     );
 }
 
+// 带 size 的版本(支持越界安全)
+/*
+%2 = src_size
+硬件语义：
+- 如果 src_size < 4
+- 不足部分自动填 0
+- 不会触发非法访存
+
+这是 FlashAttention / CUTLASS 常用的 边界处理方式
+*/
 __device__ __forceinline__
 void ldgsts32(const uint32_t &smem_addr,
               const void *gmem_ptr,
@@ -77,12 +108,23 @@ void ldgsts32(const uint32_t &smem_addr,
     );
 }
 
+// 等待当前 CTA 中所有 cp.async 完成
+/*
+cp.async.wait_all
+    - 阻塞当前 warp
+    - 确保 shared memory 数据可用
 
+通常在：
+    - pipeline stage 切换
+    - 使用 shared 数据前
+
+*/
 __device__ __forceinline__ 
 void ldgsts_commit(){
     asm volatile("cp.async.wait_all;\n"::);
 }
 
+// 条件性 global store（float）
 __device__ __forceinline__ 
 void stg32(const float &reg,void* ptr,bool guard){
     asm volatile(
@@ -93,17 +135,37 @@ void stg32(const float &reg,void* ptr,bool guard){
     );
 }
 
+/*
+从 shared memory 连续读取 16 字节
+
+映射到 4 个 float 寄存器
+
+要求：
+
+addr 16B 对齐
+*/
 __device__ __forceinline__
 void lds128(float &reg0, float &reg1,
             float &reg2, float &reg3,
             const uint32_t &addr) {
     asm volatile(
-        "ld.shared.v4.f64 {%0, %1, %2, %3},[%4];\n"
+        "ld.shared.v4.f32 {%0, %1, %2, %3},[%4];\n"
         : "=f"(reg0), "=f"(reg1), "=f"(reg2), "=f"(reg3)
         : "r"(addr)
     );
 }
 
+/*
+向 shared 写一个 float
+
+无 predicate
+
+常用于：
+
+register → shared
+
+reduction / staging
+*/
 __device__ __forceinline__
 void sts32(const float &reg, const uint32_t &addr) {
     asm volatile (
@@ -112,6 +174,19 @@ void sts32(const float &reg, const uint32_t &addr) {
     );
 }
 
+/*
+一条指令写 16 字节
+
+比 4 次 st.shared.f32：
+
+指令数更少
+
+带宽更高
+
+要求：
+
+addr 16B 对齐
+*/
 __device__ __forceinline__
 void sts128(const float &reg0, const float &reg1,
             const float &reg2, const float &reg3,
@@ -122,10 +197,25 @@ void sts128(const float &reg0, const float &reg1,
     );
 }
 
+// 这套代码的典型使用模式
+/*
+uint32_t smem = smem_u32addr(&smem_buf[offset]);
+
+ldgsts32(smem, gmem_ptr, guard);
+// 多个 cp.async
+
+ldgsts_commit();   // 等待
+
+lds128(r0, r1, r2, r3, smem);
+*/
+
+// C 寄存器分块 → 写回中间片段
 struct StgFrag
 {
-    float data[4][4];
-
+    float data[4][4];   // 一个 4×4 FP32 子块，用于从 C_frag[16][8] 中切出一个 可写回的小 tile
+    
+    // tile_x ∈ {0,1} → n 方向
+    // tile_y ∈ {0,1,2,3} → m 方向
     __device__ __forceinline__
     StgFrag(const float (&C_frag)[16][8],int tile_x,int tile_y){
         #pragma unroll
@@ -138,7 +228,7 @@ struct StgFrag
     }
 };
 
-
+// 通用尾块写回（m / n 非整除）
 __device__ __noinline__
 void C_tile_wb(StgFrag C_frag,
                 float* C_stg_ptr,
@@ -150,8 +240,11 @@ void C_tile_wb(StgFrag C_frag,
                 uint32_t n_idx){
     __syncthreads();
 
+    // STS128：寄存器 → shared memory
     #pragma unroll
     for (int i = 0; i < 4; ++i) {
+        // 每行 stride = 9×float4
+        // 9 是 padding，避免 bank conflict（非常经典）
         sts128(C_frag.data[i][0],
                C_frag.data[i][1],
                C_frag.data[i][2],
@@ -160,7 +253,10 @@ void C_tile_wb(StgFrag C_frag,
     }
 
     __syncthreads();
-
+    
+    // 36 = 9 * 4
+    // m_guard 防止 m 越界
+    // n_idx < n 防止 n 越界
     uint32_t m_guard = m < m_idx ? 0 : m - m_idx;
 
     #pragma unroll
@@ -247,32 +343,35 @@ void C_tile_wb(StgFrag C_frag,
  *    |---|     |-------------------------------||-------------------------------|
  *
  */
-
+// 说明：这是一个针对 Ampere 架构手写的 SGEMM（FP32）kernel
+// Tile 形状：CTA = 128x256x8, Warp = 64x64x8, Thread = 16x8x8
+// 核心目标：最大化 LDS/FFMA 吞吐，隐藏 LDG latency，避免 LDS broadcast 冲突
 __global__ __launch_bounds__(256)
 void ampere_sgemm_128x256x8_kernel(
-    const float* A,
-    const float* B,
-    float* C,
-    uint32_t m,
-    uint32_t n,
-    uint32_t k,
-    uint32_t B_ldg_step){   // n * sizeof(float) * 8
+    const float* A,// 输入矩阵 A，row-major, [m, k]
+    const float* B,// 输入矩阵 B，row-major, [k, n]
+    float* C,// 输出矩阵 C，row-major, [m, n]
+    uint32_t m,// 矩阵 A/C 的行数
+    uint32_t n,// 矩阵 B/C 的列数
+    uint32_t k,// 矩阵 A 的列数 / B 的行数
+    uint32_t B_ldg_step){   // B 指针在 K 方向前进一个 tile 的字节步长
     /*
-     * matrix A & B thread block tile shared memory (double buffer)
-     * matrix A: 132 * 8 * 4Byte/item * double buffer = 4.125KB * 2
-     * matrix B: 256 * 8 * 4Byte/item * double buffer = 16KB
-     *
-     * for double buffer faster switch, A_smem requires 8KB * 2 shared memory
-     * and 16KB aligned, B_smem should be 16KB aligned, then the double buffer
-     * can be switched by only 1 xor instruction:
-     *     (uint32_t &)A_smem ^= 0x2000;
-     *     (uint32_t &)B_smem ^= 0x2000;
+    * ---------------- Shared Memory Layout ----------------
+    * smem 总大小 32KB：
+    * [0 , 16KB) : A tile double buffer
+    * [16KB, 32KB) : B tile double buffer
+    * 每个 tile 都是 K=8 的 slice
+    * A: 132 x 8（padding=4 防止 bank conflict）
+    * B: 256 x 8
     */
     __shared__ __align__(16*1024) char smem[32 * 1024];
     float* A_smem = reinterpret_cast<float*>(smem);
     float* B_smem = reinterpret_cast<float*>(smem + 16 * 1024);
 
-    // A, B and C register fragment
+    // ---------------- Register Fragments ----------------
+    // A_frag: ping-pong buffer [2][16]
+    // B_frag: ping-pong buffer [2][8]
+    // C_frag: thread-level accumulator，16x8
     float A_frag[2][16];
     float B_frag[2][8];
     float C_frag[16][8];
@@ -283,22 +382,27 @@ void ampere_sgemm_128x256x8_kernel(
             C_frag[i][j] = 0;
         }
     }
+    
+    // ---------------- Thread / Warp ID ----------------
+    const uint32_t lane_id = threadIdx.x % 32;// warp 内线程号
+    const uint32_t warp_id = threadIdx.x / 32;// warp号(0-7)
 
-    const uint32_t lane_id = threadIdx.x % 32;
-    const uint32_t warp_id = threadIdx.x / 32;
+    // ---------------- MMA Thread Mapping ----------------
+    // 每个 warp 做 64x64
+    // lane → (x,y) 子 tile，用于避免 LDS broadcast
+    const uint32_t mma_tid_x = (lane_id / 2) % 8;   // N 方向
+    const uint32_t mma_tid_y = (lane_id / 16) * 2 + (lane_id % 2);  // M 方向
 
-    // 4x8 threads each warp for FFMA
-    const uint32_t mma_tid_x = (lane_id / 2) % 8;
-    const uint32_t mma_tid_y = (lane_id / 16) * 2 + (lane_id % 2);
 
-
-    // A_tile & B_tile ldg pointer
+    // ---------------- Global Load Pointer ----------------
+    // A: 每个线程加载 4 个 FP32，跨 K 方向
     const char *A_ldg_ptr = (const char *)(
         A + (blockIdx.y * 128 + threadIdx.x / 8) * k + threadIdx.x % 8);
+    // B: 每个线程加载 2x FP32，跨 N 方向
     const char *B_ldg_ptr = (const char *)(
         B + (threadIdx.x / 128) * n + blockIdx.x * 256 + threadIdx.x % 128);
 
-    // A_ldg_offset
+    // ---------------- A/B LDG Offset ----------------
     uint32_t A_ldg_offset[4];
     #pragma unroll
     for (int i = 0; i < 4; ++i)
@@ -313,19 +417,21 @@ void ampere_sgemm_128x256x8_kernel(
         B_ldg_offset[i] = i * 2 * n * sizeof(float);
     }
     
-    // A_tile & B_tile sts/lds pointer
-    // using uint32_t pointer for faster double buffer switch
+    // ---------------- Shared Memory Address ----------------
+    // 使用 u32 addr，方便 xor 切换 double buffer
     uint32_t A_sts_addr = smem_u32addr(
         A_smem + (threadIdx.x % 8) * 132 + (threadIdx.x / 8));
     uint32_t B_sts_addr = smem_u32addr(
         B_smem + (threadIdx.x / 128) * 256 + (threadIdx.x % 128));
-
+    
+    // LDS：warp 内读取 A/B fragment
     uint32_t A_lds_addr = smem_u32addr(
         A_smem + (warp_id / 4) * 64 + mma_tid_y * 4);
     uint32_t B_lds_addr = smem_u32addr(
         B_smem + (warp_id % 4) * 64 + mma_tid_x * 4);
 
-    // ldg_guard to avoid LDG out of bound
+    // ---------------- Boundary Guard ----------------
+    // A 的 M 方向 guard（4 行）
     uint32_t A_ldg_guard = 0;
     #pragma unroll
     for (int i = 0; i < 4; ++i) {
@@ -334,7 +440,8 @@ void ampere_sgemm_128x256x8_kernel(
             A_ldg_guard |= (1u << i);
         }
     }
-
+    
+    // B 的 N 方向 guard（左右 2 块）
     uint32_t B_ldg_guard = 0;
     #pragma unroll
     for (int i = 0; i < 2; ++i) {
@@ -344,13 +451,14 @@ void ampere_sgemm_128x256x8_kernel(
         }
     }
 
-    // 1'st A&B tile loaded before the k_tile loop
+    // ---------------- K Tile Count ----------------
+    // 先 load 第一个不满 8 的 tile
     uint32_t k_tiles = (k + 7) / 8 - 1;
 
-    // load 1'st tile to shared memory
+    /* ================== First Tile Load ================== */
     {
         uint32_t first_k_tile = k - k_tiles*8;
-
+        // Load A
         #pragma unroll
         for (int i = 0; i < 4; ++i) {
             uint32_t src_size = threadIdx.x % 8 < first_k_tile ? 4 : 0;
@@ -363,6 +471,7 @@ void ampere_sgemm_128x256x8_kernel(
 
         A_ldg_ptr += first_k_tile * sizeof(float);
 
+        // Load B
         #pragma unroll
         for (int i = 0; i < 4; ++i) {
             uint32_t src_size = i * 2 + threadIdx.x / 128 < first_k_tile ? 4 : 0;
@@ -382,7 +491,7 @@ void ampere_sgemm_128x256x8_kernel(
         ldgsts_commit();
         __syncthreads();
 
-        // switch double buffer
+        // double buffer switch
         A_sts_addr ^= 0x2000;
         B_sts_addr ^= 0x2000;
     }
@@ -401,7 +510,7 @@ void ampere_sgemm_128x256x8_kernel(
     lds128(B_frag[0][4], B_frag[0][5], B_frag[0][6], B_frag[0][7],
            B_lds_addr + 32 * sizeof(float));
 
-// k_tiles loop
+    // k_tiles loop
     for (; k_tiles > 0; --k_tiles) {
         #pragma unroll
         for (int k_frag = 0; k_frag < 8; ++k_frag) {
@@ -479,7 +588,7 @@ void ampere_sgemm_128x256x8_kernel(
         }
     }
 
-// FFMA for the last tile
+    // FFMA for the last tile
     #pragma unroll
     for (int k_frag = 0; k_frag < 8; ++k_frag) {
         if (k_frag < 7) {

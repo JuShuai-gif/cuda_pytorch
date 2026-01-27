@@ -1,4 +1,0 @@
-/home/robot/WorkCode/sgemm.cu/build/CMakeFiles/rebuild_cache.dir
-/home/robot/WorkCode/sgemm.cu/build/CMakeFiles/edit_cache.dir
-/home/robot/WorkCode/sgemm.cu/build/CMakeFiles/test.dir
-/home/robot/WorkCode/sgemm.cu/build/CMakeFiles/benchmark.dir
