@@ -1,7 +1,0 @@
-builds/*
-*.out
-
-# python
-__pycache__/*
-
-*.ptx

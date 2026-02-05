@@ -66,7 +66,8 @@ __global__ void sgemm_v2(float* __restrict__ a,float* __restrict__ b,float* __re
         int load_a_gmem_addr = OFFSET(load_a_gmem_m,load_a_gmem_k,K);
         int load_b_gmem_k = bk * BK + load_b_smem_k;
         int load_b_gmem_addr = OFFSET(load_b_gmem_k,load_b_gmem_n,N);
-
+        
+        // 使用 float4 进行加载
         FLOAT4(r_load_a[0]) = FLOAT4(a[load_a_gmem_addr]);
         FLOAT4(r_load_b[0]) = FLOAT4(b[load_b_gmem_addr]);
 

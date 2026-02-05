@@ -40,6 +40,7 @@ __global__ void sgemm_V3(float *__restrict__ a, float *__restrict__ b, float *__
     const int ty = threadIdx.y;
     const int tid = ty * blockDim.x + tx;
 
+    // 使用双缓冲
     __shared__ float s_a[2][BK][BM];
     __shared__ float s_b[2][BK][BN];
 

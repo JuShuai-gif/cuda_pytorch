@@ -24,7 +24,11 @@ void cpuSgemm(float *a, float *b, float *c, const int M, const int N, const int 
         }
     }
 }
-
+/*
+将要计算的矩阵分成一个一个的小块，然后将小块存放到共享内存中，然后再把共享内存分成一个一个的小块
+将小块放到寄存器小块中
+只进行的见到内存层次划分，并没有细化计算与访存的流水线
+*/
 __global__ void sgemm_V1(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c, const int M, const int N, const int K) {
     const int BM = 128;
     const int BN = 128;

@@ -5,62 +5,121 @@
 #include <stdlib.h>
 
 // BlockSwizzle: means apply thread block swizzle across N dim
-template <typename T, int BM, int BN, int BK, int kStage, typename TiledMMA,
-          typename G2SCopyA, typename G2SCopyB, typename SmemLayoutA,
-          typename SmemLayoutB, typename SmemLayoutC, typename S2RCopyAtomA,
-          typename S2RCopyAtomB, typename R2SCopyAtomC, typename S2GCopyAtomC,
-          typename S2GCopyC, const bool BlockSwizzle>
-__global__ void hgemm_mma_stages_block_swizzle_tn_cute_kernel(T *Aptr, T *Bptr,
-                                                              T *Dptr, int m,
-                                                              int n, int k) {
+template <typename T,   // 数据类型，通常是 half 或 float
+            int BM,     // BM,BN,BK是每个线程块的维度
+            int BN, 
+            int BK, 
+            int kStage, // 分为多少个阶段处理矩阵乘法
+            typename TiledMMA,  // 切分矩阵块的模版
+            typename G2SCopyA,  // 用于将全局内存数据复制到共享内存的操作
+            typename G2SCopyB, 
+            typename SmemLayoutA,   // 共享内存的布局
+            typename SmemLayoutB, 
+            typename SmemLayoutC, 
+            typename S2RCopyAtomA,  // 分别是用于不同内存之间的数据复制模版
+            typename S2RCopyAtomB, 
+            typename R2SCopyAtomC, 
+            typename S2GCopyAtomC,
+            typename S2GCopyC, 
+            const bool BlockSwizzle>    // 是一个布尔值，控制是否进行线程块交换
+__global__ void hgemm_mma_stages_block_swizzle_tn_cute_kernel(
+    T *Aptr,    // 输入矩阵 A 的指针
+    T *Bptr,    // 输入矩阵 B 的指针
+    T *Dptr,    // 输出矩阵 D 的指针
+    int m,      // A: m X k, B: k X n, C: m X n
+    int n, 
+    int k) {
     using namespace cute;
-    // Initilize shared memory
+    // 初始化共享内存，外部分配
     extern __shared__ T shm_data[];
-
+    
+    // 矩阵 A 的共享内存
     T *Ashm = shm_data;
+    // 矩阵 B 的共享内存
     T *Bshm = shm_data + cute::cosize(SmemLayoutA{});
 
-    // Initilize thread block
+    // 初始化线程块
+    // 线程的索引
     int idx = threadIdx.x;
     // BlockSwizzle 0/1 control use block swizzle or not.
+    // ix 和 iy是线程块的索引，BlockSwizzle控制是否使用线程块交换
+    // 线程块交换是为了优化内存访问，使得矩阵块在内存中的布局更加有利于并行化
     int ix = ((int)BlockSwizzle) * blockIdx.z * gridDim.x + blockIdx.x;
     int iy = blockIdx.y;
 
+    // 检查线程块是否超出矩阵的大小。如果是，当前线程会返回，不进行计算
     if (iy * BM >= m || ix * BN >= n)
         return;
-
+    
+    // make_tensor 是CUTLASS中用于创建张量的函数，它通过提供指向全局内存的指针、形状(尺寸)和步长来创建一个张量
     // use Tensor notation to represent device pointer + dimension
+    // A 是矩阵 A 的张量表示，维度是(m,k)
     Tensor A = make_tensor(make_gmem_ptr(Aptr), make_shape(m, k),
                            make_stride(k, Int<1>{}));
+
+    // B 是矩阵 B 的张量表示，维度是(n,k)
     Tensor B = make_tensor(make_gmem_ptr(Bptr), make_shape(n, k),
                            make_stride(k, Int<1>{}));
+    
+    // D 是矩阵 D 的张量表示，维度是(m,n)
     Tensor D = make_tensor(make_gmem_ptr(Dptr), make_shape(m, n),
                            make_stride(n, Int<1>{}));
 
+    // 创建局部矩阵切片
+    // local_tile用于从全局张量中提取一个局部的矩阵切片
     // slice the tensor to small one which is used for current thread block.
+    // gA、gB、gD分别是A、B、D的局部切片，它们会被当前线程块处理 
     Tensor gA = local_tile(A, make_tile(Int<BM>{}, Int<BK>{}),
                            make_coord(iy, _)); // (BM, BK, num_tile_k)
+    
+    // 
     Tensor gB = local_tile(B, make_tile(Int<BN>{}, Int<BK>{}),
                            make_coord(ix, _)); // (BN, BK, num_tile_k)
+    
+    // 
     Tensor gD = local_tile(D, make_tile(Int<BM>{}, Int<BN>{}),
                            make_coord(iy, ix)); // (BM, BN)
 
-    // shared memory
-    auto sA = make_tensor(make_smem_ptr(Ashm), SmemLayoutA{}); // (BM, BK, kStage)
-    auto sB = make_tensor(make_smem_ptr(Bshm), SmemLayoutB{}); // (BN, BK, kStage)
+    // 创建共享内存张量
+    // make_tensor 创建共享内存张量 sA 和 sB，用于存储矩阵 A 和 B 的共享数据块
+    // (BM, BK, kStage)
+    auto sA = make_tensor(make_smem_ptr(Ashm), SmemLayoutA{}); 
+    // (BN, BK, kStage)
+    auto sB = make_tensor(make_smem_ptr(Bshm), SmemLayoutB{}); 
 
     // dispatch TileA/TileB/TileC mma tensor into thread fragment via partition
+    // TiledMMA 是 CUTLASS 的 MMA 模版，用于执行矩阵乘法和累加
+    // TiledMMA 是一个抽象对象，它定义了：
+    // 参与计算的线程块形状
+    // 每个线程负责计算那一部分数据
+    // 底层调用的是那种具体的硬件原语
     TiledMMA tiled_mma;
+    // 从整个 TiledMMA蓝图中获取属于当前线程的那一份
+    // thr_mma 对象现在知道当前线程应该“看到”哪些寄存器和哪些内存区域
     auto thr_mma = tiled_mma.get_slice(threadIdx.x);
+    // partition_C, partition_fragment_A, partition_fragment_B 等函数用于将张量切分为适合当前线程的碎片
+    // partition 系列函数并不是真的在搬运数据，而是在计算逻辑索引（Iterators）。
+    // gD 通常是一个指向全局内存中输出矩阵的 Tensor
+    // tCgD 代表 "Thread-C-Global-D"：即在全局内存 D 中，当前线程需要负责写入的那些位置
     auto tCgD = thr_mma.partition_C(gD); // (MMA,MMA_M, MMA_N)
 
+    // 寄存器碎片
+    // partition_fragment_A: 为矩阵 A 在寄存器中申请空间。注意，这里返回的是一个 Tensor，其存储空间（Storage）通常是寄存器（Register File）
+    // gA(_, _, 0): 这是一个切片操作，表示取矩阵 A 的第一个 K-stage 块
+    // 含义: 这一步确定了当前线程需要从全局内存加载多少数据到寄存器中，才能支撑后续的 Tensor Core 计算
     auto tCrA = thr_mma.partition_fragment_A(gA(_, _, 0)); // (MMA, MMA_M, MMA_K)
     auto tCrB = thr_mma.partition_fragment_B(gB(_, _, 0)); // (MMA, MMA_N, MMA_K)
+    
+    // 累加器碎片，这是在寄存器中创建的累加器（Accumulator）
+    // 间结果会暂时保存在 tCrD 中，最后再写回到 tCgD（全局内存）
     auto tCrD = thr_mma.partition_fragment_C(gD);          // (MMA, MMA_M, MMA_N)
+    // clear(tCrD) 用于清零 C 矩阵的计算结果
     clear(tCrD);
 
-    // from global memory to shared memory
+    // 从全局内存到共享内存的数据拷贝
+    // G2SCopyA 和 G2SCopyB 分别定义了将 A 和 B 从全局内存复制到共享内存的过程
     G2SCopyA g2s_tiled_copy_a;
+    // get_slice(idx) 按线程将数据分配给不同的线程
     auto g2s_thr_copy_a = g2s_tiled_copy_a.get_slice(idx);
     auto tAgA_copy =
         g2s_thr_copy_a.partition_S(gA); // (CPY, CPY_M, CPY_K, num_tile_k)
@@ -84,12 +143,14 @@ __global__ void hgemm_mma_stages_block_swizzle_tn_cute_kernel(T *Aptr, T *Bptr,
     auto tBsB_copy =
         g2s_thr_copy_b.partition_D(sB); // (CPY, CPY_N, CPY_K, kStage)
 
-    // from shared memory to register, use tiled_mma to generate tiled_copy
+    // 从共享内存到寄存器的数据拷贝
+    // S2RCopyAtomA 和 S2RCopyAtomB 分别定义了将共享内存中的数据拷贝到寄存器的过程
     auto s2r_tiled_copy_a = make_tiled_copy_A(S2RCopyAtomA{}, tiled_mma);
     auto s2r_thr_copy_a = s2r_tiled_copy_a.get_slice(idx);
     auto tAsA = s2r_thr_copy_a.partition_S(sA);     // (CPY, CPY_M, CPY_K, kStage)
     auto tCrA_view = s2r_thr_copy_a.retile_D(tCrA); // (CPY, CPY_M, CPY_K)
 
+    // retiling 是将数据重排以适应当前线程的计算
     auto s2r_tiled_copy_b = make_tiled_copy_B(S2RCopyAtomB{}, tiled_mma);
     auto s2r_thr_copy_b = s2r_tiled_copy_b.get_slice(idx);
     auto tBsB = s2r_thr_copy_b.partition_S(sB);     // (CPY, CPY_N, CPY_K, kStage)
@@ -98,6 +159,8 @@ __global__ void hgemm_mma_stages_block_swizzle_tn_cute_kernel(T *Aptr, T *Bptr,
     /* PREFETCH */
     // submit kStage - 1 tile
     // gmem -> shm
+    // 数据预取和内存同步
+    // 数据预取和内存同步的部分用于优化内存带宽，cp_async_fence() 确保了内存操作的同步
     int itile_to_read = 0;
     int ismem_read = 0;
     int ismem_write = 0;
@@ -126,6 +189,8 @@ __global__ void hgemm_mma_stages_block_swizzle_tn_cute_kernel(T *Aptr, T *Bptr,
 
     // loop over k: i. load tile, ii. mma
     int ntile = k / BK;
+    // 主计算循环：分阶段加载和计算
+    // 主计算循环遍历矩阵的 k 维，并使用 MMA 计算每个切片的乘积
 #pragma unroll 1
     for (int itile = 0; itile < ntile; ++itile) {
         int nk = size<2>(tCrA); // (MMA, MMA_M, MMA_K)
@@ -175,6 +240,7 @@ __global__ void hgemm_mma_stages_block_swizzle_tn_cute_kernel(T *Aptr, T *Bptr,
     auto tCrC_r2s = r2s_thr_copy_c.retile_S(tCrD);  // (CPY, CPY_M, CPY_N)
     auto tCsC_r2s = r2s_thr_copy_c.partition_D(sC); // (CPY, _1, _1, pipe)
 
+    // 最终结果从共享内存写回全局内存
     S2GCopyC s2g_tiled_copy_c;
     auto s2g_thr_copy_c = s2g_tiled_copy_c.get_thread_slice(idx);
     auto tCsC_s2g = s2g_thr_copy_c.partition_S(sC); // (CPY, _1, _1, pipe)
