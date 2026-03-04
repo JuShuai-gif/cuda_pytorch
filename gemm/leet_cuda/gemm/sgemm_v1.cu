@@ -41,16 +41,45 @@ __global__ void sgemm_V1(float *__restrict__ a, float *__restrict__ b, float *__
 
     const int tx = threadIdx.x;
     const int ty = threadIdx.y;
+
+    // 将二维坐标线性化
     const int tid = ty * blockDim.x + tx;
 
+    // 当前 block 负责一个 BM × BN 的 C tile
+    // 每轮 K 方向加载 BK 宽度
     __shared__ float s_a[BM][BK];
     __shared__ float s_b[BK][BN];
 
+    // 每个线程负责的寄存器空间
     float r_c[TM][TN] = {0.0};
 
+    // 右移一位 除以2
+    // 每2个线程负责同一行
+    /*
+    | tid | m = tid/2 | k = (tid%2)*4 |
+    | --- | --------- | ------------- |
+    | 0   | 0         | 0             |
+    | 1   | 0         | 4             |
+    | 2   | 1         | 0             |
+    | 3   | 1         | 4             |
+
+
+    A tile
+        每 2 线程负责 1 行
+        可覆盖 128 行
+
+    B tile
+        每 32 线程负责 1 行
+        可覆盖 8 行
+    */
     int load_a_smem_m = tid >> 1;
+    // 每个线程 load 4 个连续 float（假设 float4 向量化）
+    // 每两个线程负责 A_tile 的一整行（8个float）
     int load_a_smem_k = (tid & 1) << 2;
+    // 右移 5 位 = 除以 32
+    // 每 32 个线程负责同一 K 行
     int load_b_smem_k = tid >> 5;
+    // 一个 warp 横向加载 32×4=128 个 float
     int load_b_smem_n = (tid & 31) << 2;
 
     int load_a_gmem_m = by * BM + load_a_gmem_m;

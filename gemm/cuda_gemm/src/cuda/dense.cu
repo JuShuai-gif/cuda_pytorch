@@ -9,10 +9,13 @@
 
 
 // cal offset from row col and ld , in row-major matrix, ld is the width of the matrix
+// 行主序偏移
 #define OFFSET(row, col, ld) ((row) * (ld) + (col))
 
-// transfer float4
+// 将 pointer普通指针，转换为 float4 指针
 #define FETCH_FLOAT4(pointer) (reinterpret_cast<float4*>(&(pointer))[0])
+
+
 template <
     const int BLOCK_SIZE_M,  // width of block of C that each thread block calculate
     const int BLOCK_SIZE_K,  // height of block of A that each thread block load into shared memory
@@ -33,31 +36,41 @@ __global__ void MatrixMulCUDA6(
     ) {
     
     // size of thread block
+    // BLOCK_SIZE_N 块的宽度
+    // THREAD_SIZE_X 一个线程处理的宽度
+    // BLOCK_SIZE_M 块的高度
+    // THREAD_SIZE_Y 一个线程处理的高度
     const int bszx = BLOCK_SIZE_N / THREAD_SIZE_X;
     const int bszy = BLOCK_SIZE_M / THREAD_SIZE_Y;
+
+    // 每个block 多少个线程
     const int THREAD_NUM_PER_BLOCK = bszy * bszx;
 
-    // thread id
+    // 当前线程在块中的id
     const int tid = threadIdx.y * bszx + threadIdx.x;
 
     // shared memory
-
+    // 每个块处理多大的块
     __shared__ float As[BLOCK_SIZE_M][BLOCK_SIZE_K]; // avoid bank conflict
     __shared__ float Bs[BLOCK_SIZE_K][BLOCK_SIZE_N];
-    // registers for C
+    
+    // 每个线程分配的寄存器块
     float accum[THREAD_SIZE_Y][THREAD_SIZE_X] = {0};
     
     // row number and col number that needs to be loaded blockIdx.y this thread
-    const int A_TILE_ROW = tid / BLOCK_SIZE_K;
-    const int B_TILE_ROW = tid / BLOCK_SIZE_N;
+    // tid 是每个块总共有多少个线程
+    const int A_TILE_ROW = tid / BLOCK_SIZE_K; // 当前线程在 A 的块的多少行
+    const int B_TILE_ROW = tid / BLOCK_SIZE_N;  // 当前线程在 B 的块的多少行
 
-    const int A_TILE_COL = tid % BLOCK_SIZE_K;
+    const int A_TILE_COL = tid % BLOCK_SIZE_K;// 当前线程在 A 的块的多少列
     const int B_TILE_COL = tid % BLOCK_SIZE_N;
     
     // row stride that thread uses to load multiple rows of a tile
+    // A B 块的每行线程有多少个
     const int A_TILE_ROW_STRIDE = THREAD_NUM_PER_BLOCK / BLOCK_SIZE_K;
     const int B_TILE_ROW_STRIDE = THREAD_NUM_PER_BLOCK / BLOCK_SIZE_N;
-
+    
+    // 高度上有多少个线程
     const int A_S = BLOCK_SIZE_M / THREAD_SIZE_Y;
     const int B_S = BLOCK_SIZE_N / THREAD_SIZE_X;
 
@@ -99,8 +112,18 @@ __global__ void MatrixMulCUDA6(
         //     }
         // }
 
+        /*
+        1. row = BLOCK_SIZE_M * blockIdx.y + i + A_TILE_ROW
+        - BLOCK_SIZE_M * blockIdx.y: 计算当前线程块在矩阵A中的起始行位置
+        - i: 循环变量，表示在块内的行偏移（以A_TILE_ROW_STRIDE为步长）
+        - A_TILE_ROW: 当前线程在共享内存块中负责的行位置（tid / BLOCK_SIZE_K）
+        2. col = A_TILE_COL + tile_idx
+        - A_TILE_COL: 当前线程在共享内存块中负责的列位置（tid % BLOCK_SIZE_K）
+        - tile_idx: 外层循环变量，表示当前处理的K维度分块起始位置        
+        */
         #pragma unroll
         for ( int i = 0 ; i < BLOCK_SIZE_M ; i += A_TILE_ROW_STRIDE) {
+            // 
             const int row = BLOCK_SIZE_M * blockIdx.y + i + A_TILE_ROW ;
             const int col = A_TILE_COL + tile_idx;
             if (blockIdx.x == gridDim.x -1 || blockIdx.y == gridDim.y - 1) {

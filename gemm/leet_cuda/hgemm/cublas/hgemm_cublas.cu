@@ -8,87 +8,79 @@
 #include <cuda_bf16.h>
 #include <cuda_fp8.h>
 #include <mma.h>
-#include <cublas_v2.h>
+#include "cublas_v2.h"
 
 static cublasHandle_t g_handle = nullptr;
 
-void init_cublas_handle(){
-    if (g_handle == nullptr)
-    {
-        cublasStatus_t status = cublasCreate(&g_handle);
-        if (status != CUBLAS_STATUS_SUCCESS)
-        {
-            printf("Failed to create cuBLAS handle:%d",status);
-            exit(EXIT_FAILURE);
-        }
-        status = cublasSetMathMode(g_handle,CUBLAS_TENSOR_OP_MATH);
-
-        if (status != CUBLAS_STATUS_SUCCESS)
-        {
-            printf("Failed to set cuBLAS Math Mode: %d", status);
-            exit(EXIT_FAILURE);
-        }
+void init_cublas_handle() {
+  if (g_handle == nullptr) {
+    cublasStatus_t status = cublasCreate(&g_handle);
+    if (status != CUBLAS_STATUS_SUCCESS) {
+      printf("Failed to create cuBLAS handle: %d", status);
+      exit(EXIT_FAILURE);
     }
+    status = cublasSetMathMode(g_handle, CUBLAS_TENSOR_OP_MATH);
+    if (status != CUBLAS_STATUS_SUCCESS) {
+      printf("Failed to set cuBLAS Math Mode: %d", status);
+      exit(EXIT_FAILURE);
+    }
+  }
 }
 
-void destroy_cublas_handle(){
-    if (g_handle != nullptr)
-    {
-        cublasStatus_t status = cublasDestroy(g_handle);
-        if (status != CUBLAS_STATUS_SUCCESS)
-        {
-            printf("Failed to destroy cuBLAS handle: %d", status);
-        }
-        g_handle = nullptr;
+void destroy_cublas_handle() {
+  if (g_handle != nullptr) {
+    cublasStatus_t status = cublasDestroy(g_handle);
+    if (status != CUBLAS_STATUS_SUCCESS) {
+      printf("Failed to destroy cuBLAS handle: %d", status);
     }
+    g_handle = nullptr;
+  }
 }
-
 
 // NN: A/B/C All row major
-void cublas_tensor_op_nn(half *A,half *B,half*C,size_t M,size_t N,size_t K){
-    static half alpha = 1.0;
-    static half beta = 0.0;
+void cublas_tensor_op_nn(half *A, half *B, half *C,  size_t M, size_t N, size_t K) {
 
-    if (g_handle == nullptr)
-    {
-        init_cublas_handle();
-    }
+  static half alpha = 1.0;
+  static half beta = 0.0;
 
-    cublasGemmEx(g_handle,
-                CUBLAS_OP_N,
-                CUBLAS_OP_N,
-                N,M,K,
-                &alpha,
-                B,CUDA_R_16F,N,
-                A,CUDA_R_16F,K,
-                &beta,
-                C,CUDA_R_16F,N,
-                CUBLAS_COMPUTE_16F,
-                CUBLAS_GEMM_DEFAULT_TENSOR_OP);
-    
+  if (g_handle == nullptr) {
+    init_cublas_handle();
+  }
+
+  cublasGemmEx(g_handle, 
+               CUBLAS_OP_N, 
+               CUBLAS_OP_N, 
+               N, M, K, 
+               &alpha, 
+               B, CUDA_R_16F, N, 
+               A, CUDA_R_16F, K, 
+               &beta,  
+               C, CUDA_R_16F, N, 
+               CUBLAS_COMPUTE_16F,
+               CUBLAS_GEMM_DEFAULT_TENSOR_OP);
 }
 
 // TN: A row major MxK, B col major NxK, C row major MxN
-void cublas_tensor_op_tn(half*A,half*B,half*C,size_t M,size_t N,size_t K){
-    static half alpha = 1.0;
-    static half beta = 0.0;
+void cublas_tensor_op_tn(half *A, half *B, half *C,  size_t M, size_t N, size_t K) {
 
-    if (g_handle == nullptr)
-    {
+  static half alpha = 1.0;
+  static half beta = 0.0;
+
+  if (g_handle == nullptr) {
     init_cublas_handle();
-    }
-    
-    cublasGemmEx(g_handle,
-                CUBLAS_OP_T,
-                CUBLAS_OP_N,
-                N,M,K,
-                &alpha,
-                B,CUDA_R_16F,K,
-                A,CUDA_R_16F,K,
-                &beta,
-                C,CUDA_R_16F,N,
-                CUBLAS_COMPUTE_16F,
-                CUBLAS_GEMM_DEFAULT_TENSOR_OP);
+  }
+
+  cublasGemmEx(g_handle, 
+               CUBLAS_OP_T, 
+               CUBLAS_OP_N, 
+               N, M, K, 
+               &alpha, 
+               B, CUDA_R_16F, K, 
+               A, CUDA_R_16F, K, 
+               &beta,  
+               C, CUDA_R_16F, N, 
+               CUBLAS_COMPUTE_16F,
+               CUBLAS_GEMM_DEFAULT_TENSOR_OP);
 }
 
 // build cpp binary
@@ -114,23 +106,23 @@ void cublas_tensor_op_tn_v2(cublasHandle_t handle,
                CUBLAS_GEMM_DEFAULT_TENSOR_OP);
 }
 
-float perf_cublas_tn(int M,int N,int K,int repeat){
-    size_t size_a = M * K * sizeof(half);
-    size_t size_b = K * N * sizeof(half);
-    size_t size_c = M * N * sizeof(half);
+float perf_cublas_tn(int M, int N, int K, int repeat) {
+  size_t size_a = M * K * sizeof(half);
+  size_t size_b = K * N * sizeof(half);
+  size_t size_c = M * N * sizeof(half);
 
-    half * d_a,*d_b;
-    half*d_c;
-    cudaMalloc(&d_a,size_a);
-    cudaMalloc(&d_b,size_b);
-    cudaMalloc(&d_c,size_c);
+  half *d_a, *d_b;
+  half *d_c;
+  cudaMalloc(&d_a, size_a);
+  cudaMalloc(&d_b, size_b);
+  cudaMalloc(&d_c, size_c);
 
-    cublasHandle_t handle = nullptr;
-    cublasCreate(&handle);
-    cublasSetMathMode(handle,CUBLAS_TENSOR_OP_MATH);
+  cublasHandle_t handle = nullptr;
+  cublasCreate(&handle);
+  cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
 
-    // warmup
-     for (int i = 0; i < 10; ++i) {
+  // warmup
+  for (int i = 0; i < 10; ++i) {
     cublas_tensor_op_tn_v2(handle, d_a, d_b, d_c, M, N, K);
   }
   cudaDeviceSynchronize();
@@ -206,21 +198,19 @@ int main(int argc, char *argv[]) {
 }
 // build torch python binding
 #else
-
+// --------------------- PyTorch bindings for custom kernel -----------------------
 #include <torch/types.h>
 #include <torch/extension.h>
 
 #define STRINGFY(str) #str
-#define TORCH_BINDING_COMMON_EXTENSION(func)\
-    m.def(STRINGFY(func),&func,STRINGFY(func));
+#define TORCH_BINDING_COMMON_EXTENSION(func)   \
+  m.def(STRINGFY(func), &func, STRINGFY(func));
 
-#define CHECK_TORCH_TENSOR_DTYPE(T,th_type)\
-if (((T).options().dtype() != (th_type)))\
-{\
-    std::cout << "Tensor Info :" << (T).options() << std::endl;\
-    throw std::runtime_error("value must be"#th_type);\
+#define CHECK_TORCH_TENSOR_DTYPE(T, th_type)                 \
+if(((T).options().dtype() != (th_type))) {                   \
+  std::cout << "Tensor Info:" << (T).options() << std::endl; \
+  throw std::runtime_error("values must be "#th_type);       \
 }
-
 
 #define CHECK_TORCH_TENSOR_SHAPE(T, S0, S1)           \
 if (((T).size(0) != (S0)) || ((T).size(1) != (S1))) { \
@@ -269,19 +259,3 @@ void hgemm_cublas_tensor_op_tn(
   );
 }
 #endif
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

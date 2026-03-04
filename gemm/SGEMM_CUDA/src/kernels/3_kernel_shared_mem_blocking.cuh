@@ -22,12 +22,20 @@ __global__ void sgemm_shared_mem_block(int M, int N, int K, float alpha,
   __shared__ float Bs[BLOCKSIZE * BLOCKSIZE];
 
   // the inner row & col that we're accessing in this thread
+  // 将一维线程索引映射到二维网格坐标：
+  // threadCol = threadIdx.x % BLOCKSIZE 计算线程在块内的列索引（0到BLOCKSIZE-1）
+  // threadRow = threadIdx.x / BLOCKSIZE 计算线程在块内的行索引（0到BLOCKSIZE-1）
+  // 这样每个线程对应输出矩阵C中一个BLOCKSIZE×BLOCKSIZE块内的一个元素位置
   const uint threadCol = threadIdx.x % BLOCKSIZE;
   const uint threadRow = threadIdx.x / BLOCKSIZE;
 
   // advance pointers to the starting positions
+  // 计算当前线程块对应的矩阵起始位置：
+  // A矩阵：移动到第cRow个BLOCKSIZE行的起始位置（每个BLOCKSIZE行有K列）
   A += cRow * BLOCKSIZE * K;                    // row=cRow, col=0
+  // B矩阵：移动到第cCol个BLOCKSIZE列的起始位置（每列有1个元素，但实际是列主序存储）
   B += cCol * BLOCKSIZE;                        // row=0, col=cCol
+  // C矩阵：移动到输出矩阵中当前线程块对应的位置（第cRow行，第cCol列）
   C += cRow * BLOCKSIZE * N + cCol * BLOCKSIZE; // row=cRow, col=cCol
 
   float tmp = 0.0;

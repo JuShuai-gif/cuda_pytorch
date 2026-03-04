@@ -9,14 +9,9 @@ SCRIPT_SOURCE=./scripts
 INCLUDE_DIR=-I./src/cpp/include -I./src/cuda/include -I./src/cuda/
 BUILD=./builds
 STD=c++11
-FLAGS=-gencode=arch=compute_35,code=sm_35 \
-    -gencode=arch=compute_50,code=sm_50 \
-    -gencode=arch=compute_52,code=sm_52 \
-    -gencode=arch=compute_60,code=sm_60 \
-    -gencode=arch=compute_61,code=sm_61 \
-    -gencode=arch=compute_70,code=sm_70 \
-    -gencode=arch=compute_75,code=sm_75 \
-    -gencode=arch=compute_60,code=compute_60
+FLAGS=-gencode=arch=compute_75,code=sm_75 \
+    -gencode=arch=compute_89,code=compute_89\
+	-gencode=arch=compute_90,code=compute_90
 
 DEP=$(CUDA_SOURCE)/dense.cu \
 	$(CUDA_SOURCE)/sparse.cu \

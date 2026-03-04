@@ -1,6 +1,7 @@
 #ifndef DENSE_HELP_FUNC
 #define DENSE_HELP_FUNC
 
+// 检查 CUDA 错误
 #define checkCudaErrors(func)				\
 {									\
     cudaError_t e = (func);			\
@@ -8,6 +9,7 @@
         printf ("%s %d CUDA: %s\n", __FILE__,  __LINE__, cudaGetErrorString(e));		\
 }
 
+// cublas错误枚举id
 static const char *_cuBlasGetErrorEnum(cublasStatus_t error)
 {
     switch (error)
@@ -39,7 +41,7 @@ static const char *_cuBlasGetErrorEnum(cublasStatus_t error)
     return "<unknown>";
 }
 
-
+// cublas 错误
 #define checkCuBlasErrors(func)				\
 {									\
     cublasStatus_t e = (func);			\
