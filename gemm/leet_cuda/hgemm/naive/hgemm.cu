@@ -20,6 +20,7 @@
 
 // -------------------------------------- FP16 -------------------------------------- 
 // HGEMM naive: compute one c[i,j] element per threads, all row major
+// 朴素版本，行主序
 __global__ void hgemm_naive_f16_kernel(half* a, half* b, half* c, int M, int N, int K) {
 
   int n = blockIdx.x * blockDim.x + threadIdx.x;
@@ -45,34 +46,59 @@ __global__ void hgemm_sliced_k_f16_kernel(half* a, half* b, half* c, int M, int 
   // [1] Block Tile: 32x32的block处理c上一块32x32的元素计算
   // [2]     K Tile: 使用共享内存，并将K分块为BK大小的块
   __shared__ half s_a[BM][BK], s_b[BK][BN]; 
-
+  // 线程块id索引
   int bx = blockIdx.x;
   int by = blockIdx.y;
+  // 线程块内线程索引
   int tx = threadIdx.x;
   int ty = threadIdx.y;
+  // 二维索引转换为一维
   int tid = threadIdx.y * blockDim.x + tx; // tid within the block
   // load values to shared memory, 32x32 threads working together 
   // to fetch data along the row direction of a and b both for s_a 
   // and s_b 32x32x4x2=8KB, we use 32x32 threads within block to 
   // load 32x32 elements from global memory to shared memory, namely, 
   // each thread will load 1 element.
+  // A块中第几行
   int load_smem_a_m = tid / 32; // 0~31, tid / 32, tid / BM, threadIdx.y
+  // A块中第几列
   int load_smem_a_k = tid % 32; // 0~31, tid % 32, tid % BK, threadIdx.x
+  
+  // B块中第几行
   int load_smem_b_k = tid / 32; // 0~31, tid / 32, tid / BK, threadIdx.y
+  // B块中第几列
   int load_smem_b_n = tid % 32; // 0~31, tid % 32, tid % BN, threadIdx.x
+  
+  // 计算第几行
   int load_gmem_a_m = by * BM + load_smem_a_m; // global row of a and c
+  // 计算第几列
   int load_gmem_b_n = bx * BN + load_smem_b_n; // global col of b and c
+  // 判断别越界
   if (load_gmem_a_m >= M || load_gmem_b_n >= N) return;
   
+  // float转half
   half sum = __float2half(0.f);
+  
+  // 按 K行的方向上循环
   for (int bk = 0; bk < (K + BK - 1) / BK; ++bk) {
+    // BK 是块的宽度  bk 是第几个块  load_smem_a_k 块中的第几列
     int load_gmem_a_k = bk * BK + load_smem_a_k;
+    // load_gmem_a_m 全局第几行，然后乘以 K ，
     int load_gmem_a_addr = load_gmem_a_m * K + load_gmem_a_k;
+
+    // 加载全局内存到共享内存
     s_a[load_smem_a_m][load_smem_a_k] = a[load_gmem_a_addr];
+
+    // 和上面的一样
     int load_gmem_b_k = bk * BK + load_smem_b_k;
     int load_gmem_b_addr = load_gmem_b_k * N + load_gmem_b_n;
+    // 加载全局内存到共享内存
     s_b[load_smem_b_k][load_smem_b_n] = b[load_gmem_b_addr];
+    
+    // 同步内存
     __syncthreads();
+
+
     #pragma unroll
     for (int k = 0; k < BK; ++k) {
       int comp_smem_a_m = load_smem_a_m;
@@ -204,7 +230,11 @@ __global__ void hgemm_t_8x8_sliced_k_f16x4_pack_kernel(
     // 加载数据到共享内存smem s_a BM*BK 128*8 vectorize float4
     int load_gmem_a_k = bk * BK + load_smem_a_k; // global col of a
     int load_gmem_a_addr = load_gmem_a_m * K + load_gmem_a_k;
+
+    // 数据打包
     LDST64BITS(s_a[load_smem_a_m][load_smem_a_k]) = LDST64BITS(a[load_gmem_a_addr]);
+
+    
     // 加载数据到共享内存smem s_b BK*BN 8*128 vectorize float4
     int load_gmem_b_k = bk * BK + load_smem_b_k; // global row of b
     int load_gmem_b_addr = load_gmem_b_k * N + load_gmem_b_n; 
@@ -251,32 +281,65 @@ __global__ void hgemm_t_8x8_sliced_k_f16x4_bcf_kernel(
   const int by = blockIdx.y;
   const int tx = threadIdx.x;
   const int ty = threadIdx.y;
+
   const int tid = ty * blockDim.x + tx;
 
+  // 将 BK 放在第一维，通常是为了在从 Global Memory 搬运数据时实现 合并访存 (Coalesced Access)，或者在计算时减少 Bank Conflict
   __shared__ half s_a[BK][BM];
   __shared__ half s_b[BK][BN];
 
+  // 搬运缓冲区
   half r_load_a[TM/2]; // 4
   half r_load_b[TN/2]; // 4
+
+  // 计算缓冲区
   half r_comp_a[TM];
   half r_comp_b[TN];
+
+  // 累加器
   half r_c[TM][TN] = {__float2half(0.0f)};
+
+  // ====== BCF (Bank Conflict Free) 策略说明 ======
+  // 共享内存s_a[BK][BM]采用列主序存储(BK=8在外维,BM=128在内维)
+  //   - 同一列(k相同)的相邻元素位于同一bank
+  //   - 不同线程应访问不同列以避免冲突
+  // 共享内存s_b[BK][BN]采用行主序存储(BK=8在外维,BN=128在内维)
+  //   - 同一行(k相同)的相邻元素位于同一bank
+  //   - 不同线程应访问不同行(k)或错开列(n)以避免冲突
+  //
+  // 加载阶段BCF策略:
+  //   A矩阵: load_a_smem_k = (tid & 1) << 2 产生0或4
+  //          由于BK=8, 索引0-3使用bank 0-3, 索引4-7使用bank 4-7
+  //          偶数tid线程访问bank 0-3, 奇数tid线程访问bank 4-7, 无冲突
+  //   B矩阵: load_b_smem_n = (tid & 31) << 2 产生0,4,8,...,124
+  //          BN=128, 步长4保证连续线程访问不同bank
+  //
+  // 计算阶段BCF策略:
+  //   A读取: ty*TM/2 (步长4) + offset(0,2,64,66)
+  //          offset=2使相邻线程错开2个bank避免冲突
+  //          BM/2=64将上下半区隔离, 进一步减少冲突
+  //   B读取: tx*TN/2 (步长4) + offset(0,2,64,66), 原理同上
+  // =================================================
 
   // mapping tid to s_a[BK][BM], for each orginal m-th row, load 4 + 4 K-dim 
   // row major values from A matrix, and store it in COL major s_a[BK][BM].
+  // 因为每行需要两个线程处理，一个线程加载 4 个数据
   int load_a_smem_m = tid / 2; // tid / 2，(0,1,2,...,128)
   // (0b00000000 & 0b00000001) << 2 = 0
   // (0b00000001 & 0b00000001) << 2 = 4
   // (0b00000010 & 0b00000001) << 2 = 0
   // (0b00000011 & 0b00000001) << 2 = 4
+  // 第一个线程处理 0-3 个数据，第二个线程处理 4-7 个数据
   int load_a_smem_k = (tid & 1) << 2; // (0,4)
   // mapping tid to s_b[BK][BN], for each orginal k-th row, load 4 + 4 N-dim 
   // row major values from B matrix, and store it in ROW major s_b[BK][BN].
-  int load_b_smem_k = tid / 32; // 0~8
+  // 
+  int load_b_smem_k = tid / 32; // 0~7
   // (0b00000000 & 0b00011111) << 2 = 0
   // (0b00000001 & 0b00011111) << 2 = 4
   // (0b00000010 & 0b00011111) << 2 = 8
   // (0b00000011 & 0b00011111) << 2 = 12
+  // 
   int load_b_smem_n = (tid & 31) << 2; // (0,4,8,12,...,124)
 
   int load_a_gmem_m = by * BM + load_a_smem_m;
@@ -289,15 +352,21 @@ __global__ void hgemm_t_8x8_sliced_k_f16x4_bcf_kernel(
     int load_a_gmem_addr = load_a_gmem_m * K + load_a_gmem_k;
     int load_b_gmem_k = bk * BK + load_b_smem_k;
     int load_b_gmem_addr = load_b_gmem_k * N + load_b_gmem_n;
+    // 加载两个到 r_load_a 中， 0 1
     HALF2(r_load_a[0]) = HALF2(a[load_a_gmem_addr + 0]);
+    // 2 3
     HALF2(r_load_a[2]) = HALF2(a[load_a_gmem_addr + 2]);
+    // 0 1
     HALF2(r_load_b[0]) = HALF2(b[load_b_gmem_addr + 0]);
+    // 2 3
     HALF2(r_load_b[2]) = HALF2(b[load_b_gmem_addr + 2]);
 
+    // r_load_a 中是行优先排列，这也是 A 的内存排列方式
     s_a[load_a_smem_k    ][load_a_smem_m] = r_load_a[0];
     s_a[load_a_smem_k + 1][load_a_smem_m] = r_load_a[1];
     s_a[load_a_smem_k + 2][load_a_smem_m] = r_load_a[2];
     s_a[load_a_smem_k + 3][load_a_smem_m] = r_load_a[3];
+
     HALF2(s_b[load_b_smem_k][load_b_smem_n + 0]) = HALF2(r_load_b[0]);
     HALF2(s_b[load_b_smem_k][load_b_smem_n + 2]) = HALF2(r_load_b[2]);
 
@@ -305,11 +374,15 @@ __global__ void hgemm_t_8x8_sliced_k_f16x4_bcf_kernel(
 
     #pragma unroll
     for (int tk = 0; tk < BK; tk++) {
+      // BCF读取s_a: ty*TM/2=ty*4, 取值0,4,8,...,60; offset=0,2,64,66错开bank访问
+      // 相邻线程(ty差1)访问地址相差2个bank, BM/2=64将上下半区隔离避免冲突
       HALF2(r_comp_a[0]) = HALF2(s_a[tk][ty * TM / 2             ]);
       HALF2(r_comp_a[2]) = HALF2(s_a[tk][ty * TM / 2      + 2    ]);
       HALF2(r_comp_a[4]) = HALF2(s_a[tk][ty * TM / 2 + BM / 2    ]);
       HALF2(r_comp_a[6]) = HALF2(s_a[tk][ty * TM / 2 + BM / 2 + 2]);
 
+      // BCF读取s_b: tx*TN/2=tx*4, 取值0,4,8,...,60; offset=0,2,64,66错开bank访问
+      // 原理同上, BN/2=64将左右半区隔离
       HALF2(r_comp_b[0]) = HALF2(s_b[tk][tx * TN / 2             ]);
       HALF2(r_comp_b[2]) = HALF2(s_b[tk][tx * TN / 2      + 2    ]);
       HALF2(r_comp_b[4]) = HALF2(s_b[tk][tx * TN / 2 + BN / 2    ]);
@@ -326,6 +399,8 @@ __global__ void hgemm_t_8x8_sliced_k_f16x4_bcf_kernel(
     __syncthreads();
   }
 
+  // 处理 C 矩阵块的四个象限
+  // 0 1
   #pragma unroll
   for (int i = 0; i < TM / 2; i++) {
     int store_c_gmem_m = by * BM + ty * TM / 2 + i;
@@ -336,6 +411,7 @@ __global__ void hgemm_t_8x8_sliced_k_f16x4_bcf_kernel(
     HALF2(c[store_c_gmem_addr + BN / 2 + 0]) = HALF2(r_c[i][4]);
     HALF2(c[store_c_gmem_addr + BN / 2 + 2]) = HALF2(r_c[i][6]);
   }
+  // 2 3 
   #pragma unroll
   for (int i = 0; i < TM / 2; i++) {
     int store_c_gmem_m = by * BM + BM / 2 + ty * TM / 2 + i;
@@ -348,6 +424,8 @@ __global__ void hgemm_t_8x8_sliced_k_f16x4_bcf_kernel(
   }
 }
 
+
+//////////////////////////////////////////////////////
 template<const int BM=128, 
          const int BN=128, 
          const int BK=8, 
@@ -418,6 +496,7 @@ __global__ void hgemm_t_8x8_sliced_k_f16x4_pack_bcf_kernel(
     // layer_14  [ b0],   [ b1],   [ b2],...,    [ b31]
     // [k=7][m=[64,65], [66,67], [68,69],..., [126,127]]
     // layer_15  [ b0],   [ b1],   [ b2],...,    [ b31] 
+    
     // 1. bank conficts analysis: s_a[8][128]
     // tid 0   -> m 0,   k 0 -> all access bank 0  (layer_0/2/4/6)
     // tid 1   -> m 0,   k 4 -> all access bank 0  (layer_8/10/12/14)

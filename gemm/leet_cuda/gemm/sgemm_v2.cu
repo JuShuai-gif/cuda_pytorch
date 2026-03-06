@@ -1,3 +1,19 @@
+/**
+ * @file sgemm_v2.cu
+ * @brief SGEMM优化版本2 - 寄存器缓存优化
+ * 
+ * 本文件在V1版本基础上进一步优化：
+ * 1. 【寄存器缓存】增加寄存器用于缓存共享内存数据，减少共享内存访问
+ * 2. 【内存访问优化】将共享内存数据预加载到寄存器后再参与计算
+ * 3. 【双行策略】每个线程处理多行数据，提高计算密度
+ * 
+ * 性能提升：相比V1版本通常有20-50%的提升
+ * 
+ * 与V1版本的主要区别：
+ * - V1: 从共享内存直接读取s_a[comp_a_smem_m][k]和s_b[k][comp_b_smem_n]
+ * - V2: 先将共享内存数据加载到r_comp_a和r_comp_b寄存器，再参与计算
+ * - 这种方式可以更好地利用寄存器文件的带宽
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,6 +45,23 @@ void cpuSgemm(float* a,float* b,float* c,const int M,const int N,const int K){
     }
 }
 
+/**
+ * @brief SGEMM V2 Kernel - 寄存器缓存优化版本
+ * 
+ * 核心优化点：
+ * 1. 使用r_load_a/r_load_b寄存器缓存全局内存加载数据
+ * 2. 使用r_comp_a/r_comp_b寄存器缓存共享内存读取数据
+ * 3. 通过#pragma unroll展开循环，提高指令级并行
+ * 
+ * 数据布局优化：
+ * - s_a[BK][BM]: 转置布局，便于按列访问
+ * - s_b[BK][BN]: 常规布局
+ * 
+ * 寄存器使用：
+ * - r_load_a[4], r_load_b[4]: 全局内存加载缓存
+ * - r_comp_a[TM], r_comp_b[TN]: 共享内存加载缓存
+ * - r_c[TM][TN]: 累加结果
+ */
 __global__ void sgemm_v2(float* __restrict__ a,float* __restrict__ b,float* __restrict__ c,const int M,const int N,const int K){
     const int BM = 128;
     const int BN = 128;

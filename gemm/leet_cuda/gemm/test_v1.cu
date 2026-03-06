@@ -1,9 +1,24 @@
+/**
+ * @file test_v1.cu
+ * @brief SGEMM V1 (共享内存分块) 正确性验证测试
+ * 
+ * 本文件是sgemm_v1.cu的简化版本，仅用于验证V1实现的正确性。
+ * 测试矩阵尺寸固定为512×512×512。
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <float.h>
 #include <cuda_runtime.h>
 
+/**
+ * @brief 矩阵索引宏
+ */
 #define OFFSET(row, col, ld) ((row) * (ld) + (col))
+
+/**
+ * @brief 向量化访存宏
+ */
 #define FLOAT4(pointer) (reinterpret_cast<float4*>(&(pointer))[0])
 
 float testError(
@@ -13,6 +28,9 @@ float testPerformance(
     void (*gpuSgemm) (float *, float *, float *, const int, const int, const int),
     dim3 gridDim, dim3 blockDim, const int M, const int N, const int K, const int repeat);
 
+/**
+ * @brief CPU参考实现
+ */
 void cpuSgemm(
     float *a, float *b, float *c, const int M, const int N, const int K) {
 
@@ -28,6 +46,19 @@ void cpuSgemm(
 }
 
 
+/**
+ * @brief SGEMM V1 Kernel - 共享内存分块版本
+ * 
+ * 参数配置:
+ * - BM = 128: Block M维度大小
+ * - BN = 128: Block N维度大小  
+ * - BK = 8: 每次加载的K维度大小
+ * - TM = 8: 每个线程处理的M维度大小
+ * - TN = 8: 每个线程处理的N维度大小
+ * 
+ * 线程组织:
+ * - blockDim: (BN/TN, BM/TM) = (16, 16) = 256 threads/block
+ */
 __global__ void sgemm_V1(
     float * __restrict__ a, float * __restrict__ b, float * __restrict__ c,
     const int M, const int N, const int K) {

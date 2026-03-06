@@ -1,10 +1,31 @@
+/**
+ * @file sgemm_naive.cu
+ * @brief 朴素SGEMM实现 - 最基本的CUDA矩阵乘法实现
+ * 
+ * 本文件展示最简单的GPU矩阵乘法实现：
+ * - 每个线程负责计算输出矩阵C的一个元素
+ * - 直接从全局内存读取数据，无任何优化
+ * - 作为性能对比的基准（最原始的实现）
+ * 
+ * 性能特点：通常只有理论峰值的5-10%，因为：
+ * 1. 大量重复访问全局内存
+ * 2. 内存访问延迟高
+ * 3. 无法利用共享内存和寄存器
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <float.h>
 #include <cuda_runtime.h>
 
+/**
+ * @brief 矩阵索引宏
+ */
 #define OFFSET(row,col,ld) ((row) * (ld) + (col))
+
+/**
+ * @brief 向量化访存宏 - 一次操作4个float
+ */
 #define FLOAT4(pointer) (reinterpret_cast<float4*>(&(pointer))[0])
 
 float testError(void);
@@ -13,6 +34,9 @@ float testPerformance(
     void (*gpuSgemm) (float *, float *, float *, const int, const int, const int),
     dim3 gridDim, dim3 blockDim, const int M, const int N, const int K, const int repeat);
 
+/**
+ * @brief CPU参考实现 - 用于验证结果正确性
+ */
 void cpuSgemm(float*a,float*b,float*c,const int M,const int N,const int K){
     for (int m = 0; m<M; m++) {
         for (int n = 0; n < N; n++) {
@@ -26,6 +50,27 @@ void cpuSgemm(float*a,float*b,float*c,const int M,const int N,const int K){
 }
 
 
+/**
+ * @brief 朴素SGEMM kernel - 每个线程计算C矩阵的一个元素
+ * 
+ * 工作原理：
+ * 1. 通过blockIdx和threadIdx计算全局线程坐标(n, m)
+ * 2. 检查边界确保不越界
+ * 3. 对K维度进行循环累加计算点积
+ * 4. 将结果写入C矩阵
+ * 
+ * 特点：
+ * - 简单直接，易于理解
+ * - 性能较差，存在大量全局内存访问
+ * - 每个线程独立计算，无协作
+ * 
+ * @param a 输入矩阵A (M x K，行主序)
+ * @param b 输入矩阵B (K x N，行主序)
+ * @param c 输出矩阵C (M x N，行主序)
+ * @param M 矩阵A行数
+ * @param N 矩阵B列数
+ * @param K 矩阵A列数/矩阵B行数
+ */
 __global__ void naiveSgemm(float* __restrict__ a,float* __restrict__ b,float* __restrict__ c,const int M,const int N,const int K){
     int n = blockDim.x * blockIdx.x + threadIdx.x;
     int m = blockDim.y * blockIdx.y + threadIdx.y;

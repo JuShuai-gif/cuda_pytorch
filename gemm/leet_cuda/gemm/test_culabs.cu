@@ -1,15 +1,35 @@
+/**
+ * @file test_culabs.cu
+ * @brief cuBLAS正确性验证测试
+ * 
+ * 本文件是sgemm_cublas.cu的简化版本，仅用于验证cuBLAS实现的正确性。
+ * 不包含性能测试部分。
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <float.h>
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 
+/**
+ * @brief 矩阵索引宏
+ */
 #define OFFSET(row, col, ld) ((row) * (ld) + (col))
+
+/**
+ * @brief 向量化访存宏
+ */
 #define FLOAT4(pointer) (reinterpret_cast<float4*>(&(pointer))[0])
 
 float testCublasError(const int M, const int N, const int K);
 float testCublasPerformance(const int M, const int N, const int K, const int repeat);
 
+/**
+ * @brief CPU参考实现 - 用于验证GPU结果正确性
+ * 
+ * 测试矩阵尺寸: M=512, N=512, K=512
+ */
 void cpuSgemm(
     float *a, float *b, float *c, const int M, const int N, const int K) {
 
@@ -39,6 +59,21 @@ int main(void) {
 }
 
 
+/**
+ * @brief 测试cuBLAS实现的正确性
+ * 
+ * 测试流程:
+ * 1. 分配主机和设备内存
+ * 2. 随机初始化输入矩阵
+ * 3. 在CPU上计算参考结果
+ * 4. 使用cuBLAS计算GPU结果
+ * 5. 比较两者差异
+ * 
+ * @param M 矩阵A的行数，矩阵C的行数
+ * @param N 矩阵B的列数，矩阵C的列数
+ * @param K 矩阵A的列数，矩阵B的行数
+ * @return float 最大误差值
+ */
 float testCublasError(const int M, const int N, const int K) {
 
     size_t size_a = M * K * sizeof(float);

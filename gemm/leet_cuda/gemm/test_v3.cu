@@ -1,9 +1,24 @@
+/**
+ * @file test_v3.cu
+ * @brief SGEMM V3 (双缓冲优化) 正确性验证测试
+ * 
+ * 本文件是sgemm_v3.cu的简化版本，仅用于验证V3实现的正确性。
+ * 测试矩阵尺寸固定为512×512×512。
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <float.h>
 #include <cuda_runtime.h>
 
+/**
+ * @brief 矩阵索引宏
+ */
 #define OFFSET(row, col, ld) ((row) * (ld) + (col))
+
+/**
+ * @brief 向量化访存宏
+ */
 #define FLOAT4(pointer) (reinterpret_cast<float4*>(&(pointer))[0])
 
 float testError(
@@ -13,6 +28,9 @@ float testPerformance(
     void (*gpuSgemm) (float *, float *, float *, const int, const int, const int),
     dim3 gridDim, dim3 blockDim, const int M, const int N, const int K, const int repeat);
 
+/**
+ * @brief CPU参考实现
+ */
 void cpuSgemm(
     float *a, float *b, float *c, const int M, const int N, const int K) {
 
@@ -28,6 +46,26 @@ void cpuSgemm(
 }
 
 
+/**
+ * @brief SGEMM V3 Kernel - 双缓冲优化版本
+ * 
+ * V3版本相比V2的主要改进:
+ * 1. 使用双缓冲(s_a[2][BK][BM], s_b[2][BK][BN])
+ * 2. 计算与访存重叠进行
+ * 3. 减少__syncthreads()等待时间
+ * 
+ * 双缓冲原理:
+ * - smem_sel = (bk - 1) & 1: 当前计算使用的buffer
+ * - smem_sel_next = bk & 1: 预加载的buffer
+ * - 在计算当前buffer数据的同时，异步加载下一块数据
+ * 
+ * 执行流程:
+ * 1. 初始: 预加载bk=0到buffer 0
+ * 2. 循环(bk=1到K/BK-1):
+ *    - 使用buffer (bk-1)%2 计算
+ *    - 同时加载bk块到buffer bk%2
+ * 3. 最后: 处理buffer 1的剩余数据
+ */
 __global__ void sgemm_V3(
     float * __restrict__ a, float * __restrict__ b, float * __restrict__ c,
     const int M, const int N, const int K) {

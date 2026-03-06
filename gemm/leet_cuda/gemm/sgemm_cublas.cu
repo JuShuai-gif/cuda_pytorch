@@ -1,3 +1,10 @@
+/**
+ * @file sgemm_cublas.cu
+ * @brief 使用cuBLAS库实现SGEMM (单精度矩阵乘法) - 作为性能基准参考
+ * 
+ * 本文件展示了如何使用NVIDIA cuBLAS库进行高性能矩阵乘法运算。
+ * cuBLAS是NVIDIA提供的BLAS库GPU实现，经过高度优化，可作为自定义实现的性能上限参考。
+ */
 
 #include <cstddef>
 #include <cstdio>
@@ -8,14 +15,32 @@
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 
+/**
+ * @brief 矩阵索引宏 - 将二维坐标(row, col)转换为一维数组索引
+ * @param row 行索引
+ * @param col 列索引
+ * @param ld leading dimension (通常是矩阵的列数)
+ */
 #define OFFSET(row, col, ld) ((row) * (ld) + (col))
-// 一次读 4 个float
+
+/**
+ * @brief FLOAT4宏 - 用于向量化加载/存储，一次操作4个float
+ * @details 利用CUDA的float4类型进行内存访问合并，提高带宽利用率
+ */
 #define FLOAT4(pointer) (reinterpret_cast<float4 *>(&(pointer))[0])
 
 float testCublasError(const int M, const int N, const int K);
 float testCublasPerformance(const int M, const int N, const int K, const int repeat);
 
-// 朴素矩阵乘法
+/**
+ * @brief CPU端朴素矩阵乘法实现 - 用于验证GPU结果正确性
+ * @param a 输入矩阵A (M x K)
+ * @param b 输入矩阵B (K x N)  
+ * @param c 输出矩阵C (M x N)
+ * @param M 矩阵A的行数，矩阵C的行数
+ * @param N 矩阵B的列数，矩阵C的列数
+ * @param K 矩阵A的列数，矩阵B的行数
+ */
 void cpuSgemm(float *a, float *b, float *c, const int M, const int N, const int K) {
     for (int m = 0; m < M; m++) {
         for (int n = 0; n < N; n++) {

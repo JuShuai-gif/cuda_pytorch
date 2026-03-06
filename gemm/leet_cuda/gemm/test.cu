@@ -1,9 +1,24 @@
+/**
+ * @file test.cu
+ * @brief 朴素SGEMM正确性验证测试
+ * 
+ * 本文件是sgemm_naive.cu的简化版本，仅用于验证朴素实现的正确性。
+ * 不包含性能测试部分，测试矩阵尺寸固定为512×512×512。
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <float.h>
 #include <cuda_runtime.h>
 
+/**
+ * @brief 矩阵索引宏
+ */
 #define OFFSET(row, col, ld) ((row) * (ld) + (col))
+
+/**
+ * @brief 向量化访存宏
+ */
 #define FLOAT4(pointer) (reinterpret_cast<float4*>(&(pointer))[0])
 
 float testError(void);
@@ -11,6 +26,9 @@ float testPerformance(
     void (*gpuSgemm) (float *, float *, float *, const int, const int, const int),
     dim3 gridDim, dim3 blockDim, const int M, const int N, const int K, const int repeat);
 
+/**
+ * @brief CPU参考实现
+ */
 void cpuSgemm(
     float *a, float *b, float *c, const int M, const int N, const int K) {
 
@@ -26,6 +44,18 @@ void cpuSgemm(
 }
 
 
+/**
+ * @brief 朴素SGEMM Kernel - 简化版本
+ * 
+ * 每个线程计算C矩阵的一个元素
+ * 
+ * @param a 输入矩阵A (M×K)
+ * @param b 输入矩阵B (K×N)
+ * @param c 输出矩阵C (M×N)
+ * @param M 矩阵A行数，矩阵C行数
+ * @param N 矩阵B列数，矩阵C列数
+ * @param K 矩阵A列数，矩阵B行数
+ */
 __global__ void naiveSgemm(
     float * __restrict__ a, float * __restrict__ b, float * __restrict__ c,
     const int M, const int N, const int K) {
@@ -49,6 +79,14 @@ int main(void) {
 }
 
 
+/**
+ * @brief 测试朴素实现的正确性
+ * 
+ * 测试参数:
+ * - Block尺寸: 32×32 = 1024 threads/block
+ * - 矩阵尺寸: M=512, N=512, K=512
+ * - Grid尺寸: (512/32)×(512/32) = 16×16 blocks
+ */
 float testError(void) {
     const int BM = 32, BN = 32;
     const int M = 512, N = 512, K = 512;

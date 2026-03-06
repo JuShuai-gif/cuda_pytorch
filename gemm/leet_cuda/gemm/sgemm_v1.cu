@@ -1,9 +1,36 @@
+/**
+ * @file sgemm_v1.cu
+ * @brief SGEMM优化版本1 - 共享内存分块计算
+ * 
+ * 本文件实现第一个优化版本，主要优化点：
+ * 1. 【分块计算】将大矩阵分成小块(Block Tile)进行计算
+ * 2. 【共享内存】使用共享内存缓存A和B矩阵块，减少全局内存访问
+ * 3. 【寄存器优化】使用寄存器存储中间结果
+ * 4. 【向量化访问】使用float4进行批量内存访问
+ * 
+ * 性能提升：相比naive版本通常有5-10倍的提升
+ * 
+ * 关键参数说明：
+ * - BM: Block M - 每个block处理的M维度大小
+ * - BN: Block N - 每个block处理的N维度大小
+ * - BK: Block K - 每次加载到共享内存的K维度大小
+ * - TM: Thread M - 每个线程处理的M维度大小
+ * - TN: Thread N - 每个线程处理的N维度大小
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <float.h>
 #include <cuda_runtime.h>
 
+/**
+ * @brief 矩阵索引宏
+ */
 #define OFFSET(row, col, ld) ((row) * (ld) + (col))
+
+/**
+ * @brief 向量化访存宏
+ */
 #define FLOAT4(pointer) (reinterpret_cast<float4 *>(&(pointer))[0])
 
 float testError(
@@ -13,6 +40,9 @@ float testPerformance(
     void (*gpuSgemm)(float *, float *, float *, const int, const int, const int),
     dim3 gridDim, dim3 blockDim, const int M, const int N, const int K, const int repeat);
 
+/**
+ * @brief CPU参考实现
+ */
 void cpuSgemm(float *a, float *b, float *c, const int M, const int N, const int K) {
     for (int m = 0; m < M; m++) {
         for (int n = 0; n < N; n++) {
@@ -24,11 +54,24 @@ void cpuSgemm(float *a, float *b, float *c, const int M, const int N, const int 
         }
     }
 }
-/*
-将要计算的矩阵分成一个一个的小块，然后将小块存放到共享内存中，然后再把共享内存分成一个一个的小块
-将小块放到寄存器小块中
-只进行的见到内存层次划分，并没有细化计算与访存的流水线
-*/
+
+/**
+ * @brief SGEMM V1 Kernel - 共享内存分块版本
+ * 
+ * 算法流程：
+ * 1. 每个block负责计算C矩阵的一个BM×BN大小的块
+ * 2. 将K维度分成多轮，每轮加载BK大小的A和B块到共享内存
+ * 3. 在共享内存中进行TM×TN的寄存器级计算
+ * 4. 循环直到K维度计算完成
+ * 5. 将结果写回全局内存
+ * 
+ * 共享内存使用：
+ * - s_a[BM][BK]: 缓存A矩阵的BM×BK块
+ * - s_b[BK][BN]: 缓存B矩阵的BK×BN块
+ * 
+ * 寄存器使用：
+ * - r_c[TM][TN]: 存储每个线程的累加结果
+ */
 __global__ void sgemm_V1(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c, const int M, const int N, const int K) {
     const int BM = 128;
     const int BN = 128;

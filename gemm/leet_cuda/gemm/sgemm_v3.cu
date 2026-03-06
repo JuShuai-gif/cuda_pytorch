@@ -1,3 +1,24 @@
+/**
+ * @file sgemm_v3.cu
+ * @brief SGEMM优化版本3 - 双缓冲(双缓冲)技术
+ * 
+ * 本文件在V2版本基础上引入双缓冲技术：
+ * 1. 【双缓冲(Double Buffering)】使用两组共享内存交替读写
+ * 2. 【计算与访存重叠】在计算当前缓冲数据的同时，预加载下一块数据
+ * 3. 【隐藏延迟】有效隐藏共享内存访问延迟
+ * 
+ * 性能提升：相比V2版本通常有10-30%的提升
+ * 
+ * 双缓冲原理：
+ * - 使用s_a[2][BK][BM]和s_b[2][BK][BN]
+ * - 偶数轮使用buffer 0，奇数轮使用buffer 1
+ * - 当前计算使用buffer i，同时预加载buffer i^1
+ * - 通过smem_sel和smem_sel_next控制切换
+ * 
+ * 优化效果：
+ * - 消除__syncthreads()带来的同步等待
+ * - 提高SM占用率和指令流水线效率
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,6 +47,26 @@ void cpuSgemm(float *a, float *b, float *c, const int M, const int N, const int 
     }
 }
 
+/**
+ * @brief SGEMM V3 Kernel - 双缓冲优化版本
+ * 
+ * 算法流程：
+ * 1. 初始阶段：预加载第一个BK块到buffer 0
+ * 2. 主循环(bk=1到K/BK-1)：
+ *    - 使用buffer (bk-1)%2 进行计算
+ *    - 同时预加载下一块到buffer bk%2
+ *    - 交替进行，计算与访存重叠
+ * 3. 最后阶段：处理最后一个buffer
+ * 
+ * 关键优化：
+ * - smem_sel = (bk - 1) & 1: 当前计算使用的buffer
+ * - smem_sel_next = bk & 1: 下一块数据预加载的buffer
+ * - __syncthreads()只在一轮结束时同步
+ * 
+ * 共享内存布局：
+ * - s_a[2][BK][BM]: 双缓冲A矩阵
+ * - s_b[2][BK][BN]: 双缓冲B矩阵
+ */
 __global__ void sgemm_V3(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c, const int M, const int N, const int K) {
     const int BM = 128;
     const int BN = 128;

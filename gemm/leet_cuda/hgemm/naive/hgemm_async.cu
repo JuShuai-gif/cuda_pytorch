@@ -16,13 +16,275 @@
 #define BFLOAT2(value) (reinterpret_cast<__nv_bfloat162*>(&(value))[0])
 #define LDST64BITS(value) (reinterpret_cast<float2*>(&(value))[0])
 #define LDST128BITS(value) (reinterpret_cast<float4*>(&(value))[0])
+
+// 这五个宏是 CUDA Ampere(CM80+)架构提供的 cp.async 指令封装，用于异步地把global memory数据拷贝到 shared memory
+/*
+cp.async 的本质：
+传统方式：
+```
+shared[idx] = global[idx];
+__syncthreads();
+```
+流程：
+load global -> register -> shared   (这里需要使用汇编验证)
+
+问题：
+- 同步阻塞
+- 寄存器参与
+- 无法流水线
+
+Ampere 提供： cp.async   直接 global -> shared
+
+并且：
+- 异步
+- 不占寄存器
+- 可pipeline
+*/
+
+/* 
+提交当前 async copy group
+cp.async 指令会被分组管理
+
+执行流程：
+cp.async
+cp.async
+cp.async
+cp.async
+↓
+commit_group
+
+意思：前面这些 async copy 被打包成 一个 group
+
+示意：
+group 0
+ ├─ cp.async
+ ├─ cp.async
+ └─ cp.async
+commit
+
+group 1
+ ├─ cp.async
+ └─ cp.async
+commit
+
+这样 GPU 就能：
+copy group0
+同时
+compute group(-1)
+形成 pipeline
+*/
 #define CP_ASYNC_COMMIT_GROUP() asm volatile("cp.async.commit_group;\n" ::)
+
+
+/*
+2. CP_ASYNC_WAIT_ALL()
+作用：等待所有 cp.async 完成
+
+相当于：
+wait group0
+wait group1
+wait group2
+...
+
+使用场景：在 kernel 结束前或需要确保shared可读时
+
+例如：
+CP_ASYNC_WAIT_ALL();
+__syncthreads();
+
+保证：
+global → shared copy 完成
+*/
 #define CP_ASYNC_WAIT_ALL() asm volatile("cp.async.wait_all;\n" ::)
+
+
+/*
+3. CP_ASYNC_WAIT_GROUP(n)
+作用：等待指定数量的 group 完成
+
+更精细控制 pipeline
+
+例如： wait_group 1
+
+意思：保证至少1个最老的 group 已完成
+
+示意：
+group0 (oldest)
+group1
+group2 (newest)
+
+如果：
+wait_group 1
+
+则：
+group0 must finish
+
+但：
+group1 group2 可以继续copy
+
+典型的GEMM pipeline
+copy tile1
+commit
+
+copy tile2
+commit
+
+wait_group 1
+compute tile1
+
+这样：copy tile2 + compute tile1
+
+同时发生
+*/
 #define CP_ASYNC_WAIT_GROUP(n) asm volatile("cp.async.wait_group %0;\n" ::"n"(n))
+
+
 // ca(cache all, L1 + L2): support 4, 8, 16 bytes, cg(cache global, L2): only support 16 bytes.
+/*
+4. CP_ASYNC_CA()
+作用：异步 copy global -> shared
+
+cache policy:
+ca = cache all
+使用：
+L1+L2 cache
+
+参数：
+dst -> shared memory pointer
+src -> global memory pointer
+bytes -> copy size
+
+支持：
+4 bytes
+8 bytes
+16 bytes
+
+示例：
+cp.async.ca.shared.global
+
+数据路径：
+global
+ ↓
+L2
+ ↓
+L1
+ ↓
+shared
+*/
 #define CP_ASYNC_CA(dst, src, bytes) asm volatile("cp.async.ca.shared.global.L2::128B [%0], [%1], %2;\n" ::"r"(dst), "l"(src), "n"(bytes))
+
+/*
+5. CP_ASYNC_CG()
+
+同样是：
+global -> shared async copy
+
+但 cache global
+cg = cache global
+
+只使用：L2 cache
+
+不适用 L1
+
+支持 size: 只能 16 bytes
+
+原因：某些情况下：L1 cache 污染 会影响性能
+
+因此：
+cg = bytes L1
+*/
 #define CP_ASYNC_CG(dst, src, bytes) asm volatile("cp.async.cg.shared.global.L2::128B [%0], [%1], %2;\n" ::"r"(dst), "l"(src), "n"(bytes))
 
+
+/*
+三、L2::128B 的作用
+L2::128B 意思是：L2 prefetch hint
+
+告诉GPU：prefetch 128B line
+
+因为：L2 cache line = 128B
+
+所以：一次访问：一个 warp 触发
+
+可以预取：128B，提高带宽利用率
+
+四、典型GEMM pipeline
+真实kernel 里通常这样写：
+for(k tile){
+  cp.async(...)
+  cp.async(...)
+  cp.async(...)
+
+  cp.async.commit_group()
+
+  cp.async.wait_group(1)
+
+  compute(...)
+}
+
+形成：  时间轴
+copy tile0
+commit
+
+copy tile1
+commit
+
+wait tile0
+compute tile0
+
+copy tile2
+commit
+
+wait tile1
+compute tile1
+
+结果：
+copy 和 compute 重叠
+
+GPU pipeline:
+global memory -> shared
+tensor core compute
+同时运行
+
+五、和 __syncthreads() 的区别
+传统：
+global load
+__syncthreads()
+compute
+
+问题：
+copy 完才能 compute
+
+cp.async:
+copy tile1
+copy tile2
+compute tile1
+
+实现：
+software pipeline
+
+六、性能提升
+cp.async 能带来：1.3x ~ 2x 提升
+隐藏：global memory latency(~400 cycles)
+
+七、总结
+| 宏                        | 作用                                   |
+| ------------------------ | ------------------------------------ |
+| `CP_ASYNC_CA`            | global → shared async copy (L1+L2)   |
+| `CP_ASYNC_CG`            | global → shared async copy (L2 only) |
+| `CP_ASYNC_COMMIT_GROUP`  | 提交 async copy group                  |
+| `CP_ASYNC_WAIT_GROUP(n)` | 等待 n 个 group 完成                      |
+| `CP_ASYNC_WAIT_ALL`      | 等待全部 copy 完成                         |
+
+它们共同实现：
+global load
+      ↓
+async pipeline
+      ↓
+shared memory tile
+      ↓
+tensor core compute
+*/
 
 template<const int BM=128, const int BN=128, const int BK=16, 
          const int TM=8, const int TN=8, const int OFFSET=0>
