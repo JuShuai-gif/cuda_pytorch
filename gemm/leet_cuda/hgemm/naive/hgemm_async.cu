@@ -70,7 +70,7 @@ commit
 这样 GPU 就能：
 copy group0
 同时
-compute group(-1)
+compute group(1)
 形成 pipeline
 */
 #define CP_ASYNC_COMMIT_GROUP() asm volatile("cp.async.commit_group;\n" ::)
@@ -286,16 +286,37 @@ shared memory tile
 tensor core compute
 */
 
+
+/*
+hgemm_t_8x8_sliced_k16_f16x8_pack_dbuf_kernel
+hgemm: 表示 half 数据类型的 gemm
+t: transpose,A 或 B 矩阵是转置存储，gemm_nn:A,B 都不转置，gemm_nt:A不转置，B转置，gemm_tn:A转置，B不转置，gemm_tt:A,B都转置
+8x8:表示thread tile,即每个 thread 计算 8 x 8 的 C 子矩阵，换句话说：一个线程负责 64 个 C 元素，通常用于 register blocking
+sliced_k16:K维切分策略，意思是：K 维按16切片，例如 BK = 16，计算流程：A_tile (BM x 16),B_tile (16 x BN) 然后累加
+f16x8:vectorized load/store,即一次加载 8 个 FP16，所以8 x 2 = 16 bytes,刚好 128 bit
+pack:数据是pack格式，通常指：多个 FP16 被 pack 成vector
+dbuf:double buffer,双缓冲，
+计算流程：
+load tile 0
+compute tile 0
+
+while compute tile i:
+    load tile i+1
+*/
 template<const int BM=128, const int BN=128, const int BK=16, 
          const int TM=8, const int TN=8, const int OFFSET=0>
 __global__ void hgemm_t_8x8_sliced_k16_f16x8_pack_dbuf_kernel(
   half* a, half* b, half* c, int M, int N, int K) {
+
   int bx = blockIdx.x;
   int by = blockIdx.y;
+
   int tx = threadIdx.x;
   int ty = threadIdx.y;
+
   int tid = threadIdx.y * blockDim.x + tx; // tid within the block
   // 2*128*16*2=8KB, 2*16*128*2=8KB
+  // OFFSET 为了避免 bank conflict
   __shared__ half s_a[2][BK][BM+OFFSET], s_b[2][BK][BN+OFFSET]; 
   half r_load_a[TM]; // 8
   half r_load_b[TN]; // 8
@@ -314,19 +335,52 @@ __global__ void hgemm_t_8x8_sliced_k16_f16x8_pack_dbuf_kernel(
   int load_smem_b_n = (tid % 16) * 8; // col 0,8,...,120
   // 1. 再计算全局内存中的索引
   // 要加载到s_a中的元素对应到A全局内存中的行数 每个block负责出C中大小为BM*BN的块
+  /*
+  为什么是 by * BM？ 竖着计算 by 本来就是表示竖着的坐标，BM表示竖着的长度
+  为什么是 bx * BN？ 横着计算 bx 本来表示的就是横着的坐标，BN表示横着的长度
+  */
   int load_gmem_a_m = by * BM + load_smem_a_m; // global row of a and c
   int load_gmem_b_n = bx * BN + load_smem_b_n; // global col of b and c
   if (load_gmem_a_m >= M || load_gmem_b_n >= N) return;
 
   // bk = 0 is loading here, buffer 0 
   {
+    // 从这个读取过程可以看出，A 是按行存储的
     int load_gmem_a_k = load_smem_a_k; // global col of a
     int load_gmem_a_addr = load_gmem_a_m * K + load_gmem_a_k;
+
+    // B 也是按行存储的
     int load_gmem_b_k = load_smem_b_k; // global row of b
     int load_gmem_b_addr = load_gmem_b_k * N + load_gmem_b_n;   
+
+    // 存储方式是同一行，连续列
+    // a0 a1 a2 a3 a4 a5 a6 a7 
+    /*
+    n
+    k   ---------------------
+    0 |  b00 b01 b02 b03 ...
+    1 |  b10 b11 b12 b13 ...
+    2 |  b20 b21 b22 b23 ...
+    然后两个half组成一个 bank
+
+    访问的时候是同一行连续访问，shared 仍然 row-major
+    */
     LDST128BITS(s_b[0][load_smem_b_k][load_smem_b_n]) = (
       LDST128BITS(b[load_gmem_b_addr]));
+
+    // 先一次读 8 个到寄存器缓冲区中，8个连存 [0...7]
+    /*
+    r_load_a[0] = A[row][col]
+    r_load_a[1] = A[row][col+1]
+    ...
+    r_load_a[7] = A[row][col+7]
+    */
     LDST128BITS(r_load_a[0]) = LDST128BITS(a[load_gmem_a_addr]);
+    // 从寄存器缓冲区读到共享内存中，转置写入
+    /*
+    写入是按列写入
+    
+    */
     #pragma unroll
     for (int i = 0; i < 8; ++i) { // reg -> shared, fast
       s_a[0][load_smem_a_k + i][load_smem_a_m] = r_load_a[i];
@@ -343,13 +397,16 @@ __global__ void hgemm_t_8x8_sliced_k16_f16x8_pack_dbuf_kernel(
 
     int load_gmem_a_k = bk * BK + load_smem_a_k; // global col of a
     int load_gmem_a_addr = load_gmem_a_m * K + load_gmem_a_k;
+
     int load_gmem_b_k = bk * BK + load_smem_b_k; // global row of b
     int load_gmem_b_addr = load_gmem_b_k * N + load_gmem_b_n;
+
     LDST128BITS(r_load_a[0]) = LDST128BITS(a[load_gmem_a_addr]);
     LDST128BITS(r_load_b[0]) = LDST128BITS(b[load_gmem_b_addr]);
     
     #pragma unroll
     for (int tk = 0; tk < BK; tk++) {
+      
       LDST128BITS(r_comp_a[0]) = LDST128BITS(s_a[smem_sel][tk][ty * TM]);
       LDST128BITS(r_comp_b[0]) = LDST128BITS(s_b[smem_sel][tk][tx * TN]);
 
@@ -428,17 +485,26 @@ __global__ void hgemm_t_8x8_sliced_k16_f16x8_pack_dbuf_async_kernel(
     int load_gmem_b_k = load_smem_b_k; // global row of b
     int load_gmem_b_addr = load_gmem_b_k * N + load_gmem_b_n;   
     
+    // 将共享内存地址转换为异步拷贝操作所需的指针格式
     uint32_t load_smem_b_ptr = __cvta_generic_to_shared(
       &s_b[0][load_smem_b_k][load_smem_b_n]);
+    
+    // 异步从全局内存复制16字节(8个half)到共享内存，不阻塞线程执行
     CP_ASYNC_CG(load_smem_b_ptr, &b[load_gmem_b_addr], 16);
+    
+    // 提交异步拷贝操作组，开始执行
     CP_ASYNC_COMMIT_GROUP();
 
     // load 8 half in 1 memory issue.
+    // 从全局内存加载 128 位(8 个half)到寄存器
     LDST128BITS(r_load_a[0]) = LDST128BITS(a[load_gmem_a_addr]);
+
+    // 循环将寄存器数据写入共享内存
     #pragma unroll 
     for (int i = 0; i < 8; ++i) { // reg -> shared, fast
       s_a[0][load_smem_a_k + i][load_smem_a_m] = r_load_a[i];
     }
+    // 
     CP_ASYNC_WAIT_GROUP(0);
   }
   __syncthreads(); 
@@ -466,6 +532,7 @@ __global__ void hgemm_t_8x8_sliced_k16_f16x8_pack_dbuf_async_kernel(
       for (int tm = 0; tm < TM; tm++) {
         #pragma unroll
         for (int tn = 0; tn < TN; tn++) {
+          // 计算还是使用的融合乘加操作
           r_c[tm][tn] = __hfma(r_comp_a[tm], r_comp_b[tn], r_c[tm][tn]);
         }
       }
@@ -480,6 +547,7 @@ __global__ void hgemm_t_8x8_sliced_k16_f16x8_pack_dbuf_async_kernel(
     __syncthreads();
   }
 
+  // 计算最后一个块
   #pragma unroll
   for (int tk = 0; tk < BK; tk++) {
     LDST128BITS(r_comp_a[0]) = LDST128BITS(s_a[1][tk][ty * TM]);
@@ -542,7 +610,9 @@ __global__ void hgemm_t_8x8_sliced_k32_f16x8_pack_dbuf_kernel(
     int load_gmem_b_k = load_smem_b_k; // global row of b
     int load_gmem_b_addr = load_gmem_b_k * N + load_gmem_b_n; 
     // load 16 half per threads
+    // 每个线程加载 16 个 half
     #pragma unroll
+    // 分成两次加载
     for (int i = 0; i < 16; i += 8) {
       LDST128BITS(s_b[0][load_smem_b_k][load_smem_b_n + i]) = (
         LDST128BITS(b[load_gmem_b_addr + i]));
@@ -648,6 +718,7 @@ __global__ void hgemm_t_8x8_sliced_k32_f16x8_pack_dbuf_async_kernel(
     uint32_t load_smem_b_ptr = __cvta_generic_to_shared(
       &s_b[0][load_smem_b_k][load_smem_b_n]);
     #pragma unroll
+    // 也是加载两次
     for (int i = 0; i < 16; i += 8) {
       CP_ASYNC_CA(load_smem_b_ptr + i * 2, &b[load_gmem_b_addr + i], 16);
     }
@@ -774,6 +845,7 @@ __global__ void hgemm_t_16x8_sliced_k32_f16x8_pack_dbuf_kernel(
     int load_gmem_b_addr = load_gmem_b_k * N + load_gmem_b_n; 
     // load 32(BK) half per threads, 4x128bits memory issues.
     #pragma unroll
+    // 一次加载 32 个
     for (int i = 0; i < 32; i += 8) {
       LDST128BITS(s_b[0][load_smem_b_k][load_smem_b_n + i]) = (
         LDST128BITS(b[load_gmem_b_addr + i]));
@@ -890,6 +962,7 @@ __global__ void hgemm_t_16x8_sliced_k32_f16x8_pack_dbuf_async_kernel(
     uint32_t load_smem_b_ptr = __cvta_generic_to_shared(
       &s_b[0][load_smem_b_k][load_smem_b_n]);
     #pragma unroll
+    // 遍历四次
     for (int i = 0; i < 32; i += 8) {
       CP_ASYNC_CA(load_smem_b_ptr + i * 2, &b[load_gmem_b_addr + i], 16);
     }

@@ -43,15 +43,21 @@ int div_ceil(int a, int b) { return (a % b != 0) ? (a / b + 1) : (a / b); }
 template<const int MMA_M=16, const int MMA_N=8, const int MMA_K=16>
 __global__ void hgemm_mma_m16n8k16_naive_kernel(half* A, half* B, half* C, 
                                                 int M, int N, int K) {
+  // 块的序号
   const int bx = blockIdx.x;
   const int by = blockIdx.y;
+  // 一个 K 中有多少个 MMA_K
   const int NUM_K_TILES = div_ceil(K, MMA_K);
+
+  // 
   constexpr int BM = MMA_M; // 16
   constexpr int BN = MMA_N; // 8
   constexpr int BK = MMA_K; // 16
 
   __shared__ half s_a[MMA_M][MMA_K]; // 16x16
   __shared__ half s_b[MMA_K][MMA_N]; // 16x8
+
+
   __shared__ half s_c[MMA_M][MMA_N]; // 16x8
 
   const int tid = threadIdx.y * blockDim.x + threadIdx.x; // within block
@@ -74,6 +80,7 @@ __global__ void hgemm_mma_m16n8k16_naive_kernel(half* A, half* B, half* C,
     // gmem_a -> smem_a
     int load_gmem_a_k = k * BK + load_smem_a_k; // global col of a
     int load_gmem_a_addr = load_gmem_a_m * K + load_gmem_a_k;
+
     LDST128BITS(s_a[load_smem_a_m][load_smem_a_k]) = (
       LDST128BITS(A[load_gmem_a_addr]));
 
@@ -91,9 +98,13 @@ __global__ void hgemm_mma_m16n8k16_naive_kernel(half* A, half* B, half* C,
     
     // ldmatrix for s_a, ldmatrix.trans for s_b.
     // s_a: (0,1)*8 -> 0,8 -> [(0~15),(0,8)]
+
     uint32_t load_smem_a_ptr = __cvta_generic_to_shared(
       &s_a[lane_id % 16][(lane_id / 16) * 8]); 
+    
     LDMATRIX_X4(RA[0], RA[1], RA[2], RA[3], load_smem_a_ptr);
+    
+    
     uint32_t load_smem_b_ptr = __cvta_generic_to_shared(
       &s_b[lane_id % 16][0]);
     LDMATRIX_X2_T(RB[0], RB[1], load_smem_b_ptr);
