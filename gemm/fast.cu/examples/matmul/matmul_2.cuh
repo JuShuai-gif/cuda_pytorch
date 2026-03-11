@@ -1,4 +1,26 @@
 
+// ============================================================================
+// 文件: matmul_2.cuh
+// 功能: 使用WGMMA（Warp Group Matrix Multiply Accumulate）指令的BF16矩阵乘法
+// 特点:
+//   - 使用Hopper架构的WGMMA指令（需要计算能力9.0+）
+//   - 支持warp group（4个warp，128线程）协同计算
+//   - 使用异步拷贝（cp.async）和共享内存描述符
+//   - 支持双缓冲（double buffering）隐藏内存延迟
+//   - 使用CUDA Cooperative Groups进行同步
+// 关键组件:
+//   - make_smem_desc: 创建共享内存描述符，用于WGMMA指令
+//   - warpgroup_*: WGMMA指令的包装函数（fence, commit, wait）
+//   - 异步拷贝操作：cp.async.ca/cg
+//   - 双缓冲策略：同时加载下一批数据和处理当前批数据
+// 适用场景:
+//   - Hopper架构GPU（如H100）
+//   - 大规模BF16矩阵乘法
+//   - 需要高吞吐量的科学计算和AI推理
+// 示例调用:
+//   runKernel2(M, N, K, A, B, C); // 使用预定义的参数配置
+// ============================================================================
+
 namespace M2 {
 
 using barrier = cuda::barrier<cuda::thread_scope_block>;

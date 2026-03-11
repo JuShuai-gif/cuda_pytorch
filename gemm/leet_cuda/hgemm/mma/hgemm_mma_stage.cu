@@ -69,32 +69,48 @@ __global__ void  __launch_bounds__(256)
 hgemm_mma_m16n8k16_mma2x4_warp4x4_stages_kernel(
   half* A, half* B, half* C, int M, int N, int K) {
   // BLOCK_SWIZZLE 0/1 control use block swizzle or not.
+  // 
   const int bx = ((int) BLOCK_SWIZZLE) * blockIdx.z * gridDim.x + blockIdx.x;
   const int by = blockIdx.y;
   const int NUM_K_TILES = div_ceil(K, MMA_K);
+
+  // 2. 这里的 BM, BN 是 Thread Block 处理的矩阵块大小 (128x128)
   constexpr int BM = MMA_M * MMA_TILE_M * WARP_TILE_M; // 16*2*4=128
   constexpr int BN = MMA_N * MMA_TILE_N * WARP_TILE_N; // 8*4*4=128
   constexpr int BK = MMA_K; // 16
 
+  // 3. 定义共享内存 (Shared Memory)，使用 K_STAGE 实现多级缓冲（默认为 2，即 Double Buffering）
+  // 存储矩阵 A 的分块
   __shared__ half s_a[K_STAGE][BM][BK+A_PAD]; // 128*16*2=4KB
+  // 存储矩阵 B 的分块
   __shared__ half s_b[K_STAGE][BK][BN+B_PAD]; // 16*128*2=4KB, 16*(128+16)*2=4.5KB
+  
   constexpr int s_a_stage_offset = BM * (BK + A_PAD);
   constexpr int s_b_stage_offset = BK * (BN + B_PAD);
 
+  // 计算线程在 Warp 中的身份
   const int tid = threadIdx.y * blockDim.x + threadIdx.x; // within block
   const int warp_id = tid / WARP_SIZE; // 0~7 warp_id within block
   const int lane_id = tid % WARP_SIZE; // 0~31
+  
+  
   const int warp_m = warp_id % 2; // 0,1
   const int warp_n = warp_id / 2; // 0,1,2,3
 
-  int load_smem_a_m = tid / 2; // row 0~127
+  // 确定从全局内存加载数据到共享内存时的坐标
+  // 每个线程负责 A 的一行中的一部分
+  int load_smem_a_m = tid / 2; // row 0~127 
   int load_smem_a_k = (tid % 2 == 0) ? 0 : 8; // col 0,8
+  // 每个线程负责 B 的一行
   int load_smem_b_k = tid / 16; // row 0~15
   int load_smem_b_n = (tid % 16) * 8; // col 0,8,...,120
+
+  
   int load_gmem_a_m = by * BM + load_smem_a_m; // global row of a and c
   int load_gmem_b_n = bx * BN + load_smem_b_n; // global col of b and c
   if (load_gmem_a_m >= M || load_gmem_b_n >= N) return;
 
+  // 初始化累加寄存器(C),用于存放 MMA 的计算结果
   uint32_t RC[WARP_TILE_M][WARP_TILE_N][2];
   #pragma unroll
   for (int i = 0; i < WARP_TILE_M; ++i) {
@@ -108,9 +124,11 @@ hgemm_mma_m16n8k16_mma2x4_warp4x4_stages_kernel(
   uint32_t smem_a_base_ptr = __cvta_generic_to_shared(s_a);
   uint32_t smem_b_base_ptr = __cvta_generic_to_shared(s_b);
 
+  // 进入主循环前，先异步加载前(K_STAGE - 1) 个阶段的数据
   #pragma unroll
   for (int k = 0; k < (K_STAGE - 1); ++k) { // 0, 1
     // k * WMMA_K, WMMA_K=16 -> (k << 4)
+    // 计算全局内存地址并使用 CP_ASYNC 直接从 GMEM 拷贝到 SMEM，绕过寄存器
     int load_gmem_a_k = k * BK + load_smem_a_k; // global col of a
     int load_gmem_a_addr = load_gmem_a_m * K + load_gmem_a_k;
     int load_gmem_b_k = k * BK + load_smem_b_k; // global row of b
@@ -136,12 +154,14 @@ hgemm_mma_m16n8k16_mma2x4_warp4x4_stages_kernel(
   CP_ASYNC_WAIT_GROUP(K_STAGE-2); // s2->0, s3->1, s4->2
   __syncthreads(); 
 
+  // 主计算循环
   #pragma unroll
   for (int k = (K_STAGE - 1); k < NUM_K_TILES; ++k) {
     // gmem -> smem
     // s2/4 can use bitwise ops but s3 can not, so, we use mod
     // ops for all stages kernel. s2: (k + 1)&1, s4: (k + 1)&3
     // s3: (k + 1) % 3
+    // 流水线步骤1：发起下一轮数据的异步拷贝
     int smem_sel = (k + 1) % K_STAGE; // s3 k 2->0, k 3->1, k 4->2...
     int smem_sel_next = k % K_STAGE;  // s3 k 2->2, k 3->0, k 4->1...
 
@@ -170,6 +190,8 @@ hgemm_mma_m16n8k16_mma2x4_warp4x4_stages_kernel(
     uint32_t RB[WARP_TILE_N][2];
 
     // smem -> reg
+    // 【流水线步骤 2】：从共享内存通过 LDMATRIX 指令加载数据到寄存器 (RA, RB)
+    // LDMATRIX 指令利用了 Warp 协作，可以高效加载 Tensor Core 所需的矩阵格式
     #pragma unroll
     for (int i = 0; i < WARP_TILE_M; ++i) {
       int warp_smem_a_m = warp_m * (MMA_M * WARP_TILE_M) + i * MMA_M;
@@ -191,6 +213,8 @@ hgemm_mma_m16n8k16_mma2x4_warp4x4_stages_kernel(
     }
     
     // MMA compute
+    // 【流水线步骤 3】：Tensor Core 矩阵乘加计算 (MMA)
+    // 执行 D = A * B + C
     #pragma unroll
     for (int i = 0; i < WARP_TILE_M; ++i) {
       #pragma unroll

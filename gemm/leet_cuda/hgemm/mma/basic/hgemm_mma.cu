@@ -40,6 +40,25 @@ HOST_DEVICE_INLINE
 int div_ceil(int a, int b) { return (a % b != 0) ? (a / b + 1) : (a / b); }
 
 // only 1 warp per block(32 threads), m16n8k16. A, B, C: all row_major.
+// ============================================================================
+// Kernel: hgemm_mma_m16n8k16_naive_kernel (基础版本)
+// 功能: 基础的半精度矩阵乘法kernel，使用MMA指令
+// 特点: 
+//   - 每个block只包含1个warp（32个线程）
+//   - 每个warp计算一个16x8的输出块
+//   - 使用16x8x16的MMA指令
+//   - 所有矩阵都是行主序
+// 用法:
+//   - 输入: A(M×K), B(K×N), C(M×N) 都是半精度浮点数
+//   - 输出: C = A × B
+//   - 每个block计算一个16x8的输出块
+//   - grid维度: (ceil(N/8), ceil(M/16))
+//   - block维度: (32, 1, 1)
+// 示例调用:
+//   dim3 block(32);
+//   dim3 grid(div_ceil(N, 8), div_ceil(M, 16));
+//   hgemm_mma_m16n8k16_naive_kernel<<<grid, block>>>(A, B, C, M, N, K);
+// ============================================================================
 template<const int MMA_M=16, const int MMA_N=8, const int MMA_K=16>
 __global__ void hgemm_mma_m16n8k16_naive_kernel(half* A, half* B, half* C, 
                                                 int M, int N, int K) {
@@ -267,6 +286,24 @@ if (((T).size(0) != (S0)) || ((T).size(1) != (S1))) { \
 }
 
 // only 1 warp per block(32 threads), m16n8k16. A, B, C: all row_major.
+// ============================================================================
+// 函数: hgemm_mma_m16n8k16_naive (基础版本)
+// 功能: PyTorch绑定的基础半精度矩阵乘法
+// 用法:
+//   - 输入: a(M×K), b(K×N), c(M×N) 都是torch.half类型
+//   - 输出: c = a × b (原地更新)
+//   - 调用方式: hgemm_mma_m16n8k16_naive(a, b, c)
+// 注意事项:
+//   - a, b, c必须是torch.half类型
+//   - a的列数必须等于b的行数
+//   - c的行数必须等于a的行数，列数必须等于b的列数
+//   - 使用基础的naive kernel，每个block只包含1个warp
+// 示例:
+//   torch::Tensor a = torch::randn({M, K}, torch::kHalf).cuda();
+//   torch::Tensor b = torch::randn({K, N}, torch::kHalf).cuda();
+//   torch::Tensor c = torch::zeros({M, N}, torch::kHalf).cuda();
+//   hgemm_mma_m16n8k16_naive(a, b, c);
+// ============================================================================
 void hgemm_mma_m16n8k16_naive(
   torch::Tensor a, torch::Tensor b, torch::Tensor c) {
   CHECK_TORCH_TENSOR_DTYPE(a, torch::kHalf)
@@ -295,6 +332,28 @@ void hgemm_mma_m16n8k16_naive(
 }
 
 // 128x128, mma2x4, warp4x4(64,32,16)
+// ============================================================================
+// 函数: hgemm_mma_m16n8k16_mma2x4_warp4x4 (基础版本)
+// 功能: PyTorch绑定的优化半精度矩阵乘法
+// 用法:
+//   - 输入: a(M×K), b(K×N), c(M×N) 都是torch.half类型
+//   - 输出: c = a × b (原地更新)
+//   - 调用方式: hgemm_mma_m16n8k16_mma2x4_warp4x4(a, b, c)
+// 特点:
+//   - 使用优化的kernel，每个block包含8个warp（256线程）
+//   - 每个block计算128x128的输出块
+//   - 使用共享内存padding避免bank冲突
+//   - 性能比naive版本更高
+// 注意事项:
+//   - a, b, c必须是torch.half类型
+//   - a的列数必须等于b的行数
+//   - c的行数必须等于a的行数，列数必须等于b的列数
+// 示例:
+//   torch::Tensor a = torch::randn({M, K}, torch::kHalf).cuda();
+//   torch::Tensor b = torch::randn({K, N}, torch::kHalf).cuda();
+//   torch::Tensor c = torch::zeros({M, N}, torch::kHalf).cuda();
+//   hgemm_mma_m16n8k16_mma2x4_warp4x4(a, b, c);
+// ============================================================================
 void hgemm_mma_m16n8k16_mma2x4_warp4x4(
   torch::Tensor a, torch::Tensor b, torch::Tensor c) {
   CHECK_TORCH_TENSOR_DTYPE(a, torch::kHalf)

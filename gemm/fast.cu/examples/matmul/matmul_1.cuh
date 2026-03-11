@@ -1,6 +1,46 @@
 #include <cassert>
 #include <cuda_runtime.h>
 
+// ============================================================================
+// 文件: matmul_1.cuh
+// 功能: 使用warp tiling策略的BF16矩阵乘法kernel
+// 特点:
+//   - 使用多级tiling策略：block tile -> warp tile -> thread tile
+//   - 支持BF16数据类型，在寄存器中使用FP32累加
+//   - 使用共享内存减少全局内存访问
+//   - 使用向量化加载（float2，128位）提高内存带宽利用率
+//   - 静态编译时参数检查确保正确的tiling配置
+// ============================================================================
+
+// ============================================================================
+// Kernel: sgemmWarptiling
+// 功能: 使用warp tiling策略的BF16矩阵乘法kernel
+// 模板参数:
+//   - BM: block在M方向的tile大小（通常128）
+//   - BN: block在N方向的tile大小（通常128）
+//   - BK: block在K方向的tile大小（通常16）
+//   - WM: warp在M方向的tile大小（通常64）
+//   - WN: warp在N方向的tile大小（通常64）
+//   - WNITER: warp在N方向的迭代次数（通常4）
+//   - TM: 每个线程在M方向处理的元素数（通常8）
+//   - TN: 每个线程在N方向处理的元素数（通常4）
+//   - NUM_THREADS: 每个block的线程数（通常128）
+// 函数参数:
+//   - M, N, K: 矩阵维度（M×K × K×N = M×N）
+//   - A, B: 输入矩阵（BF16格式，行主序）
+//   - C: 输出矩阵（BF16格式，行主序）
+// 算法概述:
+//   1. 每个block处理BM×BN的输出tile
+//   2. 每个block包含多个warp，每个warp处理WM×WN的warp tile
+//   3. 每个warp进一步划分为多个warp subtile
+//   4. 每个线程处理TM×TN的thread tile
+//   5. 使用共享内存缓存BK列的A和BK行的B
+//   6. 在寄存器中使用FP32累加避免精度损失
+// 示例调用:
+//   dim3 block(128);
+//   dim3 grid(CEIL_DIV(N, 128), CEIL_DIV(M, 128));
+//   sgemmWarptiling<128,128,16,64,64,4,8,4,128><<<grid,block>>>(M,N,K,A,B,C);
+// ============================================================================
 template <const int BM, const int BN, const int BK, const int WM, const int WN,
           const int WNITER, const int TM, const int TN, const int NUM_THREADS>
 __global__ void __launch_bounds__(NUM_THREADS)
