@@ -213,6 +213,20 @@ ldmatrix: 指令名称，意为“Load Matrix”。它不是普通的内存读�
 - .b16: 数据位宽。每个元素是 16 位（即 half 或 bfloat16）。
 
 - {%0}, [%1]: %0 是目标寄存器组（Tensor Core 使用的格式），[%1] 是共享内存的基地址。
+
+ldmatrix 指令由 warp 中 32 个线程协作执行。
+
+warp 被划分为 8 组，每组 4 个线程。
+每组线程负责加载一行（或一列）8 个 FP16 元素。
+
+由于每个线程只返回一个 32bit 寄存器，
+因此每个线程保存 2 个 FP16。
+
+ldmatrix.x1 表示每线程返回 1 个寄存器，
+warp 总共加载一个 8×8 tile。
+
+ldmatrix.x2 / x4 表示每线程返回多个寄存器，
+warp 会加载多个 8×8 tile。
 */
 #define LDMATRIX_X1(R, addr) asm volatile("ldmatrix.sync.aligned.x1.m8n8.shared.b16 {%0}, [%1];\n" : "=r"(R) : "r"(addr))
 
