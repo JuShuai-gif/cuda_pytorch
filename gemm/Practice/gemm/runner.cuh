@@ -8,8 +8,7 @@
 #include <time.h>
 #include <unistd.h>
 
-void cudaCheck(cudaError_t error, const char *file,
-               int line); // CUDA error check
+void cudaCheck(cudaError_t error, const char *file, int line); // CUDA error check
 void CudaDeviceInfo();    // print CUDA information
 
 void range_init_matrix(float *mat, int N);

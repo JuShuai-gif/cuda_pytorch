@@ -214,6 +214,71 @@ ldmatrix: 指令名称，意为“Load Matrix”。它不是普通的内存读�
 
 - {%0}, [%1]: %0 是目标寄存器组（Tensor Core 使用的格式），[%1] 是共享内存的基地址。
 
+ldmatrix 虽然只有前8个线程提供地址，但32个线程全部参与执行指令，并各自得到寄存器结果。
+
+也就是说：ldmatrix.sync.aligned.m8n8.x1.shared.b16
+
+在warp内部做了两件事：
+1. lane 0-7提供地址(每个地址对应一行)
+2. warp内部load + crossbar shuffle,把数据分发到32个线程寄存器
+
+所以：
+  - 32个线程都执行指令
+  - 32个线程都有寄存器输出
+  - 只有 lane 0-7 的地址被使用
+
+一、ladmatrix.m8n8.x1 的真实线程分工
+warp = 32 threads
+
+lane 0  -> address of row0
+lane 1  -> address of row1
+lane 2  -> address of row2
+lane 3  -> address of row3
+lane 4  -> address of row4
+lane 5  -> address of row5
+lane 6  -> address of row6
+lane 7  -> address of row7
+
+lane 8–31 -> 地址被忽略
+
+warp内部执行：
+  load 8x8 bf16 tile(64 elements)
+
+然后 warp crossbar 重新分发：
+  64 elements → 32 registers
+
+每线程：
+  2 bf16 = 32bit register
+
+二、寄存器分布
+对于 m8n8.x1:
+  tile = 8×8 = 64 bf16
+warp:
+  32 threads
+所以：
+  每线程 = 2 bf16
+
+分布规律：
+  lane0  -> A[0,0] A[0,1]
+  lane1  -> A[1,0] A[1,1]
+  lane2  -> A[2,0] A[2,1]
+  lane3  -> A[3,0] A[3,1]
+  lane4  -> A[4,0] A[4,1]
+  lane5  -> A[5,0] A[5,1]
+  lane6  -> A[6,0] A[6,1]
+  lane7  -> A[7,0] A[7,1]
+
+  lane8  -> A[0,2] A[0,3]
+  lane9  -> A[1,2] A[1,3]
+  ...
+
+
+线程角色：
+  lane0–7   提供地址
+  lane0–31  接收寄存器数据
+
+
+
 ldmatrix 指令由 warp 中 32 个线程协作执行。
 
 warp 被划分为 8 组，每组 4 个线程。
@@ -239,6 +304,66 @@ warp 会加载多个 8×8 tile。
 // 从共享内存加载4个连续的8x8矩阵到寄存器
 // 举例：LDMATRIX_X4(regA0, regA1, regA2, regA3, shared_addr) 加载4个8x8矩阵
 #define LDMATRIX_X4(R0, R1, R2, R3, addr) asm volatile("ldmatrix.sync.aligned.x4.m8n8.shared.b16 {%0, %1, %2, %3}, [%4];\n" : "=r"(R0), "=r"(R1), "=r"(R2), "=r"(R3) : "r"(addr))
+
+/*
+trans 和 non-trans 的区别确实是读取方式不同，从而导致 warp 内各线程寄存器中的元素分布不同
+
+non-trans  : 按 row-major 解释 shared memory
+trans      : 按 column-major 解释 shared memory
+
+注意：
+不是先读取再转置
+而是读取时就按不同方向组织 fragment
+
+1. non-trans 情况
+warp线程得到的数据：
+lane0 → (1,2)
+lane1 → (5,6)
+lane2 → (9,10)
+lane3 → (13,14)
+
+lane4 → (3,4)
+lane5 → (7,8)
+lane6 → (11,12)
+lane7 → (15,16)
+
+可以画成：
+读取方向 →
+
+1  2 | 3  4
+5  6 | 7  8
+9 10 |11 12
+13 14|15 16
+
+warp是按列块(2列)读取
+
+2. trans情况
+同一块 shared memory：
+1   2   3   4
+5   6   7   8
+9  10  11  12
+13 14  15  16
+
+warp线程得到：
+lane0 → (1,5)
+lane1 → (2,6)
+lane2 → (3,7)
+lane3 → (4,8)
+
+lane4 → (9,13)
+lane5 → (10,14)
+lane6 → (11,15)
+lane7 → (12,16)
+
+图形：
+↓ 读取方向
+
+1   2   3   4
+5   6   7   8
+------------
+9  10  11  12
+13 14  15  16
+*/
 
 
 // 从共享内存加载并转置1个8x8矩阵到寄存器
@@ -292,44 +417,58 @@ __global__ void hgemm_mma_m16n8k16_naive_kernel(half* A, half* B, half* C,
   // 一个 K 中有多少个 MMA_K
   const int NUM_K_TILES = div_ceil(K, MMA_K);
 
-  // 
+  // A 块的高度
   constexpr int BM = MMA_M; // 16
+  // B 块的宽度
   constexpr int BN = MMA_N; // 8
+  // A 块的宽度，B 块的高度
   constexpr int BK = MMA_K; // 16
+  
+  // A 块 16 * 16
+  __shared__ half s_a[MMA_M][MMA_K]; 
+  // B 块 16 * 8
+  __shared__ half s_b[MMA_K][MMA_N]; 
 
-  __shared__ half s_a[MMA_M][MMA_K]; // 16x16
-  __shared__ half s_b[MMA_K][MMA_N]; // 16x8
-
-
+  // C 块 16 * 8
   __shared__ half s_c[MMA_M][MMA_N]; // 16x8
-
+  
+  // 块内线程索引
   const int tid = threadIdx.y * blockDim.x + threadIdx.x; // within block
+  // warp 内 id
   const int lane_id = tid % WARP_SIZE; // 0~31
 
-  // s_a[16][16], 每行16，每线程load 8，需要2线程，共16行，需2x16=32线程
+  // 表示行数，0-15
   const int load_smem_a_m = tid / 2; // row 0~15
+  // 表示列数，0，8
   const int load_smem_a_k = (tid % 2) * 8; // col 0,8
-  // s_b[16][8], 每行8，每线程load 8，需要1线程，共16行，需16线程，只需一半线程加载
 
   // 只使用前 15 个
   const int load_smem_b_k = tid; // row 0~31, but only use 0~15
+  // 列数只能是 0
   const int load_smem_b_n = 0; // col 0
+
+  // A 块矩阵在全局内存中的行位置
   const int load_gmem_a_m = by * BM + load_smem_a_m; // global m
+  // B 块矩阵在全局内存中的列位置
   const int load_gmem_b_n = bx * BN + load_smem_b_n; // global n
+
+
   if (load_gmem_a_m >= M && load_gmem_b_n >= N) return;
 
+  // 存放结果 
   uint32_t RC[2] = {0, 0};
 
   #pragma unroll
   for (int k = 0; k < NUM_K_TILES; ++k) {
-    // gmem_a -> smem_a
+    // gmem_a -> smem_a，全局内存到共享内存
     int load_gmem_a_k = k * BK + load_smem_a_k; // global col of a
     int load_gmem_a_addr = load_gmem_a_m * K + load_gmem_a_k;
-
+    // 加载到共享内存中，行主序
     LDST128BITS(s_a[load_smem_a_m][load_smem_a_k]) = (
       LDST128BITS(A[load_gmem_a_addr]));
 
     // gmem_b -> smem_b
+    // 将B块读到共享内存中，行主序
     if (lane_id < MMA_K) {
       int load_gmem_b_k = k * MMA_K + load_smem_b_k; // global row of b
       int load_gmem_b_addr = load_gmem_b_k * N + load_gmem_b_n; 
@@ -338,7 +477,9 @@ __global__ void hgemm_mma_m16n8k16_naive_kernel(half* A, half* B, half* C,
     }
     __syncthreads(); 
 
+    // 每个线程所拥有的寄存器，每个线程是一个 uint32_t,也就是两个half,由于 A 是 x4,所以共4个寄存器
     uint32_t RA[4];  // 寄存器数组，存储从s_a加载的4个8x8矩阵片段（共16x16矩阵）
+    // 2个寄存器
     uint32_t RB[2];  // 寄存器数组，存储从s_b加载的2个8x8转置矩阵片段（共16x8矩阵）
     
     // ldmatrix for s_a, ldmatrix.trans for s_b.
@@ -373,7 +514,7 @@ __global__ void hgemm_mma_m16n8k16_naive_kernel(half* A, half* B, half* C,
     
     /*
     _T (Transpose)：这是关键。mma.m16n8k16 指令要求 B 矩阵在寄存器中必须是列优先布局。
-    _T 后缀告诉硬件在加载的同时进行转置。
+    _T 后缀告诉硬件在加载的时候进行转置的读取。
     X2 含义：加载一个 $16 \times 8$ 的分块，存入 2 个寄存器 RB[0-1] 中（每个线程持有 4 个 half）
     */
     LDMATRIX_X2_T(RB[0], RB[1], load_smem_b_ptr);
@@ -388,12 +529,14 @@ __global__ void hgemm_mma_m16n8k16_naive_kernel(half* A, half* B, half* C,
   // s_c[16][8], https://docs.nvidia.com/cuda/parallel-thread-execution/index.html
   // #matrix-fragments-for-mma-m16n8k16-with-floating-point-type
   // [0~7][0~3 u32 -> 0~7 f16], [8~15][0~3 u32 -> 0~7 f16]
+  // 寄存器写回共享内存
   LDST32BITS(s_c[lane_id / 4    ][(lane_id % 4) * 2]) = LDST32BITS(RC[0]); 
   LDST32BITS(s_c[lane_id / 4 + 8][(lane_id % 4) * 2]) = LDST32BITS(RC[1]);
 
   __syncthreads();
 
   // store s_c[16][8]
+  // 共享内存写回全局内存
   if (lane_id < MMA_M) {
     // store 128 bits per memory issue.
     int store_gmem_c_m = by * BM + lane_id;
@@ -441,9 +584,14 @@ template<const int MMA_M=16,
 __global__ void  __launch_bounds__(256) 
 hgemm_mma_m16n8k16_mma2x4_warp4x4_kernel(
   half* A, half* B, half* C, int M, int N, int K) {
+  // 块索引
   const int bx = blockIdx.x;
   const int by = blockIdx.y;
+
+  // 总共多少个块
   const int NUM_K_TILES = div_ceil(K, MMA_K);
+
+  // 
   constexpr int BM = MMA_M * MMA_TILE_M * WARP_TILE_M; // 16*2*4=128
   constexpr int BN = MMA_N * MMA_TILE_N * WARP_TILE_N; // 8*4*4=128
   constexpr int BK = MMA_K; // 16
