@@ -21,10 +21,6 @@ __global__ void sgemm_naive(int M,int N,int K,float alpha,const float* A,
         }
         C[x * N + y] = alpha * tmp + beta * C[x * N + y];    
     }
-
-    
-
-
 }
 
 

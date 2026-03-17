@@ -463,7 +463,7 @@ __global__ void hgemm_mma_m16n8k16_naive_kernel(half* A, half* B, half* C,
     // gmem_a -> smem_a，全局内存到共享内存
     int load_gmem_a_k = k * BK + load_smem_a_k; // global col of a
     int load_gmem_a_addr = load_gmem_a_m * K + load_gmem_a_k;
-    // 加载到共享内存中，行主序
+    // 加载到共享内存中，行主序,一次读8个
     LDST128BITS(s_a[load_smem_a_m][load_smem_a_k]) = (
       LDST128BITS(A[load_gmem_a_addr]));
 

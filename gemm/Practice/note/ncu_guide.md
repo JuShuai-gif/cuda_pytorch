@@ -77,6 +77,8 @@ ncu --query-gpu-metrics
 
 ## 基本使用
 
+sudo /usr/local/cuda/bin/ncu --set full ./sgemm 1
+
 ### 1. 运行ncu分析
 
 ```bash
