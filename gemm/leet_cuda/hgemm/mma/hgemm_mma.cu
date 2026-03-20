@@ -464,16 +464,14 @@ __global__ void hgemm_mma_m16n8k16_naive_kernel(half* A, half* B, half* C,
     int load_gmem_a_k = k * BK + load_smem_a_k; // global col of a
     int load_gmem_a_addr = load_gmem_a_m * K + load_gmem_a_k;
     // 加载到共享内存中，行主序,一次读8个
-    LDST128BITS(s_a[load_smem_a_m][load_smem_a_k]) = (
-      LDST128BITS(A[load_gmem_a_addr]));
+    LDST128BITS(s_a[load_smem_a_m][load_smem_a_k]) = (LDST128BITS(A[load_gmem_a_addr]));
 
     // gmem_b -> smem_b
     // 将B块读到共享内存中，行主序
     if (lane_id < MMA_K) {
       int load_gmem_b_k = k * MMA_K + load_smem_b_k; // global row of b
       int load_gmem_b_addr = load_gmem_b_k * N + load_gmem_b_n; 
-      LDST128BITS(s_b[load_smem_b_k][load_smem_b_n]) = (
-        LDST128BITS(B[load_gmem_b_addr]));
+      LDST128BITS(s_b[load_smem_b_k][load_smem_b_n]) = (LDST128BITS(B[load_gmem_b_addr]));
     }
     __syncthreads(); 
 
@@ -493,8 +491,8 @@ __global__ void hgemm_mma_m16n8k16_naive_kernel(half* A, half* B, half* C,
     // lane_id / 16：确定列块索引（0或1），乘以8得到实际列偏移（0或8）
     /*
     16 * 16的矩阵
-     0   |   1
-     2   |   3
+     0   |   2
+     1   |   3
     
     */
     uint32_t load_smem_a_ptr = __cvta_generic_to_shared(

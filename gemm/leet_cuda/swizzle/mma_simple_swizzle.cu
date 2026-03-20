@@ -22,10 +22,14 @@ using namespace nvcuda;
 #define LDST32BITS(value) (reinterpret_cast<half2 *>(&(value))[0])
 #define LDST64BITS(value) (reinterpret_cast<float2 *>(&(value))[0])
 #define LDST128BITS(value) (reinterpret_cast<float4 *>(&(value))[0])
+
 #define CP_ASYNC_COMMIT_GROUP() asm volatile("cp.async.commit_group;\n" ::)
+
 #define CP_ASYNC_WAIT_ALL() asm volatile("cp.async.wait_all;\n" ::)
+
 #define CP_ASYNC_WAIT_GROUP(n)                                                 \
   asm volatile("cp.async.wait_group %0;\n" ::"n"(n))
+
 // ca(cache all, L1 + L2): support 4, 8, 16 bytes, cg(cache global, L2): only
 // support 16 bytes.
 #define CP_ASYNC_CA(dst, src, bytes)                                           \
