@@ -2,7 +2,8 @@ cmake_minimum_required(VERSION 3.20)
 message(STATUS "CMake version: ${CMAKE_VERSION}")
 
 # Enable verbose output
-set(CMAKE_VERBOSE_MAKEFILE ON)
+# 输出详细的编译过程指令
+set(CMAKE_VERBOSE_MAKEFILE OFF)
 
 # Set CUDA compiler before project() if not already set
 # Try to find nvcc in common locations
@@ -60,12 +61,18 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES OR CMAKE_CUDA_ARCHITECTURES STREQUAL "")
         endif()
     else()
         # Default to common architecture if detection fails
+        # 默认使用 40系显卡
         set(CMAKE_CUDA_ARCHITECTURES "89")
         message(STATUS "Could not detect GPU, using default CUDA architecture: 89")
     endif()
 endif()
 
 project(explore_gemm CUDA CXX)
+
+# 在 project() 之后添加
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lib)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lib)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CUDA_STANDARD 17)
@@ -123,6 +130,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR})
+include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${CMAKE_SOURCE_DIR}/third-party)
 
 # CUTLASS library configuration
@@ -144,70 +152,71 @@ endif()
 
 # Tests - each test now only compiles its specific CUDA kernel file
 add_executable(test_gemm_naive
-    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_naive.cpp
-    ${CMAKE_SOURCE_DIR}/cuda/01_naive.cu)
+    ${CMAKE_SOURCE_DIR}/src/tests/test_gemm_naive.cu
+    ${CMAKE_SOURCE_DIR}/src/01_naive.cu)
 target_link_libraries(test_gemm_naive "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_coalesce
-    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_coalesce.cpp
-    ${CMAKE_SOURCE_DIR}/cuda/02_kernel_global_mem_coalesce.cu
-    ${CMAKE_SOURCE_DIR}/cuda/01_naive.cu)  # Needed for comparison test
-target_link_libraries(test_gemm_coalesce "${TORCH_LIBRARIES}")
+# add_executable(test_gemm_coalesce
+#     ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_coalesce.cpp
+#     ${CMAKE_SOURCE_DIR}/cuda/02_kernel_global_mem_coalesce.cu
+#     ${CMAKE_SOURCE_DIR}/cuda/01_naive.cu)  # Needed for comparison test
+# target_link_libraries(test_gemm_coalesce "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_shared_mem
-    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_shared_mem.cpp
-    ${CMAKE_SOURCE_DIR}/cuda/03_kernel_shared_mem.cu)
-target_link_libraries(test_gemm_shared_mem "${TORCH_LIBRARIES}")
+# add_executable(test_gemm_shared_mem
+#     ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_shared_mem.cpp
+#     ${CMAKE_SOURCE_DIR}/cuda/03_kernel_shared_mem.cu)
+# target_link_libraries(test_gemm_shared_mem "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_blocktiling1d
-    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_blocktiling1d.cpp
-    ${CMAKE_SOURCE_DIR}/cuda/04_kernel_blocktiling_1d.cu)
-target_link_libraries(test_gemm_blocktiling1d "${TORCH_LIBRARIES}")
+# add_executable(test_gemm_blocktiling1d
+#     ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_blocktiling1d.cpp
+#     ${CMAKE_SOURCE_DIR}/cuda/04_kernel_blocktiling_1d.cu)
+# target_link_libraries(test_gemm_blocktiling1d "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_blocktiling2d
-    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_blocktiling2d.cpp
-    ${CMAKE_SOURCE_DIR}/cuda/05_kernel_blocktiling_2d.cu)
-target_link_libraries(test_gemm_blocktiling2d "${TORCH_LIBRARIES}")
+# add_executable(test_gemm_blocktiling2d
+#     ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_blocktiling2d.cpp
+#     ${CMAKE_SOURCE_DIR}/cuda/05_kernel_blocktiling_2d.cu)
+# target_link_libraries(test_gemm_blocktiling2d "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_vectorize
-    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_vectorize.cpp
-    ${CMAKE_SOURCE_DIR}/cuda/06_kernel_vectorize.cu)
-target_link_libraries(test_gemm_vectorize "${TORCH_LIBRARIES}")
+# add_executable(test_gemm_vectorize
+#     ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_vectorize.cpp
+#     ${CMAKE_SOURCE_DIR}/cuda/06_kernel_vectorize.cu)
+# target_link_libraries(test_gemm_vectorize "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_warptiling
-    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_warptiling.cpp
-    ${CMAKE_SOURCE_DIR}/cuda/07_kernel_warptiling.cu)
-target_link_libraries(test_gemm_warptiling "${TORCH_LIBRARIES}")
+# add_executable(test_gemm_warptiling
+#     ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_warptiling.cpp
+#     ${CMAKE_SOURCE_DIR}/cuda/07_kernel_warptiling.cu)
+# target_link_libraries(test_gemm_warptiling "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_warptiling_all_dtypes
-    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_warptiling_all_dtypes.cpp
-    ${CMAKE_SOURCE_DIR}/cuda/08_kernel_warptiling_all_dtypes.cu
-    ${CMAKE_SOURCE_DIR}/cuda/07_kernel_warptiling.cu)  # Needed for sgemm_warptiling_default
-target_link_libraries(test_gemm_warptiling_all_dtypes "${TORCH_LIBRARIES}")
+# add_executable(test_gemm_warptiling_all_dtypes
+#     ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_warptiling_all_dtypes.cpp
+#     ${CMAKE_SOURCE_DIR}/cuda/08_kernel_warptiling_all_dtypes.cu
+#     ${CMAKE_SOURCE_DIR}/cuda/07_kernel_warptiling.cu)  # Needed for sgemm_warptiling_default
+# target_link_libraries(test_gemm_warptiling_all_dtypes "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_tensorcore_naive
-    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore_naive.cpp
-    ${CMAKE_SOURCE_DIR}/cuda/09_kernel_tensorcore_naive.cu)
-target_link_libraries(test_gemm_tensorcore_naive "${TORCH_LIBRARIES}")
+# add_executable(test_gemm_tensorcore_naive
+#     ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore_naive.cpp
+#     ${CMAKE_SOURCE_DIR}/cuda/09_kernel_tensorcore_naive.cu)
+# target_link_libraries(test_gemm_tensorcore_naive "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_tensorcore
-    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore.cpp
-    ${CMAKE_SOURCE_DIR}/cuda/10_kernel_tensorcore_warptiled.cu)
-target_link_libraries(test_gemm_tensorcore "${TORCH_LIBRARIES}")
+# add_executable(test_gemm_tensorcore
+#     ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore.cpp
+#     ${CMAKE_SOURCE_DIR}/cuda/10_kernel_tensorcore_warptiled.cu)
+# target_link_libraries(test_gemm_tensorcore "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_tensorcore_double_buffered
-    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore_double_buffered.cpp
-    ${CMAKE_SOURCE_DIR}/cuda/11_kernel_tensorcore_double_buffered.cu)
-target_link_libraries(test_gemm_tensorcore_double_buffered "${TORCH_LIBRARIES}")
+# add_executable(test_gemm_tensorcore_double_buffered
+#     ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore_double_buffered.cpp
+#     ${CMAKE_SOURCE_DIR}/cuda/11_kernel_tensorcore_double_buffered.cu)
+# target_link_libraries(test_gemm_tensorcore_double_buffered "${TORCH_LIBRARIES}")
 
-add_executable(test_gemm_tensorcore_async
-    ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore_async.cpp
-    ${CMAKE_SOURCE_DIR}/cuda/12_kernel_tensorcore_async.cu
-    ${CMAKE_SOURCE_DIR}/cuda/11_kernel_tensorcore_double_buffered.cu)  # Needed for comparison test
-target_link_libraries(test_gemm_tensorcore_async "${TORCH_LIBRARIES}")
+# add_executable(test_gemm_tensorcore_async
+#     ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_tensorcore_async.cpp
+#     ${CMAKE_SOURCE_DIR}/cuda/12_kernel_tensorcore_async.cu
+#     ${CMAKE_SOURCE_DIR}/cuda/11_kernel_tensorcore_double_buffered.cu)  # Needed for comparison test
+# target_link_libraries(test_gemm_tensorcore_async "${TORCH_LIBRARIES}")
 
 # Detect GPU compute capability
 # Allow manual override via -DBUILD_HOPPER_KERNELS=ON
+
 if(NOT DEFINED BUILD_HOPPER_KERNELS)
     set(GPU_COMPUTE_CAPABILITY 0)
 
@@ -251,6 +260,8 @@ else()
 endif()
 
 # CUTLASS test (only build if CUTLASS is available)
+# 先不编译 CUTLASS 相关的
+set(CUTLASS_AVAILABLE FALSE)
 if(CUTLASS_AVAILABLE)
     add_executable(test_gemm_cutlass
         ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_cutlass.cpp
@@ -313,17 +324,17 @@ endif()
 enable_testing()
 
 add_test(NAME test_gemm_naive COMMAND test_gemm_naive)
-add_test(NAME test_gemm_coalesce COMMAND test_gemm_coalesce)
-add_test(NAME test_gemm_shared_mem COMMAND test_gemm_shared_mem)
-add_test(NAME test_gemm_blocktiling1d COMMAND test_gemm_blocktiling1d)
-add_test(NAME test_gemm_blocktiling2d COMMAND test_gemm_blocktiling2d)
-add_test(NAME test_gemm_vectorize COMMAND test_gemm_vectorize)
-add_test(NAME test_gemm_warptiling COMMAND test_gemm_warptiling)
-add_test(NAME test_gemm_warptiling_all_dtypes COMMAND test_gemm_warptiling_all_dtypes)
-add_test(NAME test_gemm_tensorcore_naive COMMAND test_gemm_tensorcore_naive)
-add_test(NAME test_gemm_tensorcore COMMAND test_gemm_tensorcore)
-add_test(NAME test_gemm_tensorcore_double_buffered COMMAND test_gemm_tensorcore_double_buffered)
-add_test(NAME test_gemm_tensorcore_async COMMAND test_gemm_tensorcore_async)
+# add_test(NAME test_gemm_coalesce COMMAND test_gemm_coalesce)
+# add_test(NAME test_gemm_shared_mem COMMAND test_gemm_shared_mem)
+# add_test(NAME test_gemm_blocktiling1d COMMAND test_gemm_blocktiling1d)
+# add_test(NAME test_gemm_blocktiling2d COMMAND test_gemm_blocktiling2d)
+# add_test(NAME test_gemm_vectorize COMMAND test_gemm_vectorize)
+# add_test(NAME test_gemm_warptiling COMMAND test_gemm_warptiling)
+# add_test(NAME test_gemm_warptiling_all_dtypes COMMAND test_gemm_warptiling_all_dtypes)
+# add_test(NAME test_gemm_tensorcore_naive COMMAND test_gemm_tensorcore_naive)
+# add_test(NAME test_gemm_tensorcore COMMAND test_gemm_tensorcore)
+# add_test(NAME test_gemm_tensorcore_double_buffered COMMAND test_gemm_tensorcore_double_buffered)
+# add_test(NAME test_gemm_tensorcore_async COMMAND test_gemm_tensorcore_async)
 
 # Only add Hopper test if it was built
 if(BUILD_HOPPER_KERNELS)

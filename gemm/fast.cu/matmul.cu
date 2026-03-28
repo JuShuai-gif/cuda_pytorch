@@ -215,13 +215,22 @@ int main() {
     }
 
     // Benchmark
+    // 记录开始事件
     cudaEventRecord(start);
+
+    // 重复执行内核
     for (int j = 0; j < repeat_times; j++) {
       run_kernel(kernel_num, m, n, k, dA, dB, dC);
     }
+
+    // 记录结束事件
     cudaEventRecord(stop);
+
+    // 同步确保事件完成
     cudaEventSynchronize(start);
     cudaEventSynchronize(stop);
+
+    // 记录总耗时(ms)
     cudaEventElapsedTime(&elapsed_time, start, stop);
 
     long flops = (2LL * m) * (n * k);
@@ -229,6 +238,11 @@ int main() {
         "Average elapsed time: (%7.6f) s, performance: (%7.1f) TFLOPS. size: (%ld).\n\n",
         elapsed_time / 1000.0 / repeat_times,
         (repeat_times * flops * 1e-9) / elapsed_time, m);
+
+    double total_flops = repeat_times * flops;
+    double total_time_sec = elapsed_time / 1000.0;  // ms → s
+    double tflops = total_flops / total_time_sec / 1e12;
+    printf("Performance: %.1f TFLOPS\n", tflops);
   }
 
   // Free up CPU and GPU space

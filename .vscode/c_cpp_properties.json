@@ -6,8 +6,12 @@
                 "${workspaceFolder}/**",
                 "${workspaceFolder}/include/**",
                 "${workspaceFolder}/include",
-                "/home/robot/miniconda3/envs/torch_env/lib/python3.10/site-packages/torch/include",
-                "/usr/local/cuda-12.2/targets/x86_64-linux/include"
+                "${workspaceFolder}/gemm/learn_gemm/third-party/libtorch/include",
+                "${workspaceFolder}/gemm/learn_gemm/third-party/libtorch/include/torch/csrc/api/include",
+                "${workspaceFolder}/gemm/learn_gemm/third-party/cutlass/include",
+                "${workspaceFolder}/gemm/learn_gemm/third-party/cutlass/tools/util/include",
+                "${workspaceFolder}/gemm/learn_gemm/include",
+                "/usr/local/cuda-12.6/include"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/g++",
