@@ -1,6 +1,6 @@
 #define CATCH_CONFIG_MAIN
 #include "../../third-party/catch.hpp"
-#include "../gemm_kernels.cuh"
+#include "gemm_kernels.cuh"
 #include <torch/torch.h>
 
 TEST_CASE("SGEMM Shared Memory - Basic functionality", "[sgemm_shared_mem]") {
