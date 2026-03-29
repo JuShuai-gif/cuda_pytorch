@@ -7,8 +7,9 @@
 #include "utils.cuh"
 
 
-#define FLOAT4(value) (reinterpret_cast<float4*>(&(value))[0])
-#define LDST128BITS(value) (reinterpret_cast<float4*>(&(value))[0])
+#define LOAD_FLOAT4(value)  (reinterpret_cast<const float4*>(&(value))[0])
+#define STORE_FLOAT4(value) (reinterpret_cast<float4*>(&(value))[0])
+#define LDST128BITS(value) (reinterpret_cast<const float4*>(&(value))[0])
 
 
 template <const uint block_size>
@@ -34,7 +35,7 @@ __global__ void sgemm_global_mem_coalesce_kernel(int num_rows_a, int num_cols_b,
 
         // B[k_idx, output_col:output_col+3]
         if (output_col + 3 < num_cols_b) {
-            const float4 b_vec = LDST128BITS(matrix_b[k_idx * num_cols_b + output_col]);
+            const float4 b_vec = LOAD_FLOAT4(matrix_b[k_idx * num_cols_b + output_col]);
 
             acc.x += a_val * b_vec.x;
             acc.y += a_val * b_vec.y;
@@ -54,14 +55,14 @@ __global__ void sgemm_global_mem_coalesce_kernel(int num_rows_a, int num_cols_b,
     const int c_idx = output_row * num_cols_b + output_col;
 
     if (output_col + 3 < num_cols_b) {
-        float4 c_vec = LDST128BITS(matrix_c[c_idx]);
+        float4 c_vec = STORE_FLOAT4(matrix_c[c_idx]);
 
         c_vec.x = alpha * acc.x + beta * c_vec.x;
         c_vec.y = alpha * acc.y + beta * c_vec.y;
         c_vec.z = alpha * acc.z + beta * c_vec.z;
         c_vec.w = alpha * acc.w + beta * c_vec.w;
 
-        LDST128BITS(matrix_c[c_idx]) = c_vec;
+        STORE_FLOAT4(matrix_c[c_idx]) = c_vec;
     } else {
         for (int j = 0; j < 4; ++j) {
             if (output_col + j < num_cols_b) {

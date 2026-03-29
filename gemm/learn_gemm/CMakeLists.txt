@@ -156,6 +156,16 @@ add_executable(test_gemm_naive
     ${CMAKE_SOURCE_DIR}/src/01_naive.cu)
 target_link_libraries(test_gemm_naive "${TORCH_LIBRARIES}")
 
+add_executable(ncu_gemm_naive
+    ${CMAKE_SOURCE_DIR}/src/ncu/ncu_gemm_naive.cu
+    ${CMAKE_SOURCE_DIR}/src/01_naive.cu)
+target_link_libraries(ncu_gemm_naive "${TORCH_LIBRARIES}")
+
+add_executable(ncu_gemm_coalesce
+    ${CMAKE_SOURCE_DIR}/src/ncu/ncu_gemm_coalesce.cu
+    ${CMAKE_SOURCE_DIR}/src/02_ncu_gemm_coalesce.cu)
+target_link_libraries(ncu_gemm_coalesce "${TORCH_LIBRARIES}")
+
 # add_executable(test_gemm_coalesce
 #     ${CMAKE_SOURCE_DIR}/cuda/tests/test_gemm_coalesce.cpp
 #     ${CMAKE_SOURCE_DIR}/cuda/02_kernel_global_mem_coalesce.cu
