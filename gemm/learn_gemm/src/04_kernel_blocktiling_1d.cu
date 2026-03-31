@@ -6,6 +6,7 @@
 #include "gemm_kernels.cuh"
 #include "utils.cuh"
 
+// 加入寄存器内存空间
 template <const int BM, const int BN, const int BK, const int TM>
 __global__ void sgemm_blocktiling_1d_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
                                             float alpha, const float *matrix_a,

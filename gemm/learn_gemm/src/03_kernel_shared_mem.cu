@@ -6,15 +6,18 @@
 #include "gemm_kernels.cuh"
 #include "utils.cuh"
 
+// 加入了共享内存
 template <const uint block_size>
 __global__ void sgemm_shared_mem_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
                                         float alpha, const float *matrix_a,
                                         const float *matrix_b, float beta,
                                         float *matrix_c)
 {
+    // 块的行号和列号
     const uint block_row = blockIdx.x;
     const uint block_col = blockIdx.y;
 
+    // 申请的共享内存块
     __shared__ float tile_a[block_size * block_size];
     __shared__ float tile_b[block_size * block_size];
 

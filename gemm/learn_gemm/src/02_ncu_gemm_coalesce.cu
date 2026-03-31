@@ -11,16 +11,18 @@
 #define STORE_FLOAT4(value) (reinterpret_cast<float4*>(&(value))[0])
 #define LDST128BITS(value) (reinterpret_cast<const float4*>(&(value))[0])
 
-
+// 向量化
 template <const uint block_size>
 __global__ void sgemm_global_mem_coalesce_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
                                                  float alpha, const float *matrix_a,
                                                  const float *matrix_b, float beta, float *matrix_c)
 {
     // 每个 thread 负责 1 个 row, 4 个连续 col
-    const int threads_per_row = block_size / 4;  
+    const int threads_per_row = block_size / 4;  // 32/4=8
     const int linear_tid = threadIdx.x;
 
+    // linear_tid / threads_per_row：表示第几行
+    // (linear_tid % threads_per_row) * 4: 表示第几列
     const int output_row = blockIdx.x * block_size + (linear_tid / threads_per_row);
     const int output_col = blockIdx.y * block_size + (linear_tid % threads_per_row) * 4;
 

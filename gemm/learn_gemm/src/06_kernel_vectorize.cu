@@ -5,6 +5,7 @@
 #include <torch/torch.h>
 #include "gemm_kernels.cuh"
 
+// 读取的时候进行向量化
 template <const int BM, const int BN, const int BK, const int TM, const int TN>
 __global__ void sgemm_vectorize_kernel(int num_rows_a, int num_cols_b, int num_cols_a,
                                        float alpha, const float *matrix_a,
