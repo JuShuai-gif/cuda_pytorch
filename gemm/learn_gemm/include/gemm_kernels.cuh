@@ -5,19 +5,32 @@
 
 void warmup_gpu();
 
+////////////////////////////////////////////////////////////////////////////////////////
 // Naive SGEMM implementation
+// 01_naive.cu
 void sgemm_naive(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                  torch::Tensor &output_matrix, float alpha, float beta);
 
+void hgemm_naive_f16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                 torch::Tensor &output_matrix, float alpha, float beta);
+                 
+void hgemm_sliced_k_f16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
+                 torch::Tensor &output_matrix, float alpha, float beta)                 
+
+////////////////////////////////////////////////////////////////////////////////////////
+
 // SGEMM with global memory coalescing
+// 02_ncu_gemm_coalesce.cu
 void sgemm_global_mem_coalesce(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                                torch::Tensor &output_matrix, float alpha, float beta);
 
 // SGEMM with shared memory tiling
+// 03_kernel_shared_mem.cu
 void sgemm_shared_mem(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                       torch::Tensor &output_matrix, float alpha, float beta);
 
 // SGEMM with 1D block tiling
+// 04_kernel_blocktiling_1d.cu
 void sgemm_blocktiling_1d(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                           torch::Tensor &output_matrix, float alpha, float beta);
 
