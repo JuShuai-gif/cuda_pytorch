@@ -34,9 +34,24 @@ void sgemm_shared_mem(const torch::Tensor &matrix_a, const torch::Tensor &matrix
 void sgemm_blocktiling_1d(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                           torch::Tensor &output_matrix, float alpha, float beta);
 
+/************************************************************************************************* */
 // SGEMM with 2D block tiling
 void sgemm_blocktiling_2d(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                           torch::Tensor &output_matrix, float alpha, float beta);
+
+void hgemm_t_8x8_sliced_k_f16x4(torch::Tensor a, torch::Tensor b, torch::Tensor c);
+
+void hgemm_t_8x8_sliced_k_f16x4_pack(torch::Tensor a, torch::Tensor b, torch::Tensor c);
+
+void hgemm_t_8x8_sliced_k_f16x4_bcf(torch::Tensor a, torch::Tensor b, torch::Tensor c);
+
+void hgemm_t_8x8_sliced_k_f16x4_pack_bcf(torch::Tensor a, torch::Tensor b, torch::Tensor c);
+
+void hgemm_t_8x8_sliced_k_f16x8_pack_bcf(torch::Tensor a, torch::Tensor b, torch::Tensor c);
+
+void hgemm_t_8x8_sliced_k_f16x8_pack_bcf_dbuf(torch::Tensor a, torch::Tensor b, torch::Tensor c);
+
+/************************************************************************************************* */
 
 // SGEMM with vectorized memory access
 void sgemm_vectorize(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
@@ -62,6 +77,7 @@ void sgemm_warptiling_fp16(const torch::Tensor &matrix_a, const torch::Tensor &m
 void sgemm_warptiling_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                            torch::Tensor &output_matrix, float alpha, float beta);
 
+/********************************************************************************* */
 // SGEMM with Tensor Cores - Naive version
 // Input/output use same dtype (FP16 or BF16), like PyTorch behavior
 // Each warp processes a single 16x16 WMMA tile without block/warp tiling
@@ -70,6 +86,12 @@ void sgemm_tensorcore_naive_fp16(const torch::Tensor &matrix_a, const torch::Ten
 
 void sgemm_tensorcore_naive_bf16(const torch::Tensor &matrix_a, const torch::Tensor &matrix_b,
                                  torch::Tensor &output_matrix, float alpha, float beta);
+
+
+
+
+                                 
+/********************************************************************************* */
 
 // SGEMM with Tensor Cores - Optimized version
 // Input/output use same dtype (FP16 or BF16), like PyTorch behavior
