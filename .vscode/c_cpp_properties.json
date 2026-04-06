@@ -11,10 +11,11 @@
                 "${workspaceFolder}/gemm/learn_gemm/third-party/cutlass/include",
                 "${workspaceFolder}/gemm/learn_gemm/third-party/cutlass/tools/util/include",
                 "${workspaceFolder}/gemm/learn_gemm/include",
-                "/usr/local/cuda-12.6/include"
+                "/usr/local/cuda-12.6/include",
+                "${workspaceFolder}/flashinfer/include/flashinfer"
             ],
             "defines": [],
-            "compilerPath": "/usr/bin/g++",
+            "compilerPath": "/usr/bin/g++-13",
             "cStandard": "c17",
             "cppStandard": "gnu++14",
             "intelliSenseMode": "linux-gcc-x64",
