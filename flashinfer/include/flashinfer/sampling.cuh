@@ -1,5 +1,23 @@
 #ifndef FLASHINFER_SAMPLING_CUH_
 #define FLASHINFER_SAMPLING_CUH_
+// 这个文件实现了 FlashInfer 中与采样相关的核心 CUDA 逻辑，主要包括：
+// 1. Softmax 与带温度的在线 softmax
+// 2. 从 logits 或概率分布中直接采样
+// 3. Top-K / Top-P / Min-P / Top-K+Top-P 采样
+// 4. Top-P 重归一化
+// 5. Chain speculative sampling（链式 speculative decoding）
+//
+// 使用方式上，一般不直接调用底层 __global__ kernel，
+// 而是优先使用文件后半部分提供的 host 侧封装函数，例如：
+// - OnlineSoftmax(...)
+// - SamplingFromLogits(...)
+// - SamplingFromProb(...)
+// - TopKSamplingFromProb(...)
+// - TopPSamplingFromProb(...)
+// - MinPSamplingFromProb(...)
+// - TopKTopPSamplingFromProb(...)
+// - TopPRenormProb(...)
+// - ChainSpeculativeSampling(...)
 
 #include <cuda.h>
 #include <curand.h>
@@ -22,8 +40,8 @@
 #include "utils.cuh"
 #include "vec_dtypes.cuh"
 
-// Define reduction operators based on CUDA version
-// CUDA 13 (12.9+) deprecated cub::Max/Min in favor of cuda::maximum/minimum
+// 根据 CUDA 版本选择归约算子类型。
+// CUDA 13（12.9+）开始逐步弃用 cub::Max/Min，改为 cuda::maximum/minimum。
 #if CUDA_VERSION >= 12090
 using MaxReduceOp = cuda::maximum<>;
 using MinReduceOp = cuda::minimum<>;
@@ -146,8 +164,9 @@ struct PartialSoftmaxResult {
 };
 
 /*!
- * \brief Deterministic inclusive scan implementation, use Belloch scan algorithm.
- * \note This implementation is slower than the cub::BlockScan, but it is deterministic.
+ * \brief 确定性的 inclusive scan 实现，使用 Belloch scan 算法。
+ * \note 这个实现通常比 cub::BlockScan 更慢，但输出顺序是确定的，
+ *       适合 deterministic 采样路径。
  */
 template <uint32_t VEC_SIZE, uint32_t BLOCK_THREADS, BlockScanAlgorithm SCAN_ALGORITHM,
           BlockReduceAlgorithm REDUCE_ALGORITHM>
@@ -237,7 +256,7 @@ __device__ __forceinline__ float GetMaxValue(float *in_data, uint32_t row_idx, u
     const uint32_t tx = threadIdx.x;
     vec_t<float, VEC_SIZE> in_data_vec;
 
-    // Thread-local max accumulation (deferred reduction)
+    // 每个线程先在自己负责的数据片段上求局部最大值，暂不立刻做块内归约。
     float thread_max = 0.0f;
     for (uint32_t i = 0; i < ceil_div(d, BLOCK_THREADS * VEC_SIZE); ++i) {
         in_data_vec.fill(0);
@@ -250,7 +269,7 @@ __device__ __forceinline__ float GetMaxValue(float *in_data, uint32_t row_idx, u
         }
     }
 
-    // Single block reduction after loop completes
+    // 循环结束后再做一次块级归约，得到整行的最大值。
     float max_val =
         BlockReduce<float, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage.block_prim.reduce)
             .Reduce(thread_max, MaxReduceOp{});
@@ -289,7 +308,7 @@ __global__ void OnlineSoftmaxFusedKernel(DType *logits, DType *output, DType *te
     asm volatile("griddepcontrol.wait;");
 #endif
 
-    // Pass 1: Compute running max and denominator
+    // 第一遍：在线计算全局最大值和 softmax 分母。
 #pragma unroll 2
     for (uint32_t i = 0; i < ceil_div(d, BLOCK_THREADS * VEC_SIZE); ++i) {
         logits_vec.fill(-cuda::std::numeric_limits<DType>::infinity());
@@ -319,7 +338,7 @@ __global__ void OnlineSoftmaxFusedKernel(DType *logits, DType *output, DType *te
         }
         __syncthreads();
         block_max = temp_storage.shared_state.max_val;
-        // if block_max is -inf, then this block contains all -inf values, so we can skip updating
+        // 如果 block_max 是 -inf，说明当前这块全是 -inf，可以直接跳过更新。
         if (!isinf(block_max)) {
             float threadlocal_sum = 0.0f;
 #pragma unroll
@@ -344,7 +363,7 @@ __global__ void OnlineSoftmaxFusedKernel(DType *logits, DType *output, DType *te
     const float final_max = running_max;
     const float inv_denominator = 1.0f / running_denominator;
 
-    // Pass 2: Normalize in place
+    // 第二遍：根据最终 max 和 denominator 做归一化，写出 softmax 概率。
     vec_t<DType, VEC_SIZE> prob_vec;
     for (uint32_t i = 0; i < ceil_div(d, BLOCK_THREADS * VEC_SIZE); ++i) {
         if constexpr (CACHE_INPUT) {
@@ -431,7 +450,7 @@ __global__ void OnlineSoftmaxMapKernel(DType *logits, PartialSoftmaxResult *part
         __syncthreads();
         block_max = temp_storage.shared_state.max_val;
 
-        // if block_max is -inf, then this block contains all -inf values, so we can skip updating
+        // 如果 block_max 是 -inf，说明当前 slice 全是 -inf，可以直接跳过更新。
         if (!isinf(block_max)) {
             float threadlocal_sum = 0.0f;
 #pragma unroll
@@ -471,7 +490,7 @@ __global__ void OnlineSoftmaxReduceKernel(DType *logits, DType *output,
     float temperature = temperature_arr == nullptr ? temperature_val : temperature_arr[bx];
     const float inv_temp = (temperature == 0.f) ? 0.f : 1.f / temperature;
 
-    // Reduce slice results
+    // 把各个 slice 的部分 softmax 结果归并成整行结果。
     using TempStorage = OnlineSoftmaxTempStorage<BLOCK_THREADS>;
     extern __shared__ __align__(alignof(TempStorage)) uint8_t smem[];
     auto &temp_storage = reinterpret_cast<TempStorage &>(smem);
@@ -505,7 +524,7 @@ __global__ void OnlineSoftmaxReduceKernel(DType *logits, DType *output,
     const float final_max = temp_storage.shared_state.max_val;
     const float inv_denominator = 1.0f / temp_storage.shared_state.denominator;
 
-    // Apply normalization
+    // 用归并后的最终 max / denominator 对整行做归一化。
     vec_t<DType, VEC_SIZE> logits_vec;
     vec_t<DType, VEC_SIZE> prob_vec;
 
@@ -591,7 +610,7 @@ __device__ __forceinline__ void DeviceSamplingFromProb(
         __syncthreads();
     }
 
-    // update the last valid index
+    // 更新当前扫描范围内最后一个有效下标。
     int valid_index[VEC_SIZE];
 #pragma unroll
     for (uint32_t j = 0; j < VEC_SIZE; ++j) {
@@ -643,13 +662,15 @@ __device__ __forceinline__ vec_t<DType, VEC_SIZE> GenerateGumbelNoise(uint64_t p
     constexpr float kSCALE = 1.0f - cuda::std::numeric_limits<float>::epsilon();
     constexpr float kLOG2 = 0.6931471806f;
     auto uniform2gumbel = [](float x) {
-        // NB: cuRAND returns strictly positive normal floating point numbers, up to
-        //     and including 1.0. kSCALE is used to exclude 1.0, s.t.
-        //         1.18e-38 <= x * kSCALE <= 1.0f - epsilon
-        //      => -4.47    <= -log(-log(...))       <= 15.9
-        // log2f maps to a single PTX LG2 instruction on NVIDIA GPUs, while logf
-        // internally computes log2f * ln(2). Using log2f with a single kLOG2
-        // multiplication is more efficient (3 ops vs 4 ops).
+        // 说明：
+        // 1. cuRAND 返回的是严格大于 0 的正规浮点数，最大可能取到 1.0。
+        // 2. 这里用 kSCALE 把 1.0 压到 1.0 - epsilon，避免后续出现 log(0) 或数值边界问题。
+        // 3. 这样可以保证：
+        //      1.18e-38 <= x * kSCALE <= 1.0f - epsilon
+        //   从而：
+        //      -4.47 <= -log(-log(...)) <= 15.9
+        // 4. 在 NVIDIA GPU 上，log2f 会直接映射到一条 PTX 的 LG2 指令；
+        //   而 logf 内部通常还要再乘 ln(2)。因此这里用 log2f 再乘一个常数更高效。
         return -kLOG2 * log2f(-log2f((x * kSCALE)));
     };
 #pragma unroll
@@ -696,7 +717,7 @@ __global__ void SamplingFromLogitsKernel(DType *logits, IdType *output, IdType *
                                          uint64_t *offset_arr, uint64_t offset_val) {
     const uint32_t bx = blockIdx.x, tx = threadIdx.x;
 
-    // Resolve seed/offset from tensor or scalar
+    // 从张量参数或标量参数中解析 Philox 的 seed / offset。
     uint64_t philox_seed = seed_arr ? seed_arr[0] : seed_val;
     uint64_t philox_offset = offset_arr ? offset_arr[0] : offset_val;
 
@@ -742,7 +763,7 @@ __global__ void SamplingFromProbKernel(DType *probs, IdType *output, bool *valid
     curandStatePhilox4_32_10_t state;
     const uint32_t bx = blockIdx.x, tx = threadIdx.x;
 
-    // Resolve seed/offset from tensor or scalar
+    // 从张量参数或标量参数中解析 Philox 的 seed / offset。
     uint64_t philox_seed = seed_arr ? seed_arr[0] : seed_val;
     uint64_t philox_offset = offset_arr ? offset_arr[0] : offset_val;
 
@@ -779,9 +800,10 @@ __global__ void SamplingFromProbKernel(DType *probs, IdType *output, bool *valid
     }
     int sampled_id = temp_storage.sampled_id;
     if (sampled_id == d) {
-        // NOTE(Zihao): this would happen when u is very close to 1
-        // and the sum of probabilities is smaller than u
-        // In this case, we use the last valid index as the sampled id
+        // 这个情况通常发生在：
+        // 1. 随机数 u 非常接近 1
+        // 2. 当前可采样概率总和略小于 u（例如数值误差或输入分布本身未完全归一）
+        // 这时退化为使用最后一个有效下标作为采样结果。
         if (temp_storage.last_valid_id == -1) {
             if (tx == 0) {
                 output[bx] = 0;
@@ -807,7 +829,7 @@ __global__ void TopKSamplingFromProbKernel(DType *probs, IdType *output, bool *v
     const uint32_t batch_size = gridDim.x;
     const uint32_t bx = blockIdx.x, tx = threadIdx.x;
 
-    // Resolve seed/offset from tensor or scalar
+    // 从张量参数或标量参数中解析 Philox 的 seed / offset。
     uint64_t philox_seed = seed_arr ? seed_arr[0] : seed_val;
     uint64_t philox_offset = offset_arr ? offset_arr[0] : offset_val;
 
@@ -853,9 +875,8 @@ __global__ void TopKSamplingFromProbKernel(DType *probs, IdType *output, bool *v
         __syncthreads();
         sampled_id = temp_storage.sampled_id;
         if (sampled_id == d) {
-            // NOTE(Zihao): this would happen when u is very close to 1
-            // and the sum of probabilities is smaller than u
-            // In this case, we use the last valid index as the sampled id
+            // 这个情况通常发生在随机数非常接近 1，且累计概率和略小于 u 时。
+            // 这里退化为使用最后一个有效下标作为采样结果。
             if (temp_storage.last_valid_id == -1) {
                 if (tx == 0) {
                     output[bx] = 0;
@@ -908,16 +929,16 @@ __global__ void TopKSamplingFromProbKernel(DType *probs, IdType *output, bool *v
         __syncthreads();
         aggregate_gt_pivot_1 = temp_storage.block_aggregate.pair;
         if (aggregate_gt_pivot_0.count < k) {
-            // case 1: pivot_0 accepted
+            // 情况 1：pivot_0 已经满足约束，直接接受。
             break;
         }
         if (aggregate_gt_pivot_1.count < k) {
-            // case 2: pivot_0 rejected, pivot_1 accepted
+            // 情况 2：pivot_0 不满足，但 pivot_1 满足，继续缩小到 [pivot_0, pivot_1]。
             low = pivot_0;
             high = pivot_1;
             q = aggregate_gt_pivot_0.value;
         } else {
-            // case 3: pivot_0 rejected, pivot_1 rejected
+            // 情况 3：pivot_0 和 pivot_1 都不满足，说明阈值还要更高。
             low = pivot_1;
             q = aggregate_gt_pivot_1.value;
         }
@@ -939,7 +960,7 @@ __global__ void TopPSamplingFromProbKernel(DType *probs, IdType *output, bool *v
     const uint32_t batch_size = gridDim.x;
     const uint32_t bx = blockIdx.x, tx = threadIdx.x;
 
-    // Resolve seed/offset from tensor or scalar
+    // 从张量参数或标量参数中解析 Philox 的 seed / offset。
     uint64_t philox_seed = seed_arr ? seed_arr[0] : seed_val;
     uint64_t philox_offset = offset_arr ? offset_arr[0] : offset_val;
 
@@ -983,9 +1004,8 @@ __global__ void TopPSamplingFromProbKernel(DType *probs, IdType *output, bool *v
         __syncthreads();
         sampled_id = temp_storage.sampled_id;
         if (sampled_id == d) {
-            // NOTE(Zihao): this would happen when u is very close to 1
-            // and the sum of probabilities is smaller than u
-            // In this case, we use the last valid index as the sampled id
+            // 这个情况通常发生在随机数非常接近 1，且累计概率和略小于 u 时。
+            // 这里退化为使用最后一个有效下标作为采样结果。
             if (temp_storage.last_valid_id == -1) {
                 if (tx == 0) {
                     output[bx] = 0;
@@ -1034,16 +1054,16 @@ __global__ void TopPSamplingFromProbKernel(DType *probs, IdType *output, bool *v
         aggregate_gt_pivot_1 = temp_storage.block_aggregate.value;
 
         if (aggregate_gt_pivot_0 < top_p) {
-            // case 1: pivot_0 accepted
+            // 情况 1：pivot_0 已经满足 top-p 约束，直接接受。
             break;
         }
         if (aggregate_gt_pivot_1 < top_p) {
-            // case 2: pivot_0 rejected, pivot_1 accepted
+            // 情况 2：pivot_0 不满足，但 pivot_1 满足，继续缩小阈值区间。
             low = pivot_0;
             high = pivot_1;
             q = aggregate_gt_pivot_0;
         } else {
-            // case 3: pivot_0 rejected, pivot_1 rejected
+            // 情况 3：两个候选阈值都不满足，需要继续提高阈值。
             low = pivot_1;
             q = aggregate_gt_pivot_1;
         }
@@ -1064,7 +1084,7 @@ __global__ void MinPSamplingFromProbKernel(DType *probs, float *min_p_arr, IdTyp
                                            uint64_t *offset_arr, uint64_t offset_val) {
     const uint32_t bx = blockIdx.x, tx = threadIdx.x;
 
-    // Resolve seed/offset from tensor or scalar
+    // 从张量参数或标量参数中解析 Philox 的 seed / offset。
     uint64_t philox_seed = seed_arr ? seed_arr[0] : seed_val;
     uint64_t philox_offset = offset_arr ? offset_arr[0] : offset_val;
 
@@ -1134,9 +1154,8 @@ __global__ void MinPSamplingFromProbKernel(DType *probs, float *min_p_arr, IdTyp
     }
     sampled_id = temp_storage.sampled_id;
     if (sampled_id == d) {
-        // NOTE(Zihao): this would happen when u is very close to 1
-        // and the sum of probabilities is smaller than u
-        // In this case, we use the last valid index as the sampled id
+        // 这个情况通常发生在随机数非常接近 1，且累计概率和略小于 u 时。
+        // 这里退化为使用最后一个有效下标作为采样结果。
         if (temp_storage.last_valid_id == -1) {
             if (tx == 0) {
                 output[bx] = 0;
@@ -1161,7 +1180,7 @@ __global__ void TopKTopPSamplingFromProbKernel(DType *probs, IdType *top_k_arr, 
     const uint32_t batch_size = gridDim.x;
     const uint32_t bx = blockIdx.x, tx = threadIdx.x;
 
-    // Resolve seed/offset from tensor or scalar
+    // 从张量参数或标量参数中解析 Philox 的 seed / offset。
     uint64_t philox_seed = seed_arr ? seed_arr[0] : seed_val;
     uint64_t philox_offset = offset_arr ? offset_arr[0] : offset_val;
 
@@ -1206,9 +1225,8 @@ __global__ void TopKTopPSamplingFromProbKernel(DType *probs, IdType *top_k_arr, 
         __syncthreads();
         sampled_id = temp_storage.sampled_id;
         if (sampled_id == d) {
-            // NOTE(Zihao): this would happen when u is very close to 1
-            // and the sum of probabilities is smaller than u
-            // In this case, we use the last valid index as the sampled id
+            // 这个情况通常发生在随机数非常接近 1，且累计概率和略小于 u 时。
+            // 这里退化为使用最后一个有效下标作为采样结果。
             sampled_id = temp_storage.last_valid_id;
             if (temp_storage.last_valid_id == -1) {
                 if (tx == 0) {
@@ -1262,16 +1280,16 @@ __global__ void TopKTopPSamplingFromProbKernel(DType *probs, IdType *top_k_arr, 
         __syncthreads();
         aggregate_gt_pivot_1 = temp_storage.block_aggregate.pair;
         if (aggregate_gt_pivot_0.count < k && aggregate_gt_pivot_0.value < p) {
-            // case 1: pivot_0 accepted
+            // 情况 1：pivot_0 同时满足 top-k 与 top-p 约束，直接接受。
             break;
         }
         if (aggregate_gt_pivot_1.count < k && aggregate_gt_pivot_1.value < p) {
-            // case 2: pivot_0 rejected, pivot_1 accepted
+            // 情况 2：pivot_0 不满足，但 pivot_1 满足，继续缩小阈值区间。
             low = pivot_0;
             high = pivot_1;
             q = aggregate_gt_pivot_0.value;
         } else {
-            // case 3: pivot_0 rejected, pivot_1 rejected
+            // 情况 3：两个候选阈值都不满足，需要继续提高阈值。
             low = pivot_1;
             q = aggregate_gt_pivot_1.value;
         }
@@ -1284,6 +1302,14 @@ __global__ void TopKTopPSamplingFromProbKernel(DType *probs, IdType *top_k_arr, 
 }
 
 template <typename DType>
+// Host 侧的在线 softmax 封装入口。
+// 使用方式：
+// 1. 输入 logits 形状为 [batch_size, d]
+// 2. output 用于写出 softmax 结果，形状同 logits
+// 3. temperature_arr 为 nullptr 时，整批共用 temperature_val；
+//    否则按行从 temperature_arr 中读取温度
+// 4. workspace_buffer 只在“小 batch + 大词表”的分片 softmax 路径中会用到
+// 5. enable_pdl 打开后会尝试启用 programmatic dependent launch
 cudaError_t OnlineSoftmax(DType *logits, DType *output, uint32_t batch_size, uint32_t d,
                           DType *temperature_arr, DType temperature_val, void *workspace_buffer,
                           size_t workspace_buffer_size_in_bytes, bool enable_pdl,
@@ -1298,7 +1324,7 @@ cudaError_t OnlineSoftmax(DType *logits, DType *output, uint32_t batch_size, uin
     DISPATCH_COMPUTE_CAP_NUM_THREADS(
         compute_capacity, BLOCK_THREADS, {DISPATCH_ALIGNED_VEC_SIZE(vec_size, VEC_SIZE, {
             if (batch_size <= SMALL_BATCH_THRESHOLD && d >= LARGE_VOCAB_THRESHOLD) {
-                // Path A: Vocab-Splitting Strategy for small-batch & large-vocab
+                // 路径 A：小 batch、大词表时，采用按词表切片的 Map-Reduce 策略。
                 uint32_t num_slices = ceil_div(d, DEFAULT_SLICE_SIZE);
 
                 const size_t partial_buffer_size = batch_size * num_slices * sizeof(PartialSoftmaxResult);
@@ -1310,7 +1336,7 @@ cudaError_t OnlineSoftmax(DType *logits, DType *output, uint32_t batch_size, uin
                 auto partial_results = allocator.aligned_alloc<PartialSoftmaxResult>(
                     partial_buffer_size, alignof(PartialSoftmaxResult), "softmax_workspace");
 
-                // Phase 1: Map-Reduce across vocab slices
+                // 阶段 1：对词表切片做 map-reduce，得到每个 slice 的部分 softmax 结果。
                 dim3 phase1_nblks(batch_size, num_slices);
                 dim3 phase1_nthrs(BLOCK_THREADS);
                 size_t smem_size = sizeof(OnlineSoftmaxTempStorage<BLOCK_THREADS>);
@@ -1343,7 +1369,7 @@ cudaError_t OnlineSoftmax(DType *logits, DType *output, uint32_t batch_size, uin
                                                           phase1_args, smem_size, stream));
                 }
 
-                // Phase 2: Final reduction and apply normalization
+                // 阶段 2：把所有 slice 的结果合并，再对整行应用归一化。
                 dim3 phase2_nblks(batch_size);
                 dim3 phase2_nthrs(BLOCK_THREADS);
 
@@ -1375,8 +1401,8 @@ cudaError_t OnlineSoftmax(DType *logits, DType *output, uint32_t batch_size, uin
                                                           phase2_args, smem_size, stream));
                 }
             } else {
-                // Path B: Single-Block Strategy
-                // Switch input cache
+                // 路径 B：单 block 处理整行。
+                // 根据行长度判断是否把输入缓存到 shared memory 里，以减少二次读取开销。
                 uint32_t cache_threshold;
                 if (batch_size <= 16) {
                     cache_threshold = 4096;
@@ -1426,6 +1452,9 @@ cudaError_t OnlineSoftmax(DType *logits, DType *output, uint32_t batch_size, uin
 }
 
 template <typename T, typename IdType>
+// 从 logits 中直接采样。
+// 实现上通过“logits + Gumbel 噪声”转成 argmax，等价于按 softmax 分布采样。
+// 常用于不显式先做 softmax 的场景。
 cudaError_t SamplingFromLogits(T *logits, IdType *output, IdType *indices, uint32_t batch_size,
                                uint32_t d, bool deterministic, uint64_t *seed_arr,
                                uint64_t seed_val, uint64_t *offset_arr, uint64_t offset_val,
@@ -1452,6 +1481,9 @@ cudaError_t SamplingFromLogits(T *logits, IdType *output, IdType *indices, uint3
 }
 
 template <typename T, typename IdType>
+// 从概率分布 probs 中直接采样。
+// 输入 probs 通常是 [batch_size, d]，每行表示一个离散分布。
+// output 写出采样结果；valid 标记本次采样是否有效。
 cudaError_t SamplingFromProb(T *probs, IdType *output, bool *valid, IdType *indices,
                              uint32_t batch_size, uint32_t d, bool deterministic,
                              uint64_t *seed_arr, uint64_t seed_val, uint64_t *offset_arr,
@@ -1478,6 +1510,9 @@ cudaError_t SamplingFromProb(T *probs, IdType *output, bool *valid, IdType *indi
 }
 
 template <typename T, typename IdType>
+// Top-K 采样：
+// 先把候选集合限制在 top-k 范围内，再在该范围内进行采样。
+// top_k_arr 为空时整批共用 top_k_val，否则按行读取各自的 k。
 cudaError_t TopKSamplingFromProb(T *probs, IdType *output, bool *valid, IdType *indices,
                                  T *top_k_arr, uint32_t batch_size, uint32_t top_k_val, uint32_t d,
                                  bool deterministic, uint64_t *seed_arr, uint64_t seed_val,
@@ -1507,6 +1542,9 @@ cudaError_t TopKSamplingFromProb(T *probs, IdType *output, bool *valid, IdType *
 }
 
 template <typename T, typename IdType>
+// Top-P 采样：
+// 动态寻找一个概率阈值，使得“大于该阈值”的概率质量刚好覆盖 top-p，
+// 然后只在该集合中采样。
 cudaError_t TopPSamplingFromProb(T *probs, IdType *output, bool *valid, IdType *indices,
                                  T *top_p_arr, uint32_t batch_size, T top_p_val, uint32_t d,
                                  bool deterministic, uint64_t *seed_arr, uint64_t seed_val,
@@ -1536,6 +1574,9 @@ cudaError_t TopPSamplingFromProb(T *probs, IdType *output, bool *valid, IdType *
 }
 
 template <typename T, typename IdType>
+// Min-P 采样：
+// 先找到当前行最大概率 max_val，再令阈值为 max_val * min_p，
+// 只在不小于该阈值的候选上采样。
 cudaError_t MinPSamplingFromProb(T *probs, T *min_p_arr, IdType *output, bool *valid,
                                  IdType *indices, uint32_t batch_size, float min_p_val, uint32_t d,
                                  bool deterministic, uint64_t *seed_arr, uint64_t seed_val,
@@ -1565,6 +1606,8 @@ cudaError_t MinPSamplingFromProb(T *probs, T *min_p_arr, IdType *output, bool *v
 }
 
 template <typename T, typename IdType>
+// 同时满足 Top-K 与 Top-P 约束的采样。
+// 只有同时满足“排名在前 k 个以内”且“位于 nucleus 集合内”的候选才会被保留。
 cudaError_t TopKTopPSamplingFromProb(T *probs, IdType *top_k_arr, T *top_p_arr, IdType *output,
                                      bool *valid, IdType *indices, uint32_t batch_size,
                                      IdType top_k_val, T top_p_val, uint32_t d, bool deterministic,
@@ -1634,9 +1677,10 @@ __global__ void TopPRenormProbKernel(DType *probs, DType *renormed_prob, float *
         reinterpret_cast<RenormTempStorage<BLOCK_THREADS, REDUCE_ALGO> &>(smem_renorm);
     vec_t<float, VEC_SIZE> probs_vec;
 
-    // Fast-path: when p >= 1.0 (e.g., p == 1.0), perform simple sum and normalization
+    // 快路径：当 p >= 1.0（例如 p == 1.0）时，不需要做 top-p 截断，
+    // 直接求和并归一化即可。
     if (p >= 1.0f) {
-        // Stage A: per-thread float accumulation over assigned lanes (vectorized)
+        // 阶段 A：每个线程在自己负责的向量化片段上累计局部和。
         float thread_sum = 0.0f;
         const uint32_t num_iters = ceil_div(d, BLOCK_THREADS * VEC_SIZE);
         for (uint32_t i = 0; i < num_iters; ++i) {
@@ -1652,20 +1696,20 @@ __global__ void TopPRenormProbKernel(DType *probs, DType *renormed_prob, float *
             }
         }
 
-        // Block reduce (float)
+        // 做一次块级归约，得到整行总和。
         float row_sum =
             BlockReduce<float, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage.block_prim.reduce)
                 .Sum(thread_sum);
-        // Broadcast via shared
+        // 通过 shared memory 把总和广播给整个线程块。
         if (tx == 0) temp_storage.row_sum = row_sum;
         __syncthreads();
         row_sum = temp_storage.row_sum;
 
-        // Guard against zero sum
+        // 防止总和为 0 导致除零。
         const float denom = (row_sum <= 1e-8f) ? 1.0f : row_sum;
         const float normalizer = math::ptx_rcp(denom);
 
-        // Stage B: normalize and store
+        // 阶段 B：按总和归一化并写出结果。
         for (uint32_t i = 0; i < num_iters; ++i) {
             probs_vec.fill(0.0f);
             const uint32_t base_idx = (i * BLOCK_THREADS + tx) * VEC_SIZE;
@@ -1682,10 +1726,10 @@ __global__ void TopPRenormProbKernel(DType *probs, DType *renormed_prob, float *
                 probs_vec.cast_store(renormed_prob + row_idx * d + base_idx);
             }
         }
-        return; // Exit after fast-path processing
+        return; // 快路径完成后直接返回。
     }
 
-    // Original Top-P renormalization logic
+    // 常规 Top-P 重归一化逻辑。
     temp_storage.max_val = 0;
     float max_val = GetMaxValue<VEC_SIZE, BLOCK_THREADS, REDUCE_ALGORITHM,
                                 RenormTempStorage<BLOCK_THREADS, REDUCE_ALGORITHM>>(probs, row_idx, d,
@@ -1694,13 +1738,15 @@ __global__ void TopPRenormProbKernel(DType *probs, DType *renormed_prob, float *
     double low = 0, high = max_val;
     float min_gt_low, max_le_high;
     float sum_low = 1;
-    // f(x) = sum(probs[probs > x]), f(x) is non-increasing
-    // min_gt_low = min{p \in probs | p > low}, max_le_high = max{p \in probs | p <= high}
-    // loop invariant:
-    // - f(low) >= p, f(high) < p
-    // - f(low) > f(min_gt_low) >= f(max_le_high) == f(high)
-    // stopping condition
-    // - f(low) >= p, f(min_gt_low) == f(max_le_high) == f(high) < p
+    // 记 f(x) = sum(probs[probs > x])，它是关于 x 的单调不增函数。
+    // min_gt_low 表示所有大于 low 的概率中的最小值；
+    // max_le_high 表示所有小于等于 high 的概率中的最大值。
+    // 循环不变量：
+    // 1. f(low) >= p，f(high) < p
+    // 2. f(low) > f(min_gt_low) >= f(max_le_high) == f(high)
+    // 停止条件：
+    // 1. f(low) >= p
+    // 2. f(min_gt_low) == f(max_le_high) == f(high) < p
     do {
         double pivot_0 = (high + 2 * low) / 3;
         double pivot_1 = (2 * high + low) / 3;
@@ -1774,7 +1820,7 @@ __global__ void TopPRenormProbKernel(DType *probs, DType *renormed_prob, float *
 
     float normalizer = math::ptx_rcp(max(sum_low, 1e-8));
 
-    // normalize
+    // 根据最终阈值做归一化，只保留大于 low 的项。
 #pragma unroll 2
     for (uint32_t i = 0; i < ceil_div(d, BLOCK_THREADS * VEC_SIZE); ++i) {
         probs_vec.fill(0);
@@ -1792,6 +1838,12 @@ __global__ void TopPRenormProbKernel(DType *probs, DType *renormed_prob, float *
 }
 
 template <typename DType>
+// Top-P 重归一化入口。
+// 使用方式：
+// 1. probs 是输入概率张量 [batch_size, d]
+// 2. renormed_prob 是输出张量，形状同 probs
+// 3. top_p_arr 为空时整批共用 top_p_val，否则按行读取各自的 top-p
+// 4. 输出会把 nucleus 集合之外的元素置 0，并把保留部分重新归一化到和为 1
 cudaError_t TopPRenormProb(DType *probs, DType *renormed_prob, float *top_p_arr,
                            uint32_t batch_size, float top_p_val, uint32_t d,
                            cudaStream_t stream = 0) {
@@ -1826,7 +1878,7 @@ __global__ void ChainSpeculativeSampling(DType *draft_probs, IdType *draft_token
     const uint32_t bx = blockIdx.x, tx = threadIdx.x;
     const uint32_t row_idx = bx;
 
-    // Resolve seed/offset from tensor or scalar
+    // 从张量参数或标量参数中解析 Philox 的 seed / offset。
     uint64_t philox_seed = seed_arr ? seed_arr[0] : seed_val;
     uint64_t philox_offset = offset_arr ? offset_arr[0] : offset_val;
 
@@ -1847,7 +1899,7 @@ __global__ void ChainSpeculativeSampling(DType *draft_probs, IdType *draft_token
               p = draft_probs[(row_idx * num_speculative_tokens + i) * d + draft_id];
         float u = curand_uniform(&curand_state);
         if (u * p < q) {
-            // accept the draft models output
+            // 接受 draft 模型给出的 token。
             output_token_ids[row_idx * (num_speculative_tokens + 1) + i] = draft_id;
         } else {
             pos = i;
@@ -1872,7 +1924,7 @@ __global__ void ChainSpeculativeSampling(DType *draft_probs, IdType *draft_token
         output_emitted_draft_token_num[row_idx] += emitted_token_num;
     }
 
-    // sample from relu(target_probs - draft_probs)
+    // 在 relu(target_probs - draft_probs) 这个修正分布上做一次采样。
     float sum_relu_q_minus_p = 0;
     vec_t<float, VEC_SIZE> q_vec, p_vec;
     float relu_q_minus_p[VEC_SIZE];
@@ -1883,7 +1935,7 @@ __global__ void ChainSpeculativeSampling(DType *draft_probs, IdType *draft_token
         if ((i * BLOCK_THREADS + tx) * VEC_SIZE < d) {
             q_vec.cast_load(target_probs + (row_idx * (num_speculative_tokens + 1) + pos) * d + i * BLOCK_THREADS * VEC_SIZE + tx * VEC_SIZE);
             if (pos != num_speculative_tokens) {
-                // there is no draft_probs for the bonus token
+                // bonus token 没有对应的 draft_probs。
                 p_vec.cast_load(draft_probs + (row_idx * num_speculative_tokens + pos) * d + i * BLOCK_THREADS * VEC_SIZE + tx * VEC_SIZE);
             }
         }
@@ -1899,7 +1951,7 @@ __global__ void ChainSpeculativeSampling(DType *draft_probs, IdType *draft_token
     if (tx == 0) {
         temp_storage.block_aggregate.value = sum_relu_q_minus_p;
     }
-    // init the first rejected token to d
+    // 先把“第一个被拒绝位置”的输出初始化成 d，表示尚未找到。
     temp_storage.sampled_id = d;
     __syncthreads();
     sum_relu_q_minus_p = temp_storage.block_aggregate.value;
@@ -1913,7 +1965,7 @@ __global__ void ChainSpeculativeSampling(DType *draft_probs, IdType *draft_token
         if ((i * BLOCK_THREADS + tx) * VEC_SIZE < d) {
             q_vec.cast_load(target_probs + (row_idx * (num_speculative_tokens + 1) + pos) * d + i * BLOCK_THREADS * VEC_SIZE + tx * VEC_SIZE);
             if (pos != num_speculative_tokens) {
-                // there is no draft_probs for the bonus token
+                // bonus token 没有对应的 draft_probs。
                 p_vec.cast_load(draft_probs + (row_idx * num_speculative_tokens + pos) * d + i * BLOCK_THREADS * VEC_SIZE + tx * VEC_SIZE);
             }
         }
@@ -1935,23 +1987,29 @@ __global__ void ChainSpeculativeSampling(DType *draft_probs, IdType *draft_token
     __syncthreads();
     int sampled_id = temp_storage.sampled_id;
     if (sampled_id == d) {
-        // NOTE(Zihao): this would happen when u is very close to 1
-        // and the sum of probabilities is smaller than u
-        // In this case, we use the last valid index as the sampled id
+        // 这个情况通常发生在随机数非常接近 1，且累计概率和略小于 u 时。
+        // 这里退化为使用最后一个有效下标作为采样结果。
         sampled_id = temp_storage.last_valid_id;
     }
-    // set the first rejected token
+    // 写入第一个被拒绝位置的新采样 token。
     output_token_ids[row_idx * (num_speculative_tokens + 1) + pos] = sampled_id;
-    // move to the next token
+    // 移动到下一个位置。
     pos++;
 
-    // pad remaining tokens with -1
+    // 其余位置全部填成 -1，表示无效输出。
     for (; pos < num_speculative_tokens + 1; ++pos) {
         output_token_ids[row_idx * (num_speculative_tokens + 1) + pos] = -1;
     }
 }
 
 template <typename DType, typename IdType>
+// 链式 speculative sampling 的 host 侧入口。
+// 使用方式：
+// 1. draft_probs 是草稿模型对每一步的概率分布
+// 2. draft_token_ids 是草稿模型生成的 token 序列
+// 3. target_probs 是目标模型在每一步上的概率分布
+// 4. output_token_ids 会写出最终接受/修正后的 token 序列
+// 5. output_accepted_token_num 与 output_emitted_draft_token_num 分别统计接受数与直接发射数
 cudaError_t ChainSpeculativeSampling(
     DType *draft_probs, IdType *draft_token_ids, DType *target_probs, IdType *output_token_ids,
     IdType *output_accepted_token_num, IdType *output_emitted_draft_token_num, uint32_t batch_size,

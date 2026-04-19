@@ -10,6 +10,9 @@
 #endif
 #include <cuda_runtime.h>
 
+/*
+该头文件用来做 类型判断和类型变换
+*/
 #include <type_traits>
 
 namespace flashinfer {
@@ -18,8 +21,24 @@ namespace flashinfer {
 #define FLASHINFER_HARDWARE_FP8_CONVERSION_ENABLED
 #endif
 
+// 强制内联
 #define FLASHINFER_INLINE inline __attribute__((always_inline)) __device__
 
+/*
+将 val 4个 int32 组成的向量，写到 addr 指向的位置
+st：store，写内存
+release：释放语义
+global：写的是 global memory
+sys：作用范围是 system 级别
+v4.b32：一次写 4 个 32-bit 值
+
+常见 作用范围：
+- cta：线程块内
+- gpu：整个 GPU
+- sys：整个系统（包括 CPU + 其他 GPU）
+当设置为 sys的时候，表示 GPU <-> CPU同步、多GPU一致性、原子/同步语义强化
+
+*/
 __device__ __forceinline__ void st_global_release(int4 const &val, int4 *addr) {
     asm volatile("st.release.global.sys.v4.b32 [%4], {%0, %1, %2, %3};" ::"r"(val.x), "r"(val.y),
                  "r"(val.z), "r"(val.w), "l"(addr));
@@ -33,11 +52,37 @@ __device__ __forceinline__ int4 ld_global_acquire(int4 *addr) {
     return val;
 }
 
+/*
+ld/st.volatile 解决的是编译器和部分缓存行为问题，
+不解决内存顺序（memory ordering）问题，也不建立线程间同步关系
+
+volatile 在 PTX 里的作用
+
+它大致意味着：
+
+1. 禁止编译器优化掉或合并访问
+  - 不会被消除（dead-store elimination）
+  - 不会被重排到别的 volatile 访问周围
+2. 每次都会真的发起内存访问
+  - 不会被寄存器缓存替代
+  - 不会被 load/store 合并
+3. 对缓存行为有一定限制
+  - 通常会绕过某些 cache 或降低 cache reuse（架构相关）
+*/
 __device__ __forceinline__ void st_global_volatile(int4 const &val, int4 *addr) {
     asm volatile("st.volatile.global.v4.b32 [%4], {%0, %1, %2, %3};" ::"r"(val.x), "r"(val.y),
                  "r"(val.z), "r"(val.w), "l"(addr));
 }
 
+/*
+保证：
+- 每次都从内存取（而不是寄存器/编译器缓存）
+- 不被优化掉或合并
+- 顺序上不会和其他 volatile 操作乱动
+
+volatile 是“我真的去读/写了”，
+acquire/release 是“别人必须按顺序看到”。
+*/
 __device__ __forceinline__ int4 ld_global_volatile(int4 *addr) {
     int4 val;
     asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];"
@@ -46,6 +91,13 @@ __device__ __forceinline__ int4 ld_global_volatile(int4 *addr) {
     return val;
 }
 
+/*
+给 老版本 CUDA + 老架构GPU 补一套 bfloat16 / bfloat162 的兼容实现
+
+意思是：
+- CUDA 版本小于 12.2
+- 并且当前编译目标架构小于 sm_80（也就是 Ampere 之前的架构）
+*/
 #if (__CUDACC_VER_MAJOR__ * 10000 + __CUDACC_VER_MINOR__ * 100 < 120200) && (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
 // CUDA version < 12.2 and GPU architecture < 80
 FLASHINFER_INLINE __nv_bfloat162 make_bfloat162(const __nv_bfloat16 x, const __nv_bfloat16 y) {
@@ -91,6 +143,7 @@ FLASHINFER_INLINE float2 __bfloat1622float2(const __nv_bfloat162 a) {
 #endif
 
 /**************  vec_t type cast  ***************/
+// 类型转换模版
 template <typename dst_t, typename src_t>
 struct vec_cast {
     template <size_t vec_size>
@@ -102,6 +155,7 @@ struct vec_cast {
     }
 };
 
+// float 转 fp8 e4m3
 template <>
 struct vec_cast<__nv_fp8_e4m3, float> {
     template <size_t vec_size>
@@ -118,6 +172,7 @@ struct vec_cast<__nv_fp8_e4m3, float> {
     }
 };
 
+// float 转 fp8 e5m2
 template <>
 struct vec_cast<__nv_fp8_e5m2, float> {
     template <size_t vec_size>
@@ -134,6 +189,7 @@ struct vec_cast<__nv_fp8_e5m2, float> {
     }
 };
 
+// half转 float
 template <>
 struct vec_cast<float, half> {
     template <size_t vec_size>
@@ -149,6 +205,7 @@ struct vec_cast<float, half> {
     }
 };
 
+// half 转 float
 template <>
 struct vec_cast<half, float> {
     template <size_t vec_size>
@@ -164,6 +221,7 @@ struct vec_cast<half, float> {
     }
 };
 
+// 返回指数部分多少位
 template <typename T>
 constexpr FLASHINFER_INLINE int get_exponent_bits() {
     if constexpr (std::is_same_v<T, __nv_fp8_e4m3>) {
@@ -177,6 +235,7 @@ constexpr FLASHINFER_INLINE int get_exponent_bits() {
     }
 }
 
+// 返回尾数多少位
 template <typename T>
 constexpr FLASHINFER_INLINE int get_mantissa_bits() {
     if constexpr (std::is_same_v<T, __nv_fp8_e4m3>) {
@@ -198,6 +257,9 @@ constexpr FLASHINFER_INLINE int get_mantissa_bits() {
  * \ref
  * https://github.com/vllm-project/vllm/blob/6dffa4b0a6120159ef2fe44d695a46817aff65bc/csrc/quantization/fp8/fp8_marlin.cu#L120
  */
+
+
+// 把 4 个打包在一个 uint32_t 里的 fp8 数，快速反量化成 4 个 fp16/bf16 数，而且是用“软件方式”完成，不依赖硬件 dequant 指令
 template <typename fp8_dtype, typename fp16_dtype>
 __device__ void fast_dequant_f8f16x4(uint32_t *input, uint2 *output) {
     uint32_t q = *input;

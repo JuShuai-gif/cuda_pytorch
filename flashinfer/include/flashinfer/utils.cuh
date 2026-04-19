@@ -1,5 +1,7 @@
 #ifndef FLASHINFER_UTILS_CUH_
 #define FLASHINFER_UTILS_CUH_
+// FlashInfer 通用工具头文件：
+// 包含 CUDA 错误检查、模板分发宏、基础数学工具、设备属性查询和底层 PTX 辅助函数。
 #include <cuda_bf16.h>
 #include <cuda_device_runtime_api.h>
 #include <cuda_fp16.h>
@@ -14,15 +16,18 @@
 
 #include "exception.h"
 
+// 将宏参数展开为字符串。
 #define STR_HELPER(x) #x
 #define STR(x) STR_HELPER(x)
 
-// macro to turn off fp16 qk reduction to reduce binary
+// 编译期开关：关闭 fp16 qk reduction 以减少二进制体积。
 #ifndef FLASHINFER_ALWAYS_DISUSE_FP16_QK_REDUCTION
 #define FLASHINFER_ALWAYS_DISUSE_FP16_QK_REDUCTION 0
 #endif
 
 #ifndef NDEBUG
+// Debug 版本下包装 CUDA 调用：
+// 失败时打印详细错误信息并返回对应的 cudaError_t。
 #define FLASHINFER_CUDA_CALL(func, ...)                                                           \
     {                                                                                             \
         cudaError_t e = (func);                                                                   \
@@ -33,6 +38,8 @@
         }                                                                                         \
     }
 #else
+// Release 版本下保持轻量：
+// 失败时直接返回错误码，不额外打印日志。
 #define FLASHINFER_CUDA_CALL(func, ...) \
     {                                   \
         cudaError_t e = (func);         \
@@ -42,6 +49,8 @@
     }
 #endif
 
+// CUDA 调用检查宏：
+// 如果调用失败，构造带文件名、行号和函数信息的异常消息并抛出。
 #define FLASHINFER_CUDA_CHECK(func)                                                             \
     do {                                                                                        \
         cudaError_t e = (func);                                                                 \
@@ -49,12 +58,15 @@
                          ") at ", __FILE__, ":", __LINE__, " in ", STR(func));                  \
     } while (0)
 
+// 检查指针地址是否满足指定字节对齐要求。
 #define FLASHINFER_CHECK_ALIGNMENT(ptr, size_bytes)                              \
     FLASHINFER_CHECK(reinterpret_cast<uintptr_t>(ptr) % (size_bytes) == 0, #ptr, \
                      " must be aligned to ", (size_bytes), " bytes, got address ", (uintptr_t)(ptr))
-// 对齐到 128
+// TMA 路径通常要求 128 字节对齐。
 #define FLASHINFER_CHECK_TMA_ALIGNED(ptr) FLASHINFER_CHECK_ALIGNMENT(ptr, 128)
 
+// 将运行时的 use_fp16_qk_reduction 分发为编译期常量。
+// 当前这里只支持 false，传 true 会直接报错。
 #define DISPATCH_USE_FP16_QK_REDUCTION(use_fp16_qk_reduction, USE_FP16_QK_REDUCTION, ...) \
     if (use_fp16_qk_reduction) {                                                          \
         FLASHINFER_ERROR("FP16_QK_REDUCTION disabled at compile time");                   \
@@ -63,6 +75,7 @@
         __VA_ARGS__                                                                       \
     }
 
+// 将 num_mma_q 从运行时值映射为编译期常量，便于模板特化和静态优化。
 #define DISPATCH_NUM_MMA_Q(num_mma_q, NUM_MMA_Q, ...)      \
     if (num_mma_q == 1) {                                  \
         constexpr size_t NUM_MMA_Q = 1;                    \
@@ -76,6 +89,7 @@
         FLASHINFER_ERROR(err_msg.str());                   \
     }
 
+// 根据 max_mma_kv 选择不超过它的编译期常量 NUM_MMA_KV。
 #define DISPATCH_NUM_MMA_KV(max_mma_kv, NUM_MMA_KV, ...)     \
     if (max_mma_kv >= 8) {                                   \
         constexpr size_t NUM_MMA_KV = 8;                     \
@@ -95,6 +109,7 @@
         FLASHINFER_ERROR(err_msg.str());                     \
     }
 
+// 将 cta_tile_q 分发成支持的固定 tile 大小。
 #define DISPATCH_CTA_TILE_Q(cta_tile_q, CTA_TILE_Q, ...)     \
     switch (cta_tile_q) {                                    \
     case 128: {                                              \
@@ -119,6 +134,7 @@
     }                                                        \
     }
 
+// 将 GQA group size 分发成编译期常量。
 #define DISPATCH_GQA_GROUP_SIZE(group_size, GROUP_SIZE, ...) \
     if (group_size == 1) {                                   \
         constexpr size_t GROUP_SIZE = 1;                     \
@@ -141,6 +157,7 @@
         FLASHINFER_ERROR(err_msg.str());                     \
     }
 
+// 将 mask mode 分发成编译期常量，减少后续模板代码中的运行时分支。
 #define DISPATCH_MASK_MODE(mask_mode, MASK_MODE, ...)               \
     switch (mask_mode) {                                            \
     case MaskMode::kNone: {                                         \
@@ -170,7 +187,7 @@
     }                                                               \
     }
 
-// convert head_dim to compile-time constant
+// 将 head_dim 分发成编译期常量。
 #define DISPATCH_HEAD_DIM(head_dim, HEAD_DIM, ...)       \
     switch (head_dim) {                                  \
     case 64: {                                           \
@@ -200,7 +217,7 @@
     }                                                    \
     }
 
-// convert interleave to compile-time constant
+// 将 interleave 布尔值分发成编译期常量。
 #define DISPATCH_INTERLEAVE(interleave, INTERLEAVE, ...) \
     if (interleave) {                                    \
         constexpr bool INTERLEAVE = true;                \
@@ -210,6 +227,7 @@
         __VA_ARGS__                                      \
     }
 
+// 将 rope 维度分发成支持的固定值。
 #define DISPATCH_ROPE_DIM(rope_dim, ROPE_DIM, ...)             \
     switch (rope_dim) {                                        \
     case 16: {                                                 \
@@ -246,6 +264,7 @@
     }                                                          \
     }
 
+// 将位置编码模式分发成编译期常量。
 #define DISPATCH_POS_ENCODING_MODE(pos_encoding_mode, POS_ENCODING_MODE, ...)      \
     switch (pos_encoding_mode) {                                                   \
     case PosEncodingMode::kNone: {                                                 \
@@ -270,6 +289,8 @@
     }                                                                              \
     }
 
+// 将对齐向量大小分发成编译期常量。
+// 常用于根据地址对齐情况选择不同宽度的向量化访存路径。
 #define DISPATCH_ALIGNED_VEC_SIZE(aligned_vec_size, ALIGNED_VEC_SIZE, ...) \
     switch (aligned_vec_size) {                                            \
     case 16: {                                                             \
@@ -304,6 +325,7 @@
     }                                                                      \
     }
 
+// 根据 GPU 计算能力决定 decode kernel 在 shared memory 上采用的 stage 数。
 #define DISPATCH_COMPUTE_CAP_DECODE_NUM_STAGES_SMEM(compute_capacity, NUM_STAGES_SMEM, ...) \
     if (compute_capacity.first >= 8) {                                                      \
         constexpr uint32_t NUM_STAGES_SMEM = 2;                                             \
@@ -316,20 +338,24 @@
 namespace flashinfer {
 
 template <typename T1, typename T2>
+// 向上整除，返回 ceil(x / y)。
 __forceinline__ __device__ __host__ constexpr T1 ceil_div(const T1 x, const T2 y) noexcept {
     return (x + y - 1) / y;
 }
 
 template <typename T1, typename T2>
+// 将 x 向上对齐到 y 的整数倍。
 __forceinline__ __device__ __host__ constexpr T1 round_up(const T1 x, const T2 y) noexcept {
     return ceil_div(x, y) * y;
 }
 
 template <typename T1, typename T2>
+// 将 x 向下对齐到 y 的整数倍。
 __forceinline__ __device__ __host__ constexpr T1 round_down(const T1 x, const T2 y) noexcept {
     return (x / y) * y;
 }
 
+// 获取当前 CUDA 设备的计算能力 (major, minor)。
 inline std::pair<int, int> GetCudaComputeCapability() {
     int device_id = 0;
     cudaGetDevice(&device_id);
@@ -339,8 +365,9 @@ inline std::pair<int, int> GetCudaComputeCapability() {
     return std::make_pair(major, minor);
 }
 
-// This function is thread-safe and cached the sm_count.
-// But it will only check the current CUDA device, thus assuming each process handles single GPU.
+// 获取当前 CUDA 设备的 SM 数量。
+// 结果会被缓存，并用原子变量保证并发访问安全。
+// 注意：这里只缓存当前设备的值，因此默认假设一个进程主要服务单张 GPU。
 inline int GetCudaMultiProcessorCount() {
     static std::atomic<int> sm_count{0};
     int cached = sm_count.load(std::memory_order_relaxed);
@@ -356,6 +383,8 @@ inline int GetCudaMultiProcessorCount() {
 }
 
 template <typename T>
+// 调试辅助函数：
+// 将设备数组拷回主机并打印，适合检查小规模中间结果。
 inline void DebugPrintCUDAArray(T *device_ptr, size_t size, std::string prefix = "") {
     std::vector<T> host_array(size);
     std::cout << prefix;
@@ -366,6 +395,8 @@ inline void DebugPrintCUDAArray(T *device_ptr, size_t size, std::string prefix =
     std::cout << std::endl;
 }
 
+// 根据平均 qo 长度和 head_dim 选择 decode 阶段使用的 CTA_TILE_Q。
+// 这是一个启发式策略，用于平衡并行度与资源占用。
 inline uint32_t FA2DetermineCtaTileQ(int64_t avg_packed_qo_len, uint32_t head_dim) {
     if (avg_packed_qo_len > 64 && head_dim < 256) {
         return 128;
@@ -387,6 +418,7 @@ inline uint32_t FA2DetermineCtaTileQ(int64_t avg_packed_qo_len, uint32_t head_di
     }
 }
 
+// 返回不小于 x 的最小 2 的幂。
 inline int UpPowerOfTwo(int x) {
     // Returns the smallest power of two greater than or equal to x
     if (x <= 0) return 1;
@@ -399,6 +431,9 @@ inline int UpPowerOfTwo(int x) {
     return x + 1;
 }
 
+// 将循环拆成两个阶段：
+// 第一段 WITH_MASK=true，第二段 WITH_MASK=false。
+// 常用于前几轮需要边界 mask，后几轮可以走无 mask 快路径的场景。
 #define LOOP_SPLIT_MASK(iter, COND1, COND2, ...)           \
     {                                                      \
         _Pragma("unroll 1") for (; (COND1); (iter) -= 1) { \
@@ -419,8 +454,9 @@ __device__ __forceinline__ uint32_t sub_if_greater_or_zero(uint32_t x, uint32_t 
 }
 
 // ======================= PTX Memory Utility Functions =======================
-// Non-atomic global memory access with cache streaming hint (cs)
-// These are useful for streaming memory access patterns where data is used once
+// 下面是一组基于 PTX 内联汇编的底层访存工具。
+// 这里主要使用 non-atomic + cache streaming hint(cs) 的全局内存访问形式，
+// 适合流式访存、数据只用一次或复用较低的场景。
 
 /*!
  * \brief Get the lane ID within a warp (0-31)
@@ -471,23 +507,27 @@ __forceinline__ __device__ void prefetch_L2(const T *addr) {
     asm volatile("prefetch.global.L2 [%0];" ::"l"(addr));
 }
 
+// 交换两个 uint32_t 变量的值。
 __device__ __forceinline__ void swap(uint32_t &a, uint32_t &b) {
     uint32_t tmp = a;
     a = b;
     b = tmp;
 }
 
+// 计算二维张量按行主序展开后的线性偏移。
 __device__ __forceinline__ uint32_t dim2_offset(const uint32_t &dim_a, const uint32_t &idx_b,
                                                 const uint32_t &idx_a) {
     return idx_b * dim_a + idx_a;
 }
 
+// 计算三维张量按行主序展开后的线性偏移。
 __device__ __forceinline__ uint32_t dim3_offset(const uint32_t &dim_b, const uint32_t &dim_a,
                                                 const uint32_t &idx_c, const uint32_t &idx_b,
                                                 const uint32_t &idx_a) {
     return (idx_c * dim_b + idx_b) * dim_a + idx_a;
 }
 
+// 计算四维张量按行主序展开后的线性偏移。
 __device__ __forceinline__ uint32_t dim4_offset(const uint32_t &dim_c, const uint32_t &dim_b,
                                                 const uint32_t &dim_a, const uint32_t &idx_d,
                                                 const uint32_t &idx_c, const uint32_t &idx_b,
@@ -495,6 +535,9 @@ __device__ __forceinline__ uint32_t dim4_offset(const uint32_t &dim_c, const uin
     return ((idx_d * dim_c + idx_c) * dim_b + idx_b) * dim_a + idx_a;
 }
 
+// 生成成员存在性检测模板。
+// 例如 DEFINE_HAS_MEMBER(foo) 会生成 has_foo<T> 和 has_foo_v<T>，
+// 用于在编译期判断类型 T 是否拥有成员 foo。
 #define DEFINE_HAS_MEMBER(member)                                                                \
     template <typename T, typename = void>                                                       \
     struct has_##member : std::false_type {};                                                    \
