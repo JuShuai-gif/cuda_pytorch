@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <thread>
+#include <cstdlib>
 
 #include "CycleTimer.h"
 
@@ -27,22 +28,41 @@ extern void mandelbrotSerial(
 // workerThreadStart --
 //
 // Thread entrypoint.
+// Each thread processes its assigned rows using an interleaved
+// (round-robin) mapping: thread i computes rows i, i+numThreads,
+// i+2*numThreads, ...
+// This static interleaved assignment provides good load balance
+// without any synchronization because every thread gets a roughly
+// equal mix of computationally heavy (black) and light (white) rows.
+//
 void workerThreadStart(WorkerArgs * const args) {
 
-    // TODO FOR CS149 STUDENTS: Implement the body of the worker
-    // thread here. Each thread should make a call to mandelbrotSerial()
-    // to compute a part of the output image.  For example, in a
-    // program that uses two threads, thread 0 could compute the top
-    // half of the image and thread 1 could compute the bottom half.
+    double startTime = CycleTimer::currentSeconds();
 
-    printf("Hello world from thread %d\n", args->threadId);
+    // Interleaved row assignment: each thread strides by numThreads
+    for (int j = args->threadId; j < args->height; j += args->numThreads) {
+        mandelbrotSerial(
+            args->x0, args->y0, args->x1, args->y1,
+            args->width, args->height,
+            j, 1,                          // process one row at a time
+            args->maxIterations,
+            args->output);
+    }
+
+    double endTime = CycleTimer::currentSeconds();
+    printf("[thread %d]:\t[%.3f] ms\n", args->threadId, (endTime - startTime) * 1000);
 }
+
 
 //
 // MandelbrotThread --
 //
 // Multi-threaded implementation of mandelbrot set image generation.
 // Threads of execution are created by spawning std::threads.
+// Work is decomposed using interleaved row assignment (round-robin),
+// which gives each thread a mix of cheap and expensive rows regardless
+// of the view region being computed.
+//
 void mandelbrotThread(
     int numThreads,
     float x0, float y0, float x1, float y1,
@@ -63,9 +83,6 @@ void mandelbrotThread(
 
     for (int i=0; i<numThreads; i++) {
       
-        // TODO FOR CS149 STUDENTS: You may or may not wish to modify
-        // the per-thread arguments here.  The code below copies the
-        // same arguments for each thread
         args[i].x0 = x0;
         args[i].y0 = y0;
         args[i].x1 = x1;
@@ -93,4 +110,3 @@ void mandelbrotThread(
         workers[i].join();
     }
 }
-

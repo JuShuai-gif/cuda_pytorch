@@ -249,7 +249,47 @@ void clampedExpVector(float* values, int* exponents, float* output, int N) {
   // Your solution should work for any value of
   // N and VECTOR_WIDTH, not just when VECTOR_WIDTH divides N
   //
-  
+
+  __cs149_vec_float x, result;
+  __cs149_vec_int y;
+  __cs149_vec_float one = _cs149_vset_float(1.f);
+  __cs149_vec_float clampVal = _cs149_vset_float(9.999999f);
+  __cs149_vec_int zeroInt = _cs149_vset_int(0);
+
+  __cs149_mask maskActive, maskIsZero, maskClamp, maskNeedMul;
+
+  for (int i=0; i<N; i+=VECTOR_WIDTH) {
+    int remaining = N - i;
+    maskActive = _cs149_init_ones(remaining < VECTOR_WIDTH ? remaining : VECTOR_WIDTH);
+
+    _cs149_vload_float(x, values+i, maskActive);
+    _cs149_vload_int(y, exponents+i, maskActive);
+
+    // result = x
+    _cs149_vmove_float(result, x, maskActive);
+
+    // Handle y == 0: result = 1.f
+    maskIsZero = _cs149_init_ones(0);
+    _cs149_veq_int(maskIsZero, y, zeroInt, maskActive);
+    _cs149_vset_float(result, 1.f, maskIsZero);
+
+    // For y > 0, multiply result by x (y-1) more times
+    // Max exponent is EXP_MAX-1 = 9, so at most 8 extra multiplications
+    for (int count = 1; count < EXP_MAX; count++) {
+      maskNeedMul = _cs149_init_ones(0);
+      __cs149_vec_int countVec = _cs149_vset_int(count);
+      _cs149_vgt_int(maskNeedMul, y, countVec, maskActive);
+      _cs149_vmult_float(result, result, x, maskNeedMul);
+    }
+
+    // Clamp: if result > 9.999999, set to 9.999999
+    maskClamp = _cs149_init_ones(0);
+    _cs149_vgt_float(maskClamp, result, clampVal, maskActive);
+    _cs149_vset_float(result, 9.999999f, maskClamp);
+
+    // Store result
+    _cs149_vstore_float(output+i, result, maskActive);
+  }
 }
 
 // returns the sum of all elements in values
@@ -270,11 +310,25 @@ float arraySumVector(float* values, int N) {
   //
   // CS149 STUDENTS TODO: Implement your vectorized version of arraySumSerial here
   //
-  
-  for (int i=0; i<N; i+=VECTOR_WIDTH) {
 
+  __cs149_vec_float vx;
+  __cs149_mask maskAll = _cs149_init_ones();
+  float total = 0;
+
+  for (int i=0; i<N; i+=VECTOR_WIDTH) {
+    _cs149_vload_float(vx, values+i, maskAll);
+
+    // Reduce vector to sum using hadd + interleave
+    // Pattern: hadd, then (interleave + hadd) repeated log2(W)-1 times
+    _cs149_hadd_float(vx, vx);
+    for (int stride = 1; stride * 2 < VECTOR_WIDTH; stride *= 2) {
+      _cs149_interleave_float(vx, vx);
+      _cs149_hadd_float(vx, vx);
+    }
+
+    total += vx.value[0];
   }
 
-  return 0.0;
+  return total;
 }
 
