@@ -1,14 +1,37 @@
 /**
- * lecture5_part3.cpp - Fork-Join Parallelism & Cilk-Style Quicksort
+ * lecture5_part3.cpp - Fork-Join 并行模式与 Cilk 风格快速排序
  *
- * Demonstrates CS149 Lecture 5 concepts:
- * - Fork-join pattern (cilk_spawn / cilk_sync)
- * - Parallel quicksort with divide-and-conquer
- * - Spawn cutoff for small problems
- * - Parallel slack and recursive decomposition
- * - Compares sequential vs fork-join execution
+ * 演示 CS149 第5讲的概念：
+ * - Fork-Join 模式（cilk_spawn / cilk_sync）
+ * - 使用分治法实现的并行快速排序
+ * - Spawn 截断阈值（对小问题切换回串行）
+ * - 并行松弛度（parallel slack）与递归分解
+ * - 对比串行执行与 Fork-Join 并行执行
  *
- * Compile: g++ -std=c++17 -pthread lecture5_part3.cpp -o lecture5_part3 && ./lecture5_part3
+ * 关键概念详解：
+ * ─────────────────────────────────────────────────────────────
+ * 【Fork-Join 模式】
+ *   cilk_spawn: 创建一个可并行执行的子任务（fork）
+ *   cilk_sync:  等待所有子任务完成（join）
+ *   这是 Cilk 编程模型的核心，非常适合分治算法。
+ *
+ * 【递归分解并行化 for 循环】
+ *   直接对每个迭代 spawn 会导致 O(N) 的开销。Cilk 的做法是将其
+ *   递归分解：每次将范围一分为二，只对一半 spawn，另一半直接执行。
+ *   这样 spawn 次数从 O(N) 降到 O(log N)。
+ *
+ * 【并行松弛度（Parallel Slack）】
+ *   并行松弛度 = 独立工作总量 / 并行执行能力
+ *   经验法则：slack ≈ 8 是一个良好的实用比例。
+ *   - slack 太小：工作线程可能因等待而空闲
+ *   - slack 太大：管理细粒度任务的调度开销占主导
+ *
+ * 【截断阈值（Cutoff）优化】
+ *   当问题规模小于某个阈值时，切换回串行算法。
+ *   原因：对很小的子问题进行 spawn 的开销大于并行加速带来的收益。
+ *   Cilk 实践中通常使用 sort cutoff 约为 500-1000 个元素。
+ *
+ * 编译：g++ -std=c++17 -pthread lecture5_part3.cpp -o lecture5_part3 && ./lecture5_part3
  */
 
 #include <iostream>
@@ -25,18 +48,19 @@
 #include <condition_variable>
 
 // ============================================================================
-// Part 1: Simplified Cilk-Style Runtime
+// 第一部分：简化的 Cilk 风格运行时
 // ============================================================================
 
 /**
- * Minimal implementation of a fixed-size thread pool that supports
- * spawn/sync semantics similar to Cilk.
+ * 支持类似 Cilk spawn/sync 语义的固定大小线程池的最小实现。
  *
- * This is NOT production quality - it's designed to illustrate the
- * fork-join concept clearly.
+ * 注意：这不是生产质量的代码 - 仅用于清晰展示 fork-join 概念。
+ *
+ * 【设计要点】
+ * - pending_tasks 计数器和 cv_sync 条件变量共同实现 sync() 语义
+ * - sync() 阻塞直到所有已 spawn 的任务都完成且队列为空
+ * - 工作线程从队列取出任务执行，完成后递减 pending_tasks
  */
-
-// Global thread pool for spawn/sync
 class CilkPool {
 public:
     explicit CilkPool(int num_threads) : stop(false) {
@@ -56,7 +80,7 @@ public:
         }
     }
 
-    // Enqueue a function to be executed by the thread pool
+    // 将函数入队，由线程池执行（模拟 cilk_spawn）
     void spawn(std::function<void()> task) {
         {
             std::lock_guard<std::mutex> lock(queue_mutex);
@@ -66,7 +90,7 @@ public:
         cv.notify_one();
     }
 
-    // Wait until all spawned tasks have completed
+    // 等待所有已 spawn 的任务完成（模拟 cilk_sync）
     void sync() {
         std::unique_lock<std::mutex> lock(queue_mutex);
         cv_sync.wait(lock, [this] { return pending_tasks == 0 && task_queue.empty(); });
@@ -104,13 +128,18 @@ private:
 };
 
 // ============================================================================
-// Part 2: Sequential Quicksort (Reference)
+// 第二部分：串行快速排序（参考基准）
 // ============================================================================
 
+/**
+ * 标准的串行快速排序实现，作为性能比较的基线。
+ * 使用末尾元素作为 pivot，原地分区。
+ */
 void sequential_quicksort(std::vector<int>& arr, int begin, int end) {
     if (begin >= end - 1) return;
 
-    // Partition: pick pivot as last element
+    // 分区操作：选择末尾元素作为 pivot
+    // 将所有 <= pivot 的元素移到左侧，> pivot 的元素留在右侧
     int pivot = arr[end - 1];
     int i = begin;
     for (int j = begin; j < end - 1; j++) {
@@ -122,32 +151,38 @@ void sequential_quicksort(std::vector<int>& arr, int begin, int end) {
     std::swap(arr[i], arr[end - 1]);
     int middle = i;
 
+    // 递归对左右两个分区排序
     sequential_quicksort(arr, begin, middle);
     sequential_quicksort(arr, middle + 1, end);
 }
 
 // ============================================================================
-// Part 3: Parallel Quicksort (Fork-Join)
+// 第三部分：并行快速排序（Fork-Join）
 // ============================================================================
 
 /**
- * Parallel quicksort using spawn/sync (fork-join pattern).
+ * 使用 spawn/sync（fork-join 模式）的并行快速排序。
  *
- * Equivalent Cilk code:
+ * 等效的 Cilk 伪代码：
  * void quick_sort(int* begin, int* end) {
  *     if (begin >= end - PARALLEL_CUTOFF) {
- *         std::sort(begin, end);
+ *         std::sort(begin, end);  // 小问题直接串行
  *     } else {
  *         int* middle = partition(begin, end);
- *         cilk_spawn quick_sort(begin, middle);
- *         quick_sort(middle + 1, last);
+ *         cilk_spawn quick_sort(begin, middle);  // 并行处理左半部
+ *         quick_sort(middle + 1, last);          // 当前线程处理右半部
  *     }
  * }
+ *
+ * 【为什么需要 cutoff】
+ * 每个 spawn 都有调度和队列管理的开销。当子数组很小时
+ * （例如少于 500 个元素），spawn 的开销超过并行带来的收益。
+ * 因此直接切换到高效的串行排序。
  */
 class ParallelQuicksort {
 private:
     CilkPool pool;
-    int parallel_cutoff;  // Switch to sequential for small chunks
+    int parallel_cutoff;  // 当子数组小于此阈值时切换到串行排序
 
 public:
     ParallelQuicksort(int num_threads, int cutoff = 1000)
@@ -155,7 +190,7 @@ public:
 
     void sort(std::vector<int>& arr) {
         parallel_quicksort(arr, 0, static_cast<int>(arr.size()));
-        pool.sync();  // Wait for all spawned tasks
+        pool.sync();  // 等待所有 spawn 的子任务完成
     }
 
 private:
@@ -166,13 +201,14 @@ private:
     void parallel_quicksort(std::vector<int>& arr, int begin, int end) {
         int size = end - begin;
 
-        // Cutoff: switch to sequential for small chunks
+        // 截断判断：对小数据块切换回串行
+        // 避免对过小的问题产生 spawn 调度开销
         if (size <= parallel_cutoff) {
             sequential_sort(arr, begin, end);
             return;
         }
 
-        // Partition
+        // 分区操作
         int pivot = arr[end - 1];
         int i = begin;
         for (int j = begin; j < end - 1; j++) {
@@ -184,8 +220,9 @@ private:
         std::swap(arr[i], arr[end - 1]);
         int middle = i;
 
-        // Fork-join: spawn left half, execute right half directly
-        // (This is "run continuation first" for simplicity; Cilk would "run child first")
+        // Fork-join：spawn 左半部，直接执行右半部
+        // （为了简化，这里使用"先执行延续"策略；
+        //  真实 Cilk 会使用"先执行子任务"策略）
         pool.spawn([this, &arr, begin, middle]() {
             parallel_quicksort(arr, begin, middle);
         });
@@ -195,12 +232,14 @@ private:
 };
 
 // ============================================================================
-// Part 4: std::async Fork-Join Demo (C++ Standard Library)
+// 第四部分：使用 std::async 的 Fork-Join 演示（C++ 标准库）
 // ============================================================================
 
 /**
- * Alternative fork-join implementation using std::async.
- * Shows that the fork-join concept is language-agnostic.
+ * 使用 std::async 实现的可选 Fork-Join 快速排序。
+ * 展示 fork-join 概念与具体编程语言无关。
+ *
+ * std::async 的 .get() 相当于 cilk_sync。
  */
 void async_quicksort(std::vector<int>& arr, int begin, int end, int cutoff = 1000) {
     int size = end - begin;
@@ -211,7 +250,7 @@ void async_quicksort(std::vector<int>& arr, int begin, int end, int cutoff = 100
         return;
     }
 
-    // Partition
+    // 分区操作
     int pivot = arr[end - 1];
     int i = begin;
     for (int j = begin; j < end - 1; j++) {
@@ -223,34 +262,44 @@ void async_quicksort(std::vector<int>& arr, int begin, int end, int cutoff = 100
     std::swap(arr[i], arr[end - 1]);
     int mid = i;
 
-    // Spawn left half as async, run right half directly
+    // Spawn 左半部为异步任务，直接执行右半部
     auto left_future = std::async(std::launch::async, [&arr, begin, mid, cutoff]() {
         async_quicksort(arr, begin, mid, cutoff);
     });
 
     async_quicksort(arr, mid + 1, end, cutoff);
-    left_future.get();  // Sync: wait for left half
+    left_future.get();  // Sync：等待左半部完成（等价于 cilk_sync）
 }
 
 // ============================================================================
-// Part 5: Recursive Fork-Join Pattern (for loop parallelization)
+// 第五部分：递归 Fork-Join 模式（用于 for 循环并行化）
 // ============================================================================
 
 /**
- * Cilk's trick: parallelize for loops by recursive decomposition.
+ * Cilk 的关键技巧：通过递归分解来并行化 for 循环。
  *
- * for (int i=0; i<N; i++) cilk_spawn foo(i);  → O(N) spawn overhead
+ * 直接做法（不好）：
+ *   for (int i=0; i<N; i++) cilk_spawn foo(i);
+ *   → O(N) 的 spawn 开销
  *
- * Better: recursive_for(0, N) where:
+ * 改进方式（Cilk 风格）：recursive_for(0, N)，其中：
  *   recursive_for(start, end):
  *     if (end - start <= GRANULARITY):
- *       for sequential
+ *       串行执行范围内的迭代
  *     else:
  *       mid = (start+end)/2
  *       cilk_spawn recursive_for(start, mid)
  *       recursive_for(mid, end)
  *
- * This creates O(log N) spawns instead of O(N).
+ * 这样产生 O(log N) 次 spawn 而非 O(N) 次。
+ * 每次递归将范围一分为二，直到子范围足够小（<= 粒度），
+ * 此时用串行方式处理。这确保了：
+ * 1. spawn 开销可控（对数级别）
+ * 2. 足够的子任务供工作窃取调度器分配
+ *
+ * 参数说明：
+ * - granularity（粒度）：控制递归停止的阈值
+ * - 粒度越小 → 越多的并行子任务 → 更好的负载均衡但更高的调度开销
  */
 void recursive_parallel_for(int start, int end, int granularity,
                              const std::function<void(int)>& work_fn,
@@ -258,19 +307,19 @@ void recursive_parallel_for(int start, int end, int granularity,
     int size = end - start;
 
     if (size <= granularity) {
-        // Base case: sequential
+        // 基本情况：串行执行
         for (int i = start; i < end; i++) {
             work_fn(i);
         }
     } else {
         int mid = start + size / 2;
 
-        // Spawn left half
+        // Spawn 左半部
         auto future = std::async(std::launch::async, [&, start, mid, granularity, depth]() {
             recursive_parallel_for(start, mid, granularity, work_fn, depth + 1);
         });
 
-        // Execute right half directly
+        // 直接执行右半部
         recursive_parallel_for(mid, end, granularity, work_fn, depth + 1);
 
         future.get();  // sync
@@ -278,7 +327,7 @@ void recursive_parallel_for(int start, int end, int granularity,
 }
 
 // ============================================================================
-// Part 6: Benchmarking
+// 第六部分：性能基准测试
 // ============================================================================
 
 struct SortBenchmark {
@@ -300,114 +349,126 @@ SortBenchmark benchmark_sort(const std::string& name,
     bool sorted = std::is_sorted(data.begin(), data.end());
 
     std::cout << "  " << std::left << std::setw(30) << name
-              << " time=" << std::fixed << std::setprecision(4) << elapsed << "s"
-              << "  sorted=" << (sorted ? "YES" : "NO") << "\n";
+              << " 时间=" << std::fixed << std::setprecision(4) << elapsed << "秒"
+              << "  已排序=" << (sorted ? "是" : "否") << "\n";
 
     return {name, elapsed, sorted};
 }
 
 // ============================================================================
-// Part 7: Parallel Slack Analysis
+// 第七部分：并行松弛度分析
 // ============================================================================
 
 void analyze_parallel_slack() {
-    std::cout << "\n=== Parallel Slack Analysis ===\n\n";
+    std::cout << "\n=== 并行松弛度分析 ===\n\n";
 
-    std::cout << "Parallel Slack = (independent work) / (parallel execution capability)\n\n";
+    std::cout << "并行松弛度 = 独立工作总量 / 并行执行能力\n\n";
 
-    std::cout << "Quicksort with N elements:\n";
-    std::cout << "  - Decomposition: each partition creates 2 independent subproblems\n";
-    std::cout << "  - Total independent work grows exponentially with recursion depth\n";
-    std::cout << "  - Parallel slack grows as tree expands\n\n";
+    std::cout << "快速排序（N 个元素）：\n";
+    std::cout << "  - 分解方式：每次分区产生 2 个独立的子问题\n";
+    std::cout << "  - 独立工作的总数量随递归深度呈指数增长\n";
+    std::cout << "  - 在有 N 个元素时，递归深度为 O(log₂ N)\n";
+    std::cout << "  - 独立子问题总数随递归深入呈指数增长，最终产生约 N 个叶子子问题\n";
+    std::cout << "  - 并行松弛度随树的扩展而增长\n\n";
 
-    std::cout << "Rule of thumb: slack ~8 is a good practical ratio.\n";
-    std::cout << "  - Too little slack: workers may idle waiting for work\n";
-    std::cout << "  - Too much slack: overhead of managing fine-grained tasks dominates\n\n";
+    std::cout << "经验法则：slack ≈ 8 是一个良好的实用比例。\n";
+    std::cout << "  - slack 太小：工作线程可能因为等待新工作而空闲\n";
+    std::cout << "  - slack 太大：管理细粒度任务的调度开销占主导\n";
+    std::cout << "  - 最佳取值依赖于硬件（核心数、缓存层次）和应用特性\n\n";
 
-    std::cout << "Cutoff optimization:\n";
-    std::cout << "  - Stop spawning when problem size < PARALLEL_CUTOFF\n";
-    std::cout << "  - Switches to sequential std::sort for small chunks\n";
-    std::cout << "  - Reduces spawn overhead without sacrificing parallelism\n";
+    std::cout << "截断阈值（cutoff）优化：\n";
+    std::cout << "  - 当问题规模 < PARALLEL_CUTOFF 时停止 spawn\n";
+    std::cout << "  - 对小数据块切换回串行 std::sort\n";
+    std::cout << "  - 在减少 spawn 开销的同时不牺牲并行性\n";
+    std::cout << "  - 典型 cutoff 取值：500-2000 个元素\n";
 }
 
 // ============================================================================
-// Part 8: Divide-and-Conquer Pattern Explanation
+// 第八部分：分治法模式解释
 // ============================================================================
 
 void explain_divide_conquer() {
-    std::cout << "\n=== Divide-and-Conquer & Fork-Join ===\n\n";
+    std::cout << "\n=== 分治法与 Fork-Join ===\n\n";
 
-    std::cout << "Common parallel programming patterns:\n\n";
+    std::cout << "常见的并行编程模式：\n\n";
 
-    std::cout << "1. DATA PARALLELISM (ISPC foreach, map, #pragma omp parallel for):\n";
+    std::cout << "1. 数据并行（ISPC foreach, map, #pragma omp parallel for）：\n";
     std::cout << "   foreach (i=0..N) { B[i] = foo(A[i]); }\n";
-    std::cout << "   → Same operation on many data elements\n\n";
+    std::cout << "   → 对多个数据元素执行相同的操作\n";
+    std::cout << "   → 适合规则的数据结构（数组、矩阵）\n";
+    std::cout << "   → 核心数变化时只需改变分区策略，代码无需修改\n\n";
 
-    std::cout << "2. FORK-JOIN (Cilk spawn/sync, OpenMP tasks):\n";
+    std::cout << "2. FORK-JOIN（Cilk spawn/sync, OpenMP tasks）：\n";
     std::cout << "   cilk_spawn quicksort(left);\n";
     std::cout << "   quicksort(right);\n";
     std::cout << "   cilk_sync;\n";
-    std::cout << "   → Natural for divide-and-conquer algorithms\n\n";
+    std::cout << "   → 自然而然地适合分治算法\n";
+    std::cout << "   → 不规则的并行度：子任务数随递归动态变化\n";
+    std::cout << "   → 依赖工作窃取来维持负载均衡\n\n";
 
-    std::cout << "3. EXPLICIT THREADS (std::thread, pthread):\n";
+    std::cout << "3. 显式线程（std::thread, pthread）：\n";
     std::cout << "   std::thread t[NUM_CORES](myFunction, args);\n";
-    std::cout << "   → Programmer manages decomposition, assignment, orchestration\n\n";
+    std::cout << "   → 程序员自行管理分解、分配和协调\n";
+    std::cout << "   → 最大的灵活性，但也最容易出错\n";
+    std::cout << "   → 适合自定义调度策略的场景\n\n";
 
-    std::cout << "4. BULK LAUNCH (CUDA, ISPC tasks):\n";
+    std::cout << "4. 批量启动（CUDA, ISPC tasks）：\n";
     std::cout << "   launch[numTasks] myTask(args);\n";
-    std::cout << "   → System handles assignment to execution units\n";
+    std::cout << "   → 系统自动处理到执行单元的分配\n";
+    std::cout << "   → 适合 GPU 等大规模并行硬件\n";
+    std::cout << "   → 程序员只需关心任务本身，不需要管理线程\n";
 }
 
 // ============================================================================
-// Main
+// 主函数
 // ============================================================================
 
 int main() {
     std::cout << "============================================================\n";
-    std::cout << "Lecture 5 Part 3: Fork-Join Parallelism & Quicksort\n";
+    std::cout << "第5讲 第三部分：Fork-Join 并行模式与快速排序\n";
     std::cout << "============================================================\n";
 
-    // === Generate test data ===
+    // === 生成测试数据 ===
     const int N = 500000;
     std::vector<int> data(N);
     std::mt19937 rng(42);
     for (int i = 0; i < N; i++) data[i] = rng() % 1000000;
 
-    std::cout << "\n--- Sorting " << N << " random integers ---\n\n";
+    std::cout << "\n--- 对 " << N << " 个随机整数进行排序 ---\n\n";
 
-    // === Sequential std::sort (best sequential) ===
-    benchmark_sort("std::sort (C++ stdlib)", [](std::vector<int>& arr) {
+    // === 串行 std::sort（最优串行基线） ===
+    benchmark_sort("std::sort（C++ 标准库）", [](std::vector<int>& arr) {
         std::sort(arr.begin(), arr.end());
     }, data);
 
-    // === Sequential quicksort (our implementation) ===
-    benchmark_sort("Sequential quicksort", [](std::vector<int>& arr) {
+    // === 串行快速排序（我们的实现） ===
+    benchmark_sort("串行快速排序", [](std::vector<int>& arr) {
         sequential_quicksort(arr, 0, arr.size());
     }, data);
 
-    // === Parallel quicksort with Cilk-like pool ===
+    // === 使用类 Cilk 线程池的并行快速排序 ===
     int hw_threads = std::thread::hardware_concurrency();
     if (hw_threads < 2) hw_threads = 2;
-    std::cout << "\n  Hardware threads: " << hw_threads << "\n";
+    std::cout << "\n  硬件线程数: " << hw_threads << "\n";
 
     for (int cutoff : {100, 1000, 5000, 20000}) {
-        std::string name = "Cilk quicksort (cutoff=" + std::to_string(cutoff) + ")";
+        std::string name = "Cilk 快速排序（截断=" + std::to_string(cutoff) + "）";
         benchmark_sort(name, [hw_threads, cutoff](std::vector<int>& arr) {
             ParallelQuicksort pq(hw_threads, cutoff);
             pq.sort(arr);
         }, data);
     }
 
-    // === Parallel quicksort with std::async ===
+    // === 使用 std::async 的并行快速排序 ===
     for (int cutoff : {1000, 20000}) {
-        std::string name = "std::async qsort (cutoff=" + std::to_string(cutoff) + ")";
+        std::string name = "std::async 快排（截断=" + std::to_string(cutoff) + "）";
         benchmark_sort(name, [cutoff](std::vector<int>& arr) {
             async_quicksort(arr, 0, arr.size(), cutoff);
         }, data);
     }
 
-    // === Recursive parallel for demonstration ===
-    std::cout << "\n--- Recursive Fork-Join for loop (N=1000) ---\n";
+    // === 递归并行 for 演示 ===
+    std::cout << "\n--- 递归 Fork-Join 并行 for 循环（N=1000）---\n";
     {
         std::vector<int> results(1000, 0);
         auto work = [&results](int i) {
@@ -422,23 +483,23 @@ int main() {
         for (int i = 0; i < 1000 && correct; i++) {
             correct = (results[i] == i * i);
         }
-        std::cout << "  Results correct: " << (correct ? "YES" : "NO") << "\n";
+        std::cout << "  结果正确性: " << (correct ? "是" : "否") << "\n";
     }
 
-    // === Parallel slack analysis ===
+    // === 并行松弛度分析 ===
     analyze_parallel_slack();
 
-    // === Divide-and-conquer explanation ===
+    // === 分治法解释 ===
     explain_divide_conquer();
 
-    // === Summary ===
-    std::cout << "\n=== Fork-Join Key Takeaways ===\n";
-    std::cout << "1. cilk_spawn creates independent work; cilk_sync waits for all.\n";
-    std::cout << "2. Use cutoff for small problems: spawn overhead > parallel benefit.\n";
-    std::cout << "3. Recursive decomposition: O(log N) spawns instead of O(N).\n";
-    std::cout << "4. Parallel slack rule: ~8x more work than execution units.\n";
-    std::cout << "5. Work stealing handles load balance transparently (Lecture 5 part 2).\n";
+    // === 总结 ===
+    std::cout << "\n=== Fork-Join 关键要点 ===\n";
+    std::cout << "1. cilk_spawn 创建可并行执行的独立工作；cilk_sync 等待所有工作完成。\n";
+    std::cout << "2. 对小问题使用截断阈值：spawn 开销可能大于并行带来的收益。\n";
+    std::cout << "3. 递归分解：将 spawn 次数从 O(N) 降到 O(log N)。\n";
+    std::cout << "4. 并行松弛度经验法则：约为执行单元数的 8 倍。\n";
+    std::cout << "5. 工作窃取透明地处理负载均衡（详见第5讲第二部分）。\n";
 
-    std::cout << "\nAll tests completed successfully.\n";
+    std::cout << "\n所有测试成功完成。\n";
     return 0;
 }

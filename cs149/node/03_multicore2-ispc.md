@@ -1,196 +1,491 @@
-# CS149 Lecture 3: Multi-Core Architecture Part II + ISPC Parallel Abstractions
+# CS149 第 3 讲：多核体系结构（下）与 ISPC 并行抽象
 
-**PDF**: `03_multicore2-ispc_WueDBzT.pdf`
+**PDF**：`03_multicore2-ispc_WueDBzT.pdf`
 
-**University**: Stanford CS149, Fall 2025
+**课程**：Stanford CS149，2025 年秋季
 
 ---
 
-## Core Concepts Summary
+## 本讲核心问题
 
-### 1. Throughput Computing Hardware (Review)
+1. 吞吐、延迟、带宽三者到底是什么关系？
+2. 为什么现代并行机器往往先撞上“带宽墙”而不是“算力墙”？
+3. ISPC 的 SPMD 编程模型如何把“像写标量代码一样表达数据并行”这件事做出来？
+4. 为什么抽象层和底层实现层必须分开理解？
 
-Three key ideas for throughput-oriented hardware:
-- **Multi-core execution**: multiple independent cores on one chip
-- **SIMD execution**: single instruction operates on multiple data elements
-- **Hardware multi-threading**: interleaving multiple threads on a core to hide latency
+---
 
-### 2. Latency vs. Bandwidth
+## 1. 吞吐与延迟：并行计算最容易被混淆的两个概念
 
-- **Latency**: time to complete a single task (e.g., 0.5 hours driving SF→Stanford)
-- **Bandwidth** (Throughput): rate of completing tasks (e.g., 2 cars/hour)
-- **Improving throughput**:
-  - Speed up each unit (drive faster → 200 km/hr → 4 cars/hr)
-  - Add more resources (build more lanes → 8 cars/hr with 4 lanes)
-  - Use resources more efficiently (pack cars tighter → 400 cars/hr)
-- **Memory bandwidth**: rate at which memory system provides data (e.g., 20 GB/s)
-- **Memory latency**: time to retrieve one item from memory (~100s of cycles)
+### 1.1 延迟
 
-> **C++ Demo**: `lecture3_part1.cpp` — Latency vs bandwidth simulation (car pipeline, laundry pipeline, memory bandwidth-bound computation)
+- 延迟是完成**一个任务**所需的时间。
+- 例子：一辆车从旧金山开到斯坦福需要 30 分钟。
 
-### 3. The Bandwidth Wall
+### 1.2 吞吐 / 带宽
 
-- **Element-wise vector multiplication**: 3 memory ops (12 bytes) per MUL
-- NVIDIA V100: 5120 fp32 ALUs @ 1.6 GHz → needs ~98 TB/sec bandwidth to keep ALUs busy
-- Actually has only 900 GB/s → <1% ALU utilization
-- **Key insight**: modern workloads are often bandwidth-limited, not compute-limited
-- **Solution**: organize computation to fetch data less often (temporal locality), share data across threads
+- 吞吐是单位时间内完成多少任务。
+- 例子：一小时能通过多少辆车。
 
-> **C++ Demo**: `lecture3_part1.cpp` — Bandwidth-bound computation simulation with utilization analysis
+### 1.3 为什么并行架构更强调吞吐
 
-### 4. Instruction Pipelining
+- 很多现代工作负载需要处理海量数据元素。
+- 单个元素未必要极快，但整体单位时间处理量必须足够高。
+- GPU、向量机、AI 加速器几乎都围绕这一目标设计。
 
-- **4-stage pipeline**: IF (Instruction Fetch) → D (Decode) → EX (Execute) → WB (Write Back)
-- Pipelining increases **throughput** (1 instruction/clock) while **latency** remains 4 cycles
-- Deeper pipelines: ~20 stages in modern CPUs
-- **Key distinction**: IPC (Instructions Per Clock) = throughput, NOT latency
+### 1.4 类比的重要性
 
-### 5. Abstraction vs. Implementation
+课程用公路、洗衣流水线、存储系统等类比，是为了让你形成稳定直觉：
 
-- **Semantics (Abstraction)**: what operations mean; what answer a program computes
-- **Implementation (Scheduling)**: how answer is computed on parallel hardware
-- **Goal**: trace through what each part of the parallel computer is doing during each step
+- 拉高时钟只是"让车开快一点"。
+- 增加并发资源是"多修几条车道"。
+- 优化调度和复用是"减少拥堵和空驶"。
 
-### 6. ISPC (Intel SPMD Program Compiler)
+### 1.4.1 公路类比的具体计算
 
-**SPMD**: Single Program, Multiple Data — define one function, run multiple instances in parallel.
+场景 1：1 车道，100 km/h，距离 50 km
+- 延迟: 0.5 小时/车，吞吐: 2 辆/小时
 
-> **C++ Demo**: `lecture3_part2.cpp` — ISPC-style SPMD simulation, foreach abstraction, interleaved vs blocked assignment
+场景 2：1 车道，200 km/h（加速）
+- 吞吐: 4 辆/小时（延迟减半，但吞吐翻倍）
 
-#### 6.1 ISPC Keywords
+场景 3：4 车道，100 km/h（并行）
+- 吞吐: 8 辆/小时
 
-```c
-export void ispc_sinx(
-    uniform int N,        // same value for all instances
-    uniform int terms,
-    uniform float* x,
-    uniform float* result)
-{
-    for (uniform int i=0; i<N; i+=programCount)
-    {
-        int idx = i + programIndex;  // unique per instance
-        float value = x[idx];        // "varying" - different per instance
-        // ...
-    }
+场景 4：车间距 1 km，100 km/h（提高道路利用率）
+- 吞程: 100 辆/小时/车道 → 4 车道 = 400 辆/小时
+
+### 1.4.2 洗衣流水线类比
+
+- 洗衣机: 45 分钟，烘干机: 60 分钟，叠衣: 15 分钟
+- 单批总延迟: 2 小时
+- 复制资源（2 台洗衣/烘干）：2 小时完成 2 批 = 1 批/小时
+- 流水线：稳态下 = 1 批/小时
+
+### 1.4.3 管道瓶颈类比
+
+Pipe1 最大流量 100L/s，Pipe2 最大流量 50L/s。
+→ 系统最大流量 = 50L/s（受瓶颈管道限制）
+
+这直接对应计算系统中的带宽瓶颈现象。
+
+> 对应源码：`lecture3_part1.cpp`
+> 内容：公路、洗衣、带宽受限计算、流水线吞吐模拟。
+
+---
+
+## 2. 带宽墙：为什么算力越来越容易吃不饱
+
+### 2.1 一个经典例子
+
+元素级向量乘法：
+
+```cpp
+out[i] = a[i] * b[i]
+```
+
+每次乘法往往要：
+
+- 读 `a[i]`
+- 读 `b[i]`
+- 写 `out[i]`
+
+也就是计算很少，但数据移动很多。
+
+### 2.1.1 V100 带宽需求的精确计算
+
+NVIDIA V100 的硬件配置：
+- 80 SM × 64 fp32 ALUs/SM = 5120 ALUs
+- L2 Cache: 6 MB
+- HBM2: 16 GB
+- 带宽: 900 GB/sec（4096-bit 接口）
+- 时钟频率: ~1.6 GHz
+
+带宽需求计算：
+- 5120 fp32 MUL 需要每拍 5120×2×4 = 40 KB 的数据（读 A 和 B）
+- 每拍还产生 5120×4 = 20 KB 的写数据（写 C）
+- @ 1.6 GHz = 需 ~98 TB/sec 总带宽
+- 实际只有 900 GB/sec → **效率 < 1%**
+
+但即便如此，V100 上的元素级向量乘法仍比 8 核 CPU 快。CPU 对照：3.2 GHz Xeon E5v4 8 核连接 76 GB/s 内存总线，效率约 3%。
+
+### 2.2 算术强度的隐含含义
+
+虽然这一讲还没正式进入 roofline 细节，但核心思想已经出现：
+
+- 若每搬运 1 字节数据只能做很少计算，程序就容易被带宽限制。
+- 算力越强的机器，越容易在这类任务上显得“算子大量空闲”。
+
+### 2.3 为什么“更多 ALU”不一定有用
+
+如果内存每个周期只能送来有限数据：
+
+- 即使芯片上有成千上万个乘法器，它们也会因为缺数据而闲置。
+- 于是瓶颈从“算不过来”变成“喂不饱”。
+
+### 2.4 重要结论
+
+现代高性能优化里，最值钱的往往不是少做几次加法，而是：
+
+- 多次复用已经取到片上的数据
+- 减少写回中间结果
+- 避免无意义搬运
+
+---
+
+## 3. 指令流水线：吞吐提升不等于单条指令延迟缩短
+
+### 3.1 四级流水线例子
+
+典型阶段：
+
+- IF：取指
+- D：译码
+- EX：执行
+- WB：写回
+
+### 3.2 流水线的收益
+
+- 一条指令从头到尾仍可能要 4 个周期。
+- 但流水稳定后，可以做到每拍完成 1 条指令。
+- 所以流水线提高的是**吞吐率**，不一定降低单条指令延迟。
+
+### 3.3 对并行程序的启发
+
+- 看到“每拍完成更多工作”时，要先问这是吞吐提升还是延迟下降。
+- 很多体系结构优化都属于前者。
+
+### 3.1.1 流水线深度说明
+
+- 实际指令流水线可达约 20 级（现代 CPU）
+- "我们说的 '核心每拍完成一个操作' 指的是指令**吞吐**，而非单条指令的**延迟**"
+- 这是理解流水线收益的关键：吞吐提升，单条延迟不缩短
+
+### 3.1.2 内存带宽受限执行的完整时序
+
+在带宽受限的场景下：
+- 每次 load 64 字节需占用 8 个时钟周期
+- 最多 3 个未完成的 load 请求
+- ALU 在大量时间处于空闲状态（红色区域）
+- **稳态下核心利用率仅是指令吞吐和内存吞吐的函数，与内存延迟和 outstanding requests 数量无关**
+
+---
+
+## 4. 抽象与实现：语义层和调度层不能混在一起
+
+这一讲多次强调：
+
+- **抽象 / 语义**：程序要算什么。
+- **实现 / 调度**：硬件和编译器怎样完成这个结果。
+
+### 4.1 为什么必须区分
+
+如果把“计算逻辑”和“底层映射细节”死绑在一起：
+
+- 程序可移植性差
+- 不利于编译器优化
+- 不利于根据不同硬件自动选择更好策略
+
+### 4.2 ISPC 的价值就在这里
+
+ISPC 让你用一种接近标量代码的方式表达：
+
+- 有一群逻辑程序实例在并行执行
+- 但底层实际上由 SIMD 指令实现
+
+这正是“抽象高于实现”的典型案例。
+
+---
+
+## 5. ISPC：SPMD 编程模型的核心思想
+
+### 5.1 SPMD 是什么
+
+SPMD = **Single Program, Multiple Data**
+
+含义：
+
+- 程序员写一份程序。
+- 逻辑上有多个“程序实例”同时运行。
+- 每个实例处理不同数据。
+
+### 5.2 它和 SIMD 的关系
+
+- 抽象层面：像在想多个独立执行的标量实例。
+- 实现层面：编译器把这些实例压进 SIMD 向量通道里执行。
+
+也就是说：
+
+- **SPMD 是编程模型**
+- **SIMD 是常见底层实现方式**
+
+### 5.3 为什么这很强
+
+如果直接写 SIMD intrinsic：
+
+- 你要手动管理向量寄存器
+- 手动处理分支掩码
+- 手动考虑 gather/scatter
+
+而 ISPC 让你更专注于“每个逻辑实例该做什么”。
+
+> 对应源码：`lecture3_part2.cpp`
+> 内容：ISPC 风格的 gang 抽象、interleaved / blocked 分配、foreach 模型。
+
+---
+
+## 6. `programCount`、`programIndex`、`uniform`、`varying`
+
+### 6.1 `programCount`
+
+- 一个 gang 里同时活跃的逻辑实例数量。
+- 通常对应底层 SIMD 宽度。
+
+### 6.2 `programIndex`
+
+- 当前逻辑实例在 gang 中的编号。
+- 范围通常是 `0 .. programCount-1`。
+
+### 6.3 `uniform`
+
+- 所有实例都相同的值。
+- 主要是性能优化信息，帮助编译器避免不必要的逐 lane 存储。
+
+### 6.4 `varying`
+
+- 各个实例拥有不同值。
+- 这是 SPMD 中最常见的数据类别。
+
+### 6.5 为什么这套类型系统重要
+
+它帮助程序员显式区分：
+
+- 哪些量是“广播给全体实例”的
+- 哪些量是“每个 lane 都不一样”的
+
+这个区分会直接影响代码生成质量与访存模式。
+
+### 6.5.1 两个常见的 ISPC 编译错误
+
+错误 1：将 varying 值赋给 uniform 变量
+```ispc
+export uniform float sum_incorrect_1(uniform float x[], uniform int N) {
+    float sum = 0.0f;  // sum 是 varying
+    // ... 
+    return sum;  // 编译错误：不能将 varying float 隐式转为 uniform float
 }
 ```
 
-- **`programCount`**: number of simultaneously executing instances in a gang (uniform)
-- **`programIndex`**: ID of current instance (0 to programCount-1) (varying)
-- **`uniform`**: type modifier — all instances have the same value (optimization, not for correctness)
-- **`varying`**: default type — each instance has its own copy
-
-#### 6.2 Gang Execution Model
-
-```
-main() [sequential C code]
-  ↓ call ispc_sinx()
-  ispc_sinx(): [0][1][2][3][4][5][6][7]  ← 8 program instances run concurrently
-  ↓ return
-main() [sequential C code resumes]
-```
-
-- Call to ISPC function spawns a "gang" of program instances
-- All instances run ISPC code concurrently
-- Each instance has its own copy of local variables
-- Upon return, all instances have completed
-
-#### 6.3 Interleaved vs. Blocked Assignment
-
-**Interleaved** (stride = programCount):
-```c
-for (uniform int i=0; i<N; i+=programCount) {
-    int idx = i + programIndex;
-    // instance 0: indices 0, 8, 16, ...
-    // instance 1: indices 1, 9, 17, ...
-}
-```
-Advantage: contiguous memory access → efficient **packed vector load** (`vmovaps`)
-
-**Blocked** (contiguous chunks):
-```c
-uniform int count = N / programCount;
-int start = programIndex * count;
-for (uniform int i=0; i<count; i++) {
-    int idx = start + i;
-    // instance 0: indices 0, 1, 2, ...
-    // instance 1: indices 8, 9, 10, ...
-}
-```
-Requires **gather instruction** (`vgatherdps`) — non-contiguous memory access, more costly
-
-#### 6.4 The `foreach` Abstraction
-
-```c
-export void ispc_function(uniform int N, uniform float* x, uniform float* y) {
+错误 2：将 varying 值赋给 uniform 累加器
+```ispc
+export uniform float sum_incorrect_2(uniform float x[], uniform int N) {
+    uniform float sum = 0.0f;
     foreach (i = 0 ... N) {
-        float val = x[i];
-        float result = /* compute from val */;
-        y[i] = result;
+        sum += x[i];  // 编译错误：varying x[i] 不能赋给 uniform sum
     }
+    return sum;
 }
 ```
 
-- Declares parallel loop iterations — programmer writes sequential-like code
-- ISPC runtime assigns iterations to program instances
-- Possible implementations: sequential, interleaved, blocked, dynamic (work stealing)
+---
 
-#### 6.5 Cross-Instance Operations
+## 7. 交错分配与分块分配
 
-> **C++ Demo**: `lecture3_part3.cpp` — Cross-instance operations simulation (reduce_add, broadcast, rotate, parallel reduction tree)
+### 7.1 交错分配（interleaved）
 
-| Operation | Description |
-|---|---|
-| `reduce_add(x)` | Sum of x across all instances in gang |
-| `reduce_min(x)` | Minimum of x across all instances |
-| `broadcast(x, idx)` | Send value from instance idx to all |
-| `rotate(x, offset)` | Pass x to instance (i + offset) % programCount |
+典型形式：
 
-**Example**: Parallel reduction (8 elements in log₂(8) = 3 steps):
 ```c
-float val1 = x[programIndex];
-float val2 = shift(val1, 1);
-if (programIndex % 2 == 0) val1 = val1 * val2;
-val2 = shift(val1, 2);
-if (programIndex % 4 == 0) val1 = val1 * val2;
-val2 = shift(val1, 4);
-if (programIndex % 8 == 0) *result = val1 * val2;
+idx = i + programIndex
 ```
 
-### 7. ISPC Tasks (Multi-core)
+特点：
 
-- **Gang abstraction**: implemented by SIMD instructions on **one** CPU core
-- **Task abstraction**: used for multi-core execution (multiple gangs on multiple cores)
-- Covered in Assignment 1
+- 同一个 gang 里不同实例处理连续元素。
+- 通常对应连续内存访问。
+- 更适合打包加载，利于 SIMD 高效执行。
 
-### 8. From Low-Level ISPC to High-Level Abstractions
+### 7.2 分块分配（blocked）
 
-**Level 1 (ISPC with programIndex)**: explicit instance ID, manual assignment
-**Level 2 (foreach)**: declare parallel iterations, compiler assigns work
-**Level 3 (no array indexing)**: `map(doWork, collection)` — purely functional data-parallel
-**Level 4 (NumPy-style)**: `Z = X + Y` — operations on whole collections
+典型形式：
+
+```c
+start = programIndex * chunk
+idx = start + local_i
+```
+
+特点：
+
+- 每个实例处理一段连续块。
+- 对单个实例看起来局部性很好，但同一时刻不同实例访问可能不连续。
+- 在 SIMD 实现中，往往需要 gather/scatter，成本更高。
+
+### 7.3 没有绝对优劣，关键看实现目标
+
+- 对 SIMD 向量化，交错布局更常见。
+- 对缓存块处理或线程级划分，分块方式也很常用。
+- 课程想让你理解的是：**抽象一致，但底层映射方式会极大影响性能。**
 
 ---
 
-## Actionable Learning Points
+## 8. `foreach`：从实例思维切回迭代空间思维
 
-| # | Concept | C++ File |
+ISPC 的 `foreach` 很重要，因为它鼓励程序员写：
+
+- “请并行处理这个迭代空间”
+
+而不是：
+
+- "lane 0 做这个，lane 1 做那个"
+
+### 8.0.1 `foreach` 的四种实现策略
+
+ISPC `foreach` 可由编译器映射为至少四种具体实现：
+1. **实例 0 串行执行所有迭代**（退化情况）
+2. **交错分配（Interleaved）**：标准映射，每个 gang instance 轮流取元素
+3. **分块分配（Blocked）**：每个 gang instance 取连续一段元素
+4. **动态分配**：使用 `atomic_add_local` 的 nextIter 计数器动态领任务
+
+### 8.1 `foreach` 的价值
+
+- 让代码更接近问题本身
+- 让编译器保有更大调度自由
+- 更利于后续扩展到多核、块级并行或任务并行
+
+### 8.2 这一点为什么重要
+
+现代高性能 DSL 几乎都在追求这件事：
+
+- Halide：写算法，不直接写 schedule 细节
+- Tensor DSL：写张量变换，不手写所有线程细节
+- Triton：在更高抽象层表达块级并行
+
+ISPC 是你理解这些系统的一个理想桥梁。
+
+### 8.2.1 从 ISPC 到更高层抽象的演进路径
+
+ISPC 揭示了一条清晰的编程模型演进路线：
+
+1. **底层 ISPC** — 可访问 `programIndex`/`programCount`，灵活但容易写出未定义行为
+2. **禁止 programIndex** — 只用 `foreach`，减少对实例编号的显式依赖
+3. **禁止数组索引** — 只允许在 collection 上做 map 操作，类似 NumPy/PyTorch
+
+每一步都通过限制表达能力来换取更强的正确性保证和更大的优化空间。
+
+### 8.2.2 vec8product：跨 lane 协作的高级示例
+
+```ispc
+export uniform float vec8product(uniform float x[]) {
+    // 假设 programCount == 8
+    float prod = x[programIndex];
+    prod *= shift(prod, 1);   // 跨 lane 通信
+    prod *= shift(prod, 2);   // 再跨 2 个 lane
+    prod *= shift(prod, 4);   // 再跨 4 个 lane
+    return prod;  // 所有 lane 现在持有相同的 8 元素乘积
+}
+```
+在仅 3 步（lg2(8)=3）内完成 8 个元素的并行乘积计算。
+
+### 8.2.3 ISPC `task` 抽象
+
+- gang 抽象由单 CPU 核上单线程的 SIMD 指令实现
+- ISPC 还提供 `task` 抽象用于多核并行执行
+- task 是独立的工作单元，可由不同 CPU 核心分别调度
+
+---
+
+## 9. 跨实例通信原语
+
+常见原语包括：
+
+- `reduce_add`
+- `reduce_min`
+- `broadcast`
+- `rotate`
+
+### 9.0.1 精确的函数签名
+
+- `uniform int64 reduce_add(int32 x)` — gang 内所有实例值的求和
+- `uniform int32 reduce_min(int32 a)` — gang 内最小值
+- `int32 broadcast(int32 value, uniform int index)` — 将某 lane 的值广播
+- `int32 rotate(int32 value, uniform int offset)` — lane 间循环移位
+
+### 9.0.2 sum_array 的正确 ISPC 实现
+
+```ispc
+export uniform float sum_array(uniform float x[], uniform int N) {
+    float partial = 0.0f;
+    foreach (i = 0 ... N) { partial += x[i]; }
+    return reduce_add(partial);
+}
+```
+
+对应的 AVX intrinsics 等效实现：
+```c
+__m256 partial = _mm256_setzero_ps();
+for (int i = 0; i < N; i += 8) {
+    partial = _mm256_add_ps(partial, _mm256_load_ps(&x[i]));
+}
+float tmp[8];
+_mm256_store_ps(tmp, partial);
+return tmp[0] + tmp[1] + tmp[2] + tmp[3] + tmp[4] + tmp[5] + tmp[6] + tmp[7];
+```
+
+### 9.1 为什么需要这些原语
+
+虽然大多数数据并行问题都尽量让实例彼此独立，但现实中仍经常需要：
+
+- 在一个 gang 内求和
+- 找最大值 / 最小值
+- 把某个 lane 的结果广播给其他 lane
+- 交换邻近 lane 的值
+
+### 9.2 它们说明了什么
+
+- SPMD 不是完全没有通信。
+- 只是通信被限制在更结构化、更可优化的形式里。
+
+---
+
+## 10. 从本讲得到的工程启发
+
+1. 先判断程序受限于延迟还是吞吐。
+2. 对高吞吐机器，优先思考数据移动是否成为瓶颈。
+3. 对数据并行代码，尽量保持同一 gang 内访问连续。
+4. 使用高层抽象表达“并行语义”，尽量不要过早绑死到底层 lane 编排。
+5. 遇到带宽墙时，重点不是增加算力，而是提高数据复用与局部性。
+
+---
+
+## 常见误区
+
+1. **误区：流水线缩短了单条指令的执行时间。**
+   它主要提升吞吐，不一定降低单条延迟。
+2. **误区：SPMD 就是 SIMD。**
+   SPMD 是抽象，SIMD 只是常见实现方式。
+3. **误区：只要 ALU 很多，程序就一定很快。**
+   带宽不足时，大部分算子都可能闲着。
+4. **误区：交错分配永远优于分块分配。**
+   要结合底层实现、访存模式与缓存行为综合判断。
+5. **误区：忽略了 `shift()` 等跨 lane 通信原语的高级用法。**
+   ISPC 中的 `shift()` 配合 `programIndex` 可以在 log(lane_count) 步内完成复杂的归约和协作计算。
+
+---
+
+## 对应源码
+
+| 文件 | 主题 | 重点 |
 |---|---|---|
-| 1 | Latency vs bandwidth with car/laundry analogies | `lecture3_part1.cpp` |
-| 2 | Bandwidth-bound computation & ALU utilization | `lecture3_part1.cpp` |
-| 3 | SPMD programming model & ISPC gang simulation | `lecture3_part2.cpp` |
-| 4 | `foreach` abstraction, interleaved vs blocked assignment | `lecture3_part2.cpp` |
-| 5 | Cross-instance reduce/broadcast/rotate operations | `lecture3_part3.cpp` |
-| 6 | Parallel reduction tree (log₂N steps) | `lecture3_part3.cpp` |
-| 7 | SIMD gather vs packed load performance | `lecture3_part2.cpp` |
+| `lecture3_part1.cpp` | 延迟、吞吐、带宽、流水线 | 为什么吞吐型机器经常被带宽限制 |
+| `lecture3_part2.cpp` | ISPC / SPMD 模型 | `programCount`、`programIndex`、`uniform/varying` |
+| `lecture3_part3.cpp` | 带宽受限分析与数据移动成本 | “算术便宜，搬运昂贵”的结构性原因 |
 
 ---
 
-## Key Takeaways
+## 学完本讲应做到
 
-1. **Bandwidth is the critical resource** in modern throughput-optimized systems — organize computation to fetch data less often
-2. **Abstraction vs. implementation**: always think about what a program *means* vs. how it *executes*
-3. **ISPC SPMD model**: think of multiple program instances running same code on different data
-4. **`foreach` is preferred** for simple data-parallel operations (hides assignment details)
-5. **Cross-instance operations** enable communication within a gang without breaking the SPMD model
-6. **Interleaved assignment** enables efficient SIMD packed loads; blocked assignment may need costly gathers
+- 能区分延迟、吞吐、带宽三者含义。
+- 能解释为什么现代并行硬件经常首先撞上带宽墙。
+- 能用自己的话说明 SPMD 与 SIMD 的关系。
+- 能理解 ISPC 为什么是学习 GPU 与 DSL 的重要过渡抽象。
+

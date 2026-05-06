@@ -1,6 +1,49 @@
 // lecture12_part2.cpp
-// DRAM Simulator: Banks, Row Buffer, Burst Mode, Memory Controller
-// Models DRAM internals as described in Lecture 12
+// DRAM 模拟器：存储体 (Bank)、行缓冲区 (Row Buffer)、突发传输模式 (Burst Mode)、内存控制器
+// 模拟 Lecture 12 中描述的 DRAM 内部结构和工作原理
+//
+// 核心概念详解：
+// 1. DRAM Bank（存储体）：DRAM 芯片内部由多个独立的 bank 组成（典型为 8 个）。
+//    每个 bank 可以独立处理请求，从而支持请求流水线化（request pipelining），
+//    提高引脚（pin）利用率。这是 HBM 实现高带宽的关键——更多 bank = 更多并行请求。
+// 2. Row Buffer（行缓冲区/感测放大器）：每个 bank 内部有一个行缓冲区（也叫感测放大器，
+//    sense amplifier）。当一个行被激活（RAS，Row Access Strobe）时，该行的所有数据
+//    被读到行缓冲区。后续对该行任意列的访问（CAS，Column Access Strobe）都直接从
+//    行缓冲区读取（行命中/row hit），无需重新激活行。
+//    行命中延迟 = tCAS + tBURST（~17 ns）
+//    行缺失延迟 = tRP + tRAS + tCAS + tBURST（~62 ns）—— 约 3.5x 的差距！
+// 3. 预充电（Precharge, PRE）：关闭当前激活的行。需要将行缓冲区中的数据写回存储单元。
+//    完整访问流程：PRE（关闭旧行）→ RAS（激活新行）→ CAS（列访问）→ BURST（突发传输）。
+// 4. 突发传输（Burst Transfer）：一次 CAS 命令可连续传输多个数据节拍（burstLength）。
+//    DDR4 典型 burst 长度为 8 拍，每次传输 dataBusWidth 位（通常 8 位/芯片）。
+//    8 个芯片并行工作 → 64 位内存总线 → 每个 burst 传输 64 字节（一个 cache line）。
+//    计算：8 burst × 64 bit / 8 = 64 bytes。
+// 5. FR-FCFS（First-Ready, First-Come-First-Serve）调度策略：
+//    - 第一步：优先服务行缓冲区命中的请求（最大化行局部性/row locality）
+//    - 第二步：其他请求按 FIFO 顺序处理
+//    这是现代内存控制器的核心调度策略，对性能有显著影响。
+// 6. DRAM 时序参数（DDR4-like）：
+//    - tRC（Row Cycle）= tRP + tRAS + tCAS：完整的行周期时间
+//    - tRP（Row Precharge）：预充电时间
+//    - tRAS（Row Access Strobe）：行激活时间
+//    - tCAS（Column Access Strobe）：列访问时间
+//    - tRRD（Row-to-Row Delay）：连续激活两行的最小间隔
+//    - tFAW（Four Activate Window）：四个激活窗口约束
+//    - tBURST：突发传输时间
+// 7. DRAM 与 SRAM 的层次差异：
+//    - SRAM（片上 cache/shared memory）：访问延迟 ~1-5 个周期，能量 ~5 pJ/操作
+//    - DRAM（片外 HBM/DDR4）：访问延迟 ~50-200 ns，能量 ~640-1200 pJ/操作
+//    - 能量比例：DRAM/SRAM ≈ 1200/26 ≈ 46x，DRAM/FP32 ≈ 640/0.9 ≈ 711x
+//    - 关键推论：重新计算值通常比从 DRAM 存储和重新加载更省能耗！
+// 8. HBM（High Bandwidth Memory）优势：
+//    - 3D 堆叠：多层 DRAM die 通过 TSV（硅通孔）垂直堆叠
+//    - 硅中介层（Silicon Interposer）：高密度互连
+//    - H100：6 个 HBM3 堆栈 × 1024 位 = 6144 位接口 → 峰值 3.2 TB/s
+//    - 对比：双通道 DDR4-2400 仅 ~38.4 GB/s（HBM 宽约 83 倍！）
+//    - 每比特能耗比 GDDR5 降低 94%（AMD 估算）
+// 9. DIMM 组织：8 个 DRAM 芯片 → 64 位总线（一个 rank）。物理地址以字节粒度
+//    交错分布在芯片间。内存控制器将物理地址映射为 (bank, row, column) 三元组。
+//
 // Stanford CS149, Fall 2025 - Lecture 12: Mapping AI to the AI Datacenter
 
 #include <iostream>
@@ -12,54 +55,57 @@
 #include <algorithm>
 #include <random>
 
-// Time in nanoseconds
+// 时间单位：纳秒 (ns)
 using Time = double;
 
-// DRAM timing parameters (DDR4-like)
+// DRAM 时序参数（DDR4 风格）
+// 这些参数决定了内存访问延迟的各个组成部分
 struct DRAMTiming {
-    double tRC_ns = 45.0;     // Row cycle time (PRE + RAS + CAS)
-    double tRAS_ns = 32.0;    // Row access strobe
-    double tRP_ns = 13.0;     // Row precharge time
-    double tCAS_ns = 13.0;    // Column access strobe
-    double tBURST_ns = 4.0;   // Burst transfer (8 beats)
-    double tRRD_ns = 6.0;     // Row activate to row activate delay
-    double tFAW_ns = 30.0;    // Four activate window
-    double tCCD_ns = 5.0;     // Column to column delay
-    int burstLength = 8;      // Number of data beats per column access
-    int dataBusWidth = 8;     // Bits per DRAM chip
-    int numBanks = 8;         // Banks per DRAM chip
-    int rowsPerBank = 16384;  // Rows per bank
-    int colsPerRow = 1024;    // Columns per row (each col = burstLength * dataBusWidth bits)
+    double tRC_ns = 45.0;     // 行周期时间（PRE + RAS + CAS 的完整周期）
+    double tRAS_ns = 32.0;    // 行地址选通（Row Access Strobe）：激活行所需时间
+    double tRP_ns = 13.0;     // 行预充电时间（Row Precharge）：关闭当前行的时间
+    double tCAS_ns = 13.0;    // 列地址选通（Column Access Strobe）：列访问时间
+    double tBURST_ns = 4.0;   // 突发传输时间（8 拍连续数据）
+    double tRRD_ns = 6.0;     // 行激活到行激活间隔（Row-to-Row Delay）
+    double tFAW_ns = 30.0;    // 四激活窗口（Four Activate Window）
+    double tCCD_ns = 5.0;     // 列到列延迟（Column-to-Column Delay）
+    int burstLength = 8;      // 每次列访问的数据节拍数
+    int dataBusWidth = 8;     // 每个 DRAM 芯片的数据总线宽度（位）
+    int numBanks = 8;         // 每个 DRAM 芯片的 bank 数量
+    int rowsPerBank = 16384;  // 每个 bank 的行数
+    int colsPerRow = 1024;    // 每行的列数（每列 = burstLength * dataBusWidth 位）
 };
 
-// A single DRAM bank
+// 单个 DRAM Bank（存储体）
+// 每个 bank 独立运作，拥有自己的行缓冲区和状态
 class DRAMBank {
 public:
     DRAMBank(int bankId, const DRAMTiming& timing)
         : bankId_(bankId), timing_(timing),
           rowBuffer_(timing.colsPerRow * timing.burstLength * timing.dataBusWidth / 8, 0),
-          openRow_(-1), rowBufferValid_(false),
+          openRow_(-1),          // -1 表示没有打开的行
+          rowBufferValid_(false), // 行缓冲区数据是否有效
           busyUntil_(0.0), stats_{0, 0} {}
 
-    // Service a read request to this bank
-    // Returns the latency in ns
+    // 处理对此 bank 的读请求
+    // 返回延迟（纳秒）
     Time read(int row, int col, Time currentTime) {
         Time startTime = std::max(currentTime, busyUntil_);
         Time latency = 0.0;
 
         if (openRow_ == row && rowBufferValid_) {
-            // Row buffer hit: only need CAS
+            // 行缓冲区命中（row buffer hit）：目标行已经激活，只需列访问
             latency = timing_.tCAS_ns + timing_.tBURST_ns;
             stats_.rowHits++;
         } else {
-            // Row buffer miss: need PRE (if row open) + RAS + CAS
+            // 行缓冲区缺失（row buffer miss）：需要先关闭当前行，再激活目标行
             if (rowBufferValid_) {
-                // Write back current row buffer
-                latency += timing_.tRP_ns;  // Precharge
+                // 将当前行缓冲区的数据写回存储单元（预充电）
+                latency += timing_.tRP_ns;  // 预充电时间
             }
-            latency += timing_.tRAS_ns;      // Activate new row
-            latency += timing_.tCAS_ns;      // Column access
-            latency += timing_.tBURST_ns;    // Burst transfer
+            latency += timing_.tRAS_ns;      // 激活新行
+            latency += timing_.tCAS_ns;      // 列访问
+            latency += timing_.tBURST_ns;    // 突发传输
 
             openRow_ = row;
             rowBufferValid_ = true;
@@ -71,6 +117,8 @@ public:
         return latency;
     }
 
+    // 预充电（Precharge）：关闭当前打开的行
+    // 强制将行缓冲区数据写回并清空缓冲区
     void precharge(Time currentTime) {
         if (rowBufferValid_) {
             busyUntil_ = std::max(currentTime, busyUntil_) + timing_.tRP_ns;
@@ -79,6 +127,7 @@ public:
         }
     }
 
+    // 检查 bank 是否就绪（可以接受新请求）
     bool isReady(Time currentTime) const {
         return busyUntil_ <= currentTime;
     }
@@ -87,6 +136,7 @@ public:
     bool rowBufferValid() const { return rowBufferValid_; }
     int bankId() const { return bankId_; }
 
+    // Bank 统计信息（行命中/缺失计数）
     struct Stats {
         long long totalRequests = 0;
         long long rowHits = 0;
@@ -97,28 +147,29 @@ public:
 private:
     int bankId_;
     DRAMTiming timing_;
-    std::vector<uint8_t> rowBuffer_;
-    int openRow_;
-    bool rowBufferValid_;
-    Time busyUntil_;
-    Stats stats_;
+    std::vector<uint8_t> rowBuffer_;  // 行缓冲区存储
+    int openRow_;                     // 当前打开的行号（-1 = 无）
+    bool rowBufferValid_;             // 行缓冲区数据是否有效
+    Time busyUntil_;                  // bank 忙碌到何时
+    Stats stats_;                     // 统计计数器
 };
 
-// Memory request from LLC
+// 来自 LLC（Last Level Cache，末级缓存）的内存请求
 struct MemRequest {
-    int id;
-    int bankId;
-    int row;
-    int col;
-    Time arrivalTime;
-    Time completionTime;
-    bool isRead;
+    int id;               // 请求 ID
+    int bankId;           // 目标 bank
+    int row;              // 目标行
+    int col;              // 目标列
+    Time arrivalTime;     // 到达时间
+    Time completionTime;  // 完成时间
+    bool isRead;          // 是否为读请求
 };
 
-// Memory Controller with FR-FCFS scheduling
-// FR-FCFS: First-Ready, First-Come-First-Serve
-// 1. Service requests to currently OPEN ROW first (maximize row locality)
-// 2. Service other requests in FIFO order
+// 内存控制器：使用 FR-FCFS 调度策略
+// FR-FCFS = First-Ready（优先就绪）, First-Come-First-Serve（先来先服务）
+// 分两级调度：
+//   1. 优先服务行缓冲区命中的请求（最大化行局部性/吞吐量）
+//   2. 其余请求按 FIFO 顺序处理（保证公平性）
 class MemoryController {
 public:
     MemoryController(int numBanks, const DRAMTiming& timing)
@@ -128,30 +179,31 @@ public:
         }
     }
 
-    // Submit a request to the controller
+    // 向控制器提交一个内存请求
     void submitRequest(int bankId, int row, int col, bool isRead = true) {
         requestQueue_.push_back({nextReqId_++, bankId, row, col, currentTime_, 0.0, isRead});
     }
 
-    // Process all pending requests
+    // 处理所有待处理请求
     void processAll() {
         while (!requestQueue_.empty()) {
-            // FR-FCFS: prioritize row-buffer hits
+            // === FR-FCFS 调度逻辑 ===
+            // 第一步：在请求队列中查找行缓冲区命中的请求
             auto hitIt = requestQueue_.end();
             auto firstIt = requestQueue_.begin();
 
-            // Find first request that is a row-buffer hit
+            // 搜索第一个行缓冲区命中的请求（优先处理）
             for (auto it = requestQueue_.begin(); it != requestQueue_.end(); ++it) {
                 int b = it->bankId;
-                if (banks_[b].isReady(currentTime_) &&
-                    banks_[b].rowBufferValid() &&
-                    banks_[b].openRow() == it->row) {
+                if (banks_[b].isReady(currentTime_) &&      // bank 空闲
+                    banks_[b].rowBufferValid() &&            // 行缓冲区有效
+                    banks_[b].openRow() == it->row) {       // 命中了当前激活的行
                     hitIt = it;
                     break;
                 }
             }
 
-            // Find first request to any ready bank (FIFO order)
+            // 第二步：如果没有命中请求，查找第一个可响应的请求（FIFO 顺序）
             auto readyIt = requestQueue_.end();
             if (hitIt == requestQueue_.end()) {
                 for (auto it = requestQueue_.begin(); it != requestQueue_.end(); ++it) {
@@ -162,10 +214,11 @@ public:
                 }
             }
 
+            // 选择最终要服务的请求
             auto chosenIt = (hitIt != requestQueue_.end()) ? hitIt : readyIt;
 
             if (chosenIt == requestQueue_.end()) {
-                // No request can be serviced now; advance time to next bank ready
+                // 当前没有请求可以被服务：推进时间到下一个 bank 就绪的时刻
                 Time nextReady = 1e9;
                 for (auto& b : banks_) {
                     if (!b.isReady(currentTime_)) {
@@ -177,7 +230,7 @@ public:
                 continue;
             }
 
-            // Service the chosen request
+            // 服务选中的请求
             int b = chosenIt->bankId;
             Time latency = banks_[b].read(chosenIt->row, chosenIt->col, currentTime_);
             currentTime_ += latency;
@@ -188,21 +241,22 @@ public:
         totalTime_ = currentTime_;
     }
 
+    // 打印内存控制器统计信息
     void printStats() const {
         std::cout << "══════════════════════════════════════════════════════════════\n";
-        std::cout << "Memory Controller Stats (FR-FCFS Scheduling)\n";
+        std::cout << "内存控制器统计 (FR-FCFS 调度策略)\n";
         std::cout << "══════════════════════════════════════════════════════════════\n\n";
 
-        std::cout << "Total time: " << std::fixed << std::setprecision(1)
+        std::cout << "总时间: " << std::fixed << std::setprecision(1)
                   << totalTime_ << " ns\n";
-        std::cout << "Requests completed: " << completedRequests_.size() << "\n\n";
+        std::cout << "已完成的请求数: " << completedRequests_.size() << "\n\n";
 
         std::cout << std::left
                   << std::setw(10) << "Bank"
-                  << std::setw(14) << "Requests"
-                  << std::setw(10) << "Row Hits"
-                  << std::setw(12) << "Row Misses"
-                  << std::setw(10) << "Hit Rate\n";
+                  << std::setw(14) << "请求数"
+                  << std::setw(10) << "行命中"
+                  << std::setw(12) << "行缺失"
+                  << std::setw(10) << "命中率\n";
         std::cout << std::string(56, '-') << "\n";
 
         long long totalReqs = 0, totalHits = 0, totalMisses = 0;
@@ -224,32 +278,35 @@ public:
         std::cout << std::string(56, '-') << "\n";
         double overallHitRate = totalReqs > 0 ? 100.0 * totalHits / totalReqs : 0.0;
         std::cout << std::left
-                  << std::setw(10) << "TOTAL"
+                  << std::setw(10) << "总计"
                   << std::setw(14) << totalReqs
                   << std::setw(10) << totalHits
                   << std::setw(12) << totalMisses
                   << std::fixed << std::setprecision(1) << overallHitRate << "%\n\n";
     }
 
+    // 计算有效带宽（字节/秒）
+    // 有效带宽 = 总传输字节数 / 总时间
     double effectiveBandwidth() const {
         if (totalTime_ == 0) return 0.0;
         double totalBytes = completedRequests_.size() *
                             timing_.burstLength * timing_.dataBusWidth / 8.0;
-        return totalBytes / (totalTime_ * 1e-9);  // Bytes/sec
+        return totalBytes / (totalTime_ * 1e-9);  // 转换为字节/秒
     }
 
+    // 打印延迟分解（最佳/最差情况）
     void printTimingBreakdown() const {
-        std::cout << "Timing Parameters:\n";
-        std::cout << "  Row cycle (tRC):    " << timing_.tRC_ns << " ns\n";
-        std::cout << "  Row activate (tRAS): " << timing_.tRAS_ns << " ns\n";
-        std::cout << "  Precharge (tRP):    " << timing_.tRP_ns << " ns\n";
-        std::cout << "  Column access (tCAS): " << timing_.tCAS_ns << " ns\n";
-        std::cout << "  Burst transfer:     " << timing_.tBURST_ns << " ns ("
-                  << timing_.burstLength << " beats)\n\n";
+        std::cout << "时序参数：\n";
+        std::cout << "  行周期 (tRC):      " << timing_.tRC_ns << " ns\n";
+        std::cout << "  行激活 (tRAS):     " << timing_.tRAS_ns << " ns\n";
+        std::cout << "  预充电 (tRP):      " << timing_.tRP_ns << " ns\n";
+        std::cout << "  列访问 (tCAS):     " << timing_.tCAS_ns << " ns\n";
+        std::cout << "  突发传输 (Burst):  " << timing_.tBURST_ns << " ns ("
+                  << timing_.burstLength << " 拍)\n\n";
 
-        std::cout << "Best case latency (row hit):  CAS + Burst = "
+        std::cout << "最佳延迟（行命中）:  CAS + Burst = "
                   << (timing_.tCAS_ns + timing_.tBURST_ns) << " ns\n";
-        std::cout << "Worst case latency (row miss): PRE + RAS + CAS + Burst = "
+        std::cout << "最差延迟（行缺失）:  PRE + RAS + CAS + Burst = "
                   << (timing_.tRP_ns + timing_.tRAS_ns + timing_.tCAS_ns + timing_.tBURST_ns)
                   << " ns\n\n";
     }
@@ -258,28 +315,33 @@ public:
 
 private:
     DRAMTiming timing_;
-    std::vector<DRAMBank> banks_;
-    std::vector<MemRequest> requestQueue_;
-    std::vector<MemRequest> completedRequests_;
+    std::vector<DRAMBank> banks_;            // 所有 DRAM bank
+    std::vector<MemRequest> requestQueue_;   // 请求队列
+    std::vector<MemRequest> completedRequests_;  // 已完成的请求列表
     Time currentTime_;
     Time totalTime_;
     int nextReqId_ = 0;
 };
 
-// Simulate different access patterns
+// === 三种不同的内存访问模式模拟 ===
+
+// 顺序访问（Sequential Access）
+// 同一行内连续列 → 行缓冲区命中率极高
+// 这是 GPU 上矩阵乘法等计算的典型访存模式
 void simulateSequentialAccess(MemoryController& mc, int numRequests) {
-    // Sequential access: consecutive columns in same row → high hit rate
     for (int i = 0; i < numRequests; ++i) {
-        int bank = i % 8;
-        int row = i / 1024;
-        int col = i % 1024;
+        int bank = i % 8;          // 轮转 bank（bank 交错）
+        int row = i / 1024;        // 行号按列数推进
+        int col = i % 1024;        // 同行的连续列
         mc.submitRequest(bank, row, col);
     }
 }
 
+// 随机访问（Random Access）
+// 随机 bank、随机行、随机列 → 行缓冲区命中率极低
+// 代表最差情况的访存模式
 void simulateRandomAccess(MemoryController& mc, int numRequests,
                           std::mt19937& rng) {
-    // Random access: random rows → low hit rate
     std::uniform_int_distribution<int> bankDist(0, 7);
     std::uniform_int_distribution<int> rowDist(0, 16383);
     std::uniform_int_distribution<int> colDist(0, 1023);
@@ -289,41 +351,44 @@ void simulateRandomAccess(MemoryController& mc, int numRequests,
     }
 }
 
+// 跨步访问（Strided Access）
+// 每次跳过 `stride` 行 → 命中率介于顺序和随机之间
+// 模拟矩阵转置、卷积等访存模式
 void simulateStridedAccess(MemoryController& mc, int numRequests, int stride) {
-    // Strided access: skip `stride` rows each time → mixed hit rate
     for (int i = 0; i < numRequests; ++i) {
-        int bank = (i * stride) % 8;
-        int row = (i * stride / 8) % 16384;
-        int col = i % 1024;
+        int bank = (i * stride) % 8;           // 跨步后的 bank
+        int row = (i * stride / 8) % 16384;     // 跨步后的行
+        int col = i % 1024;                     // 连续列
         mc.submitRequest(bank, row, col);
     }
 }
 
-// Energy cost analysis (from lecture data)
+// 数据移动能耗分析
+// 基于 Lecture 12 中引用的经典数据（Han, ICLR 2016; Bill Dally）
 void analyzeEnergyCost() {
     std::cout << "══════════════════════════════════════════════════════════════\n";
-    std::cout << "Data Movement Energy Cost Analysis\n";
+    std::cout << "数据移动能耗分析\n";
     std::cout << "══════════════════════════════════════════════════════════════\n\n";
 
     struct EnergyEntry {
-        std::string operation;
-        double energy_pJ;
-        std::string note;
+        std::string operation;   // 操作类型
+        double energy_pJ;        // 能耗（皮焦耳, pJ）
+        std::string note;        // 数据来源/说明
     };
 
     std::vector<EnergyEntry> costs = {
-        {"FP32 math op",             0.9,  "45nm CMOS (Han, ICLR 2016)"},
-        {"Local SRAM access",        5.0,  "On-chip, ~1mm distance"},
-        {"Load 32b from LPDDR",      640.0,"Off-chip DRAM access"},
-        {"Read 64b from SRAM",       26.0, "On-chip, Bill Dally numbers"},
-        {"Read 64b from LPDDR",      1200.0,"Off-chip, mobile DRAM"},
-        {"Read 10 GB/s from DRAM",   1.6,"~1.6 watts total (per second)"},
+        {"FP32 数学运算",             0.9,  "45nm CMOS 工艺 (Han, ICLR 2016)"},
+        {"本地 SRAM 访问",            5.0,  "片上，约 1mm 距离"},
+        {"从 LPDDR 加载 32 位",       640.0, "片外 DRAM 访问"},
+        {"从 SRAM 读取 64 位",        26.0,  "片上 (Bill Dally 数据)"},
+        {"从 LPDDR 读取 64 位",       1200.0,"片外，移动端 DRAM"},
+        {"从 DRAM 读取 10 GB/s",      1.6,   "约 1.6 瓦特总功耗（每秒）"},
     };
 
     std::cout << std::left
-              << std::setw(30) << "Operation"
-              << std::setw(15) << "Energy"
-              << "Note\n";
+              << std::setw(30) << "操作"
+              << std::setw(15) << "能耗"
+              << "说明\n";
     std::cout << std::string(70, '-') << "\n";
 
     for (const auto& c : costs) {
@@ -334,97 +399,97 @@ void analyzeEnergyCost() {
                   << c.note << "\n";
     }
 
-    std::cout << "\nKey ratios:\n";
-    std::cout << "  DRAM/SRAM energy ratio: " << 1200.0/26.0 << "x\n";
-    std::cout << "  DRAM/FP32 compute ratio: " << 640.0/0.9 << "x\n";
-    std::cout << "\nImplication: recomputing values is often cheaper than\n";
-    std::cout << "storing and reloading them from DRAM!\n\n";
+    std::cout << "\n关键比值：\n";
+    std::cout << "  DRAM/SRAM 能耗比例: " << 1200.0/26.0 << "x\n";
+    std::cout << "  DRAM/FP32 计算能耗比例: " << 640.0/0.9 << "x\n";
+    std::cout << "\n重要推论：重新计算值往往比从 DRAM 存储并重新加载更省能耗！\n";
+    std::cout << "这就是 kernel fusion（内核融合）和 checkpointing（检查点）策略的能耗动机。\n\n";
 }
 
 int main() {
-    std::cout << "=== Lecture 12: DRAM Simulator ===\n";
-    std::cout << "Stanford CS149 - Mapping AI to the AI Datacenter\n\n";
+    std::cout << "=== Lecture 12：DRAM 模拟器 ===\n";
+    std::cout << "Stanford CS149 - 将 AI 映射到 AI 数据中心\n\n";
 
     DRAMTiming timing;
     std::random_device rd;
     std::mt19937 rng(rd());
 
-    // Scenario 1: Sequential access (good locality)
+    // 场景 1：顺序访问（良好的局部性）
     {
         std::cout << "══════════════════════════════════════════════════════════════\n";
-        std::cout << "Scenario 1: Sequential Access (high locality)\n";
+        std::cout << "场景 1：顺序访问（高局部性）\n";
         std::cout << "══════════════════════════════════════════════════════════════\n\n";
 
         MemoryController mc(timing.numBanks, timing);
         simulateSequentialAccess(mc, 64);
         mc.processAll();
         mc.printStats();
-        std::cout << "Effective bandwidth: " << std::fixed << std::setprecision(1)
+        std::cout << "有效带宽: " << std::fixed << std::setprecision(1)
                   << mc.effectiveBandwidth() / 1e9 << " GB/s\n\n";
         mc.printTimingBreakdown();
     }
 
-    // Scenario 2: Random access (poor locality)
+    // 场景 2：随机访问（极差的局部性）
     {
         std::cout << "══════════════════════════════════════════════════════════════\n";
-        std::cout << "Scenario 2: Random Access (low locality)\n";
+        std::cout << "场景 2：随机访问（低局部性）\n";
         std::cout << "══════════════════════════════════════════════════════════════\n\n";
 
         MemoryController mc(timing.numBanks, timing);
         simulateRandomAccess(mc, 64, rng);
         mc.processAll();
         mc.printStats();
-        std::cout << "Effective bandwidth: " << std::fixed << std::setprecision(1)
+        std::cout << "有效带宽: " << std::fixed << std::setprecision(1)
                   << mc.effectiveBandwidth() / 1e9 << " GB/s\n\n";
 
-        std::cout << "Comparison: sequential vs random\n";
-        std::cout << "  Sequential: high row-buffer hit rate → low latency\n";
-        std::cout << "  Random: row-buffer thrashing → high latency, low BW\n";
-        std::cout << "  FR-FCFS helps by prioritizing open-row requests\n\n";
+        std::cout << "对比分析：顺序 vs 随机\n";
+        std::cout << "  顺序访问：行缓冲区命中率高 → 低延迟\n";
+        std::cout << "  随机访问：行缓冲区频繁抖动（thrashing） → 高延迟、低带宽\n";
+        std::cout << "  FR-FCFS 通过优先处理命中行的请求来缓解随机访问的性能损失\n\n";
     }
 
-    // Scenario 3: Model real-world GPU memory access patterns
+    // 场景 3：模拟真实 GPU 内存访问模式
     {
         std::cout << "══════════════════════════════════════════════════════════════\n";
-        std::cout << "Scenario 3: GPU-style Memory Access\n";
+        std::cout << "场景 3：GPU 风格的内存访问\n";
         std::cout << "══════════════════════════════════════════════════════════════\n\n";
 
-        std::cout << "CPU Memory (DRAM):\n";
-        std::cout << "  - 64-bit memory bus per channel\n";
-        std::cout << "  - DDR4 2400: 19.2 GB/s per channel, 2 channels ≈ 38.4 GB/s\n";
-        std::cout << "  - ~13 ns CAS latency\n\n";
+        std::cout << "CPU 内存子系统 (DRAM/DDR)：\n";
+        std::cout << "  - 每个通道 64 位内存总线\n";
+        std::cout << "  - DDR4 2400：每通道 19.2 GB/s，双通道约 38.4 GB/s\n";
+        std::cout << "  - 约 13 ns 的 CAS 延迟\n\n";
 
-        std::cout << "GPU Memory (HBM):\n";
-        std::cout << "  - H100: 6 HBM3 stacks × 1024-bit = 6144-bit interface\n";
-        std::cout << "  - Peak BW: 3.2 TB/s (83x wider than dual-channel DDR4!)\n";
-        std::cout << "  - 3D stacked DRAM: TSV connections through chips\n";
-        std::cout << "  - Silicon interposer for high-BW interconnect\n\n";
+        std::cout << "GPU 内存子系统 (HBM)：\n";
+        std::cout << "  - H100：6 个 HBM3 堆栈 × 1024 位 = 6144 位接口\n";
+        std::cout << "  - 峰值带宽：3.2 TB/s（比双通道 DDR4 宽 83 倍！）\n";
+        std::cout << "  - 3D 堆叠 DRAM：通过 TSV（硅通孔）垂直连接各层芯片\n";
+        std::cout << "  - 硅中介层（silicon interposer）提供高带宽互连\n\n";
 
-        std::cout << "DIMM Organization:\n";
-        std::cout << "  - 8 DRAM chips → 64-bit bus (one rank)\n";
-        std::cout << "  - Physical addresses interleaved across chips at byte granularity\n";
-        std::cout << "  - 64-byte cache line: 8 bursts × 64 bits across all chips\n";
-        std::cout << "  - Memory controller maps physical address → bank, row, column\n\n";
+        std::cout << "DIMM 组织结构：\n";
+        std::cout << "  - 8 个 DRAM 芯片 → 64 位总线（一个 rank）\n";
+        std::cout << "  - 物理地址以字节粒度交错分布在各芯片间\n";
+        std::cout << "  - 64 字节 cache line：8 个 burst × 64 位（所有芯片并行）\n";
+        std::cout << "  - 内存控制器将物理地址映射为：bank → row → column\n\n";
 
-        std::cout << "HBM Advantages:\n";
-        std::cout << "  - More bandwidth: 1024-bit per stack (vs 64-bit DDR4)\n";
-        std::cout << "  - Higher power efficiency: shorter wires, less capacitance\n";
-        std::cout << "  - Smaller form factor: 3D stacking reduces PCB area\n";
-        std::cout << "  - 94% less energy per bit vs GDDR5 (AMD estimate)\n\n";
+        std::cout << "HBM 优势：\n";
+        std::cout << "  - 更高带宽：每堆栈 1024 位（vs DDR4 的 64 位）\n";
+        std::cout << "  - 更高能效：导线更短，电容更小\n";
+        std::cout << "  - 更小体积：3D 堆叠减少 PCB 面积需求\n";
+        std::cout << "  - 每比特能耗比 GDDR5 降低 94%（AMD 估算数据）\n\n";
     }
 
-    // Energy cost analysis
+    // 能耗分析部分
     analyzeEnergyCost();
 
-    // Summary
+    // 总结
     std::cout << "══════════════════════════════════════════════════════════════\n";
-    std::cout << "Key Takeaways:\n";
-    std::cout << "1. DRAM latency varies with row buffer state (hit vs miss)\n";
-    std::cout << "2. FR-FCFS scheduling prioritizes open-row requests for throughput\n";
-    std::cout << "3. Multiple banks enable request pipelining → higher pin utilization\n";
-    std::cout << "4. HBM: 3D stacking + wide interfaces → 3.2 TB/s on H100\n";
-    std::cout << "5. Data movement dominates energy: DRAM access ~700x cost of FP32 op\n";
-    std::cout << "6. Key principle: bring data closer to processor, move less data\n";
+    std::cout << "关键要点：\n";
+    std::cout << "1. DRAM 延迟取决于行缓冲区状态（命中 vs 缺失，差距约 3.5x）\n";
+    std::cout << "2. FR-FCFS 调度优先处理行命中请求以最大化吞吐量\n";
+    std::cout << "3. 多个 bank 支持请求流水线化 → 提高引脚利用率\n";
+    std::cout << "4. HBM：3D 堆叠 + 宽接口 → H100 达 3.2 TB/s\n";
+    std::cout << "5. 数据移动主导能耗：DRAM 访问 ≈ FP32 运算的约 700 倍能耗\n";
+    std::cout << "6. 核心原则：将数据尽量靠近处理器，减少数据移动量\n";
     std::cout << "══════════════════════════════════════════════════════════════\n";
 
     return 0;

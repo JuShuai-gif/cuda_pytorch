@@ -1,90 +1,412 @@
-# Lecture 15: Memory Consistency
+# CS149 第 15 讲：内存一致性模型（Memory Consistency）
 
-**PDF:** Lecture 15 — Memory Coherency and Consistency  
-**Course:** Stanford CS149, Fall 2025 — Parallel Computing
+**PDF**：Lecture 15 — Memory Coherency and Consistency
 
----
-
-## Core Concepts Summary
-
-### 1. Coherence vs. Consistency (Critical Distinction)
-| Concept | Scope | Question Answered |
-|---------|-------|-------------------|
-| **Coherence** | Single memory location | In what order do writes to X become visible? |
-| **Consistency** | All memory locations | When do writes to X become visible *relative* to reads/writes to Y? |
-
-- Coherence: all processors agree on the order of reads/writes to *the same address*
-- Consistency: defines the allowed behavior of loads/stores to *different addresses*
-
-### 2. Sequential Consistency (SC) — Lamport 1976
-- All memory operations appear to execute in some **total sequential order**
-- Each thread's operations appear in **program order**
-- Maintains all four memory operation orderings:
-  - W → R: write must commit before subsequent read
-  - R → R: read must commit before subsequent read
-  - R → W: read must commit before subsequent write
-  - W → W: write must commit before subsequent write
-
-**Switch metaphor:** Memory chooses a processor at random, performs one operation to completion, then chooses another.
-
-### 3. Relaxed Consistency Models
-
-| Model | Relaxes | Behavior |
-|-------|---------|----------|
-| **TSO** (Total Store Order) | W → R only | Processor can move its own reads ahead of its own writes (write buffer) |
-| **PC** (Processor Consistency) | W → R only | *Any* processor can see a write before it's globally visible |
-| **PSO** (Partial Store Order) | W → R, W → W | Writes can be reordered (e.g., flag visible before data) |
-| **WO** (Weak Ordering) / **RC** (Release Consistency) | All four | Only ordering at synchronization points |
-
-### 4. Write Buffers and TSO
-- **Motivation**: Writes take 100s of cycles (cache coherence traffic); don't stall reads waiting for writes
-- Write buffer allows processor to issue reads while writes drain
-- Side effect: the classic Dekker-like pattern can produce `r1 = r2 = 0` (impossible under SC)
-- **x86 uses a TSO-like model** — almost every modern processor
-
-### 5. Memory Fences (Barriers)
-- Prevent memory operation reordering at specified points
-- x86 instructions:
-  - `mfence`: all prior loads + stores complete before any subsequent load/store
-  - `lfence`: all prior loads complete before any subsequent load
-  - `sfence`: all prior stores complete before any subsequent store
-- Expensive but necessary for correct synchronization
-
-### 6. Data Races
-- **Data race**: two accesses to the same location, at least one is a write, unordered by synchronization
-- **Conflicting accesses**: same location + at least one write
-- Unsynchronized programs containing data races have **non-deterministic** results
-- **Happens-before graph**: used to reason about possible program outcomes; cycles = impossible outcomes
-
-### 7. C++11 Memory Model: "SC for DRF"
-- **Guarantee**: data-race-free programs behave as if executed under sequential consistency
-- **No guarantees** for programs with data races
-- **Implication**: use synchronization libraries (locks, barriers, atomics) — don't write ad-hoc shared variable accesses
-- Most real-world programs ARE synchronized, so reordering is invisible to the programmer
-
-### 8. Language-Level Memory Models
-- Compilers can also reorder memory operations (optimizations visible to programmers in concurrent code)
-- C++11, C11, Java 5+ all provide "SC for DRF" guarantees
-- Compilers automatically insert necessary fences for the target hardware
+**课程**：Stanford CS149，2025 年秋季
 
 ---
 
-## Knowledge Points → Corresponding C++ Files
+## 本讲核心问题
 
-| Knowledge Point | C++ File |
-|-----------------|----------|
-| SC vs TSO examples (Dekker's pattern) | `lecture15_part1.cpp` |
-| C++11 atomics: relaxed, acquire-release, SC | `lecture15_part2.cpp` |
-| Memory fences (mfence), data race detection | `lecture15_part3.cpp` |
+1. 缓存一致性解决了单地址顺序，那为什么程序仍可能出现“违反直觉”的并发结果？
+2. 顺序一致性（SC）到底是一种什么语义承诺？
+3. TSO、PSO、弱一致性为什么存在？
+4. C++11 原子与内存序如何把硬件现实包装成语言级规则？
 
 ---
 
-## Actionable Learning Points
-1. **Coherence ≠ Consistency** — coherence is per-address; consistency is cross-address
-2. **SC is intuitive but expensive** — prevents nearly all hardware memory optimizations
-3. **All real processors are relaxed** — x86 ≈ TSO, ARM is very relaxed
-4. **Data-race-free programs are sequentially consistent** — use synchronization
-5. **Write buffers explain why `r1=r2=0` is possible** even on x86
-6. **Memory fences are the escape hatch** — use them sparingly, only when you understand why
-7. **C++ `std::atomic` with `memory_order_seq_cst`** gives SC guarantees
-8. **Happens-before analysis** is the tool for reasoning about concurrent program outcomes
+## 1. Coherence 与 Consistency 的关键区别
+
+### 1.0.1 内存一致性的 TL;DR
+
+- 多处理器以违反直觉的奇怪方式重排内存操作
+- 这种行为**对性能是必要的**
+- 应用程序员很少看到这种行为
+- 系统（OS 和编译器）开发者一直在处理它
+
+### 1.0.2 SC 的开关比喻
+
+在 SC 模型下，"内存随机选择一个处理器，执行一条完整的内存操作，然后再随机选择另一个处理器。"
+
+示例推导（SC 下）：
+- P0: A=1; r1=B  |  P1: B=1; r2=A
+- 在 SC 下可能的结果：11（两个写都先于各自的读）、01（P0 的写先完成，P1 读到 A=1, B=1）、10（反之）
+- **不可能的结果**：00 —— 因为 SC 保证了全局串行顺序
+
+### 1.0.3 Coherence vs Consistency 从硬件角度的最终澄清
+
+- **缓存一致性问题**存在是因为硬件优化了在多个处理器缓存中**复制数据**
+- **放松的内存一致性**问题来源于**重排内存操作**的优化
+- "一致性"和缓存是否存在无关！即使没有缓存，内存操作也可以被重排。
+
+### 1.1 Coherence（缓存一致性）
+
+回答的问题是：
+
+- 对**同一个地址 X** 的读写，大家认不认同同一个顺序？
+
+### 1.2 Consistency（内存一致性模型）
+
+回答的问题是：
+
+- 对**不同地址 X 与 Y** 的访问，什么顺序必须被保留？
+- 其他线程何时必须看到这些顺序？
+
+### 1.2.1 四种内存操作排序
+
+| 排序约束 | 含义 |
+|---|---|
+| W→R | X 的写入必须先于后续 Y 的读取提交（结果可见） |
+| R→R | 先读取后读取 |
+| R→W | 先读取后写入 |
+| W→W | 先写入后写入 |
+
+SC 保留**所有**四种排序。放松模型逐个放开。
+
+### 1.2.2 Happens-Before 的环检测推理
+
+"如果图中存在环，则该结果不可能——因为某事件必须先于自身发生！"
+
+这是推理并发程序可能/不可能结果的系统方法。
+
+### 1.3 为什么这一区分非常重要
+
+程序可能满足 coherence，但仍表现出你意想不到的跨地址重排效果。
+
+换句话说：
+
+- 单地址上“各方都同意最后谁写了什么”
+- 不代表多地址之间“大家看到的先后关系也符合顺序代码直觉”
+
+---
+
+## 2. 顺序一致性（Sequential Consistency, SC）
+
+### 2.1 直观定义
+
+SC 要求所有线程的内存操作，看起来像是：
+
+- 按某个全局串行顺序一个一个执行
+- 并且每个线程自己的操作顺序与程序顺序一致
+
+### 2.2 为什么它最符合程序员直觉
+
+因为写顺序代码的人天然会想：
+
+- 我在这行前面写的东西，应该先发生
+- 我在后面读到的值，应该反映之前的写入
+
+### 2.3 SC 保留了哪些顺序
+
+- `W -> R`
+- `R -> R`
+- `R -> W`
+- `W -> W`
+
+也就是所有程序内顺序都不放松。
+
+### 2.4 为什么硬件不喜欢纯 SC
+
+因为它太限制优化：
+
+- 写缓冲不好用
+- 乱序与隐藏延迟受限
+- 很多本可并行的访存必须等待
+
+> 对应源码：`lecture15_part1.cpp`
+> 内容：SC、TSO、PSO 示例，Dekker 风格反例与结果空间。
+
+---
+
+## 3. 放松顺序是为了性能，而不是为了复杂化程序员
+
+### 3.0.1 SC 的性能问题
+
+在 SC 下，`A = 1` 完成后才能执行 `r1 = B`，但"这两条指令不冲突——没必要等第一条完成！写入需要数百个周期！"
+
+### 3.0.2 Write Buffer 机制
+
+- 每个处理器对自己的写缓冲区读写
+- 写缓冲区允许处理器将写入延迟提交到全局可见
+- 这就是 TSO 的实现基础
+- **"每一款现代处理器都使用写缓冲区：Intel x86, ARM, RISC-V"**
+- x86 使用一种未完全规范化的 TSO 形式
+
+性能对比：
+- Base (SC)：处理器一次发出一条内存操作，等待完成才发下一条
+- W→R relaxed (TSO)：写入延迟几乎完全隐藏
+
+### 3.0.3 允许更激进重排的硬件动机
+
+- **W→W**: 处理器可能在写缓冲区中重排写入（如一个 cache miss 而另一个 hit）
+- **R→W, R→R**: 处理器可能重排指令流中的独立指令（乱序执行）
+
+### 3.0.4 TSO vs PC 的精确定义
+
+- **TSO**: 处理器 P 可以在其对 A 的写入对所有处理器可见之前读取 B。**其他**处理器不能看到 A 的新值，直到 A 的写入对所有处理器可见。
+- **PC (Processor Consistency)**：**任何**处理器都可以在写入对所有处理器可见之前读取新值。
+
+两种模型下，**同一线程的写入不会被重排**（它们按程序顺序发生）。
+
+### 3.1 为什么要放松
+
+现代处理器希望：
+
+- 写还没真正全局可见时，后续读先继续
+- 不相关的内存操作可在后台重排
+- 用写缓冲和乱序执行隐藏延迟
+
+### 3.2 代价
+
+如果语言和程序员不显式说明同步边界，就会出现：
+
+- 看似“不可能”的读值组合
+- 某些经典并发算法在真实硬件上失效
+
+### 3.3 核心矛盾
+
+- 硬件想重排来提速
+- 程序员希望可预测的因果顺序
+
+一致性模型就是在两者之间制定契约。
+
+---
+
+## 4. TSO、PSO 与更弱模型
+
+### 4.1 TSO（Total Store Order）
+
+通常可理解为：
+
+- 最核心的放松是允许本线程后续读绕过先前写
+- 常见实现依赖写缓冲
+
+### 4.2 为什么会出现经典“两个线程都读到 0”
+
+因为：
+
+- 每个线程先写自己的标志
+- 写尚在本地缓冲中
+- 紧接着读对方标志时，可能还读到旧值
+
+### 4.3 PSO（Partial Store Order）
+
+比 TSO 更宽松，还允许部分写之间重排。
+
+这会导致更诡异的现象，例如：
+
+- “数据还没完全可见，完成标志先可见了”
+
+### 4.4 更弱模型
+
+像 WO、RC 等模型进一步把顺序保证尽量压缩到同步点附近。
+
+它们的设计思路是：
+
+- 平时尽量自由重排
+- 只有在程序员明确同步时才恢复强约束
+
+### 4.0.1 PSO 的具体代码示例
+
+Thread 1: `A = 1; flag = 1;`
+Thread 2: `while (flag != 1); int r = A;`
+
+在 PSO 下：P2 可能观察到 flag 变更在 A 变更之前——因为**写之间可以重排**。
+
+### 4.0.2 弱排序与释放一致性
+
+- **Weak Ordering (WO)**：允许所有重排
+- **Release Consistency (RC)**：进一步放松
+- 动机："尽可能早地执行读，尽可能晚地执行写——以隐藏内存延迟"
+
+---
+
+## 5. Memory Fence：显式建立顺序边界
+
+### 5.1 fence 的作用
+
+fence / barrier 的核心作用不是“传递数据”，而是：
+
+- 禁止某些内存操作跨过这个点重排
+
+### 5.2 常见 fence 语义
+
+- `mfence`：前面的 load/store 全完成后，后面的 load/store 才能开始
+- `lfence`：主要约束 load
+- `sfence`：主要约束 store
+
+### 5.3 为什么 fence 很贵
+
+它等于在硬件的优化管线中插入一道强顺序屏障，所以：
+
+- 不能滥用
+- 但在必要同步处又必须使用
+
+> 对应源码：`lecture15_part3.cpp`
+> 内容：fence、happens-before、数据竞争、并发结果分析。
+
+### 5.0.1 Fence 的精确定义与代价
+
+> "All memory operations complete before any memory operation after it can begin."
+
+Fence 是**昂贵的**！它等于在硬件优化管线中插入一道强顺序屏障。
+
+### 5.0.2 x86 和 ARM 的具体 Fence 指令
+
+x86:
+- `mm_lfence`：等待所有 loads 完成
+- `mm_sfence`：等待所有 stores 完成
+- `mm_mfence`：等待所有内存操作完成
+
+ARM 处理器：使用非常放松的一致性模型，依赖 `dmb`/`dsb`/`isb` 等 barrier 指令。
+
+### 5.0.3 其他同步原语
+
+| 原语 | 特点 |
+|---|---|
+| Read-modify-write / CAS | 按地址的原子操作 |
+| Transactional Memory | 声明式原子块（下讲主题） |
+
+### 5.0.4 同步程序的关键性质
+
+- 同步程序在非 SC 系统上产生 SC 结果
+- 同步程序是 data-race-free 的
+- "如果没有数据竞争，重排行为无关紧要"
+
+### 5.0.5 语言级内存模型
+
+- 编译器优化也可能不可见地重排内存操作！
+- C11、C++11、Java 5 为 data-race-free 程序保证 SC（SC for DRF）
+- "编译器会插入必要的同步"
+- "如果你的程序包含数据竞争——无法保证任何结果！"
+
+### 5.0.6 内存一致性模型的五点总结
+
+1. 定义硬件和编译器允许的内存操作重排
+2. 硬件/编译器与应用软件之间的**契约**
+3. 弱模型对高性能是必要的？（足够的资源下 SC 也可高性能）
+4. 内存模型的细节可以隐藏在同步库中
+5. 要求 data-race-free (DRF) 程序
+
+---
+
+## 6. 数据竞争（Data Race）与 Happens-Before
+
+### 6.1 什么是数据竞争
+
+若两个线程访问同一地址，且：
+
+- 至少一个是写
+- 两者之间没有同步顺序约束
+
+那么就构成数据竞争。
+
+### 6.2 为什么竞争危险
+
+因为一旦存在数据竞争：
+
+- 程序行为通常不再可预测
+- 编译器与硬件都有更大自由重排
+- 你观察到的结果可能不稳定且不可移植
+
+### 6.3 Happens-Before 图的意义
+
+它提供一种统一方式来推理：
+
+- 哪些操作必须先于哪些操作
+- 哪些结果根本不可能出现
+- 哪些结果之所以可能，是因为缺少同步边
+
+---
+
+## 7. C++11 内存模型：SC for DRF
+
+### 7.1 最重要的承诺
+
+C++11 采用一个极其重要的原则：
+
+**SC for DRF（data-race-free 程序表现得像顺序一致）**
+
+也就是说：
+
+- 只要程序没有数据竞争
+- 语言承诺其效果可按类似顺序一致来理解
+
+### 7.2 为什么这很重要
+
+它把：
+
+- 底层硬件重排
+- 编译器重排
+- 一致性细节
+
+封装在语言规范之下，让大多数正确同步的程序员不必手工推理所有底层 reorder。
+
+### 7.3 代价与边界
+
+- 若程序有数据竞争，语言对结果几乎不给保证。
+- 所以并发程序要么靠锁，要么靠原子与明确定义的内存序。
+
+> 对应源码：`lecture15_part2.cpp`
+> 内容：`memory_order_relaxed`、acquire、release、acq_rel、`seq_cst` 示例。
+
+---
+
+## 8. C++ 原子的几种常见内存序
+
+### 8.1 `relaxed`
+
+- 只保证原子性
+- 不提供跨操作顺序保证
+- 适合统计计数等对时序不敏感的场景
+
+### 8.2 `acquire` / `release`
+
+- `release` 用于发布前面的写入
+- `acquire` 用于在读取同步变量后获取前面发布的写入可见性
+
+这是很多生产者-消费者模式的基础。
+
+### 8.3 `seq_cst`
+
+- 提供最强、最直观的顺序保证
+- 最接近“所有原子操作按一个总序排列”的直觉
+- 代价可能更高，但更易推理
+
+### 8.4 学习建议
+
+- 如果不确定，先用更强语义确保正确性
+- 再在真正需要时分析能否放宽到 acquire-release 或 relaxed
+
+---
+
+## 常见误区
+
+1. **误区：缓存一致性足够保证并发程序直觉正确。**
+   它只管单地址，不管跨地址顺序。
+2. **误区：x86 很强，所以可以不管内存模型。**
+   即便是 TSO，也足以打破许多朴素假设。
+3. **误区：原子操作天然就等于“顺序正确”。**
+   原子性不等于顺序性，内存序同样关键。
+4. **误区：数据竞争只是偶尔有点随机。**
+   对语言规范来说，含数据竞争程序基本已越界。
+
+---
+
+## 对应源码
+
+| 文件 | 主题 | 重点 |
+|---|---|---|
+| `lecture15_part1.cpp` | SC / TSO / PSO | 为什么会出现违反顺序直觉的结果 |
+| `lecture15_part2.cpp` | C++11 原子内存序 | relaxed / acquire / release / seq_cst |
+| `lecture15_part3.cpp` | fence 与数据竞争 | happens-before、屏障、结果可达性 |
+
+---
+
+## 学完本讲应做到
+
+- 能清楚区分 coherence 与 consistency。
+- 能解释 SC 为什么直观、但为什么硬件不愿一直保持它。
+- 能理解 TSO 和写缓冲如何导致反直觉结果。
+- 能把 C++11 原子看成语言对底层硬件现实的结构化封装。
+

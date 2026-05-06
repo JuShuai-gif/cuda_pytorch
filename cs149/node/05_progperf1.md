@@ -1,215 +1,457 @@
-# Lecture 5: Performance Optimization Part 1 - Work Distribution and Scheduling
+# CS149 第 5 讲：性能优化（上）—— 工作分配与调度
 
-**Source**: Stanford CS149, Fall 2025 - Lecture 5 PDF
+**来源**：Stanford CS149，2025 年秋季，第 5 讲
 
 ---
 
-## Core Concepts Summary
+## 本讲核心问题
 
-### 1. Programming for High Performance
+1. 工作应该静态分给线程，还是运行时动态领取？
+2. 为什么“均匀切块”有时很高效，有时却灾难性失衡？
+3. 任务粒度为什么是并行性能中的核心调参项？
+4. 为什么好的运行时调度器本身就是体系结构的一部分？
 
-**Key goals (often at odds):**
-- Balance workload onto available execution resources
-- Reduce communication (to avoid stalls)
-- Reduce extra work (overhead) to increase parallelism, manage assignment, etc.
+---
 
-**TIP #1**: Always implement the simplest solution first, then measure performance to determine if you need to do better.
+## 1. 高性能并行程序的三大目标
 
-### 2. Static Assignment
+并行程序通常要同时兼顾三件事：
 
-**Definition**: Assignment of work to threads does NOT depend on dynamic behavior.
-- Assignment may still depend on runtime parameters (input size, thread count)
-- Simple, essentially zero runtime overhead
+1. **负载均衡**：不要让一部分处理器忙、一部分处理器闲。
+2. **低额外开销**：任务分配、同步、调度本身不能太贵。
+3. **低通信 / 好局部性**：线程最好处理“自己附近”的数据，减少共享与搬运。
 
-**When applicable**:
-- Cost of work and amount of work is predictable
-- All work has the same cost (simplest case)
-- Work has unequal but known cost; statistics are predictable (same cost on average)
+这三件事经常彼此冲突：
 
-**Example from Programming Assignment 1**: Assign equal number of grid cells to each thread. Different static assignments (blocked, interleaved) of grid regions to threads.
+- 切得很细，负载更均衡，但调度开销大。
+- 切得很粗，调度开销小，但负载可能严重失衡。
+- 为了局部性采用分块，又可能让工作量不平均。
 
-### 3. "Semi-Static" Assignment
+### 1.1 本讲最重要的实践原则
 
-- Cost of work is predictable for near-term future
-- Recent past is a good predictor of near future
-- Application periodically profiles its execution and re-adjusts assignment
-- Assignment is "static" for the interval between re-adjustments
+**先实现最简单的正确版本，再测量，再决定是否需要更复杂的调度。**
 
-**Use cases**:
-- Particle simulation: redistribute particles as they move (slow motion = infrequent redistribution)
-- Adaptive mesh: mesh changes slowly; color indicates processor assignment
+这是课程里非常重要的工程观：
 
-### 4. Dynamic Assignment
+- 不要在没有证据时提前过度设计。
+- 真正的瓶颈必须靠测量确认，而不是靠想象。
 
-**Definition**: Program determines assignment dynamically at runtime to ensure well-distributed load.
-- Used when execution time or total number of tasks is unknown/unpredictable
+---
 
-**Implementation with shared counter**:
-```cpp
-int counter = 0;  // shared variable
+## 2. 静态分配（Static Assignment）
+
+### 2.0.1 负载不均的定量分析
+
+假设 4 个处理器，P4 的工作量是其他处理器的 2 倍：
+- P4 需要 2 倍时间完成 → 并行程序 50% 的运行时间是串行的
+- 此处的"串行化部分"约占程序总工作量的 1/5 → S=0.2（阿姆达尔定律）
+
+### 2.0.2 静态分配的准确定义
+
+"静态"意味着分配在**已知工作量和处理器数量时**就已确定。赋值可以依赖于运行时参数（如输入数据大小、线程数等），但它不依赖于运行时哪个处理器先完成。
+
+### 2.0.3 半静态分配的具体应用场景
+
+- **自适应网格（Adaptive Mesh）**：网格随物体移动或流场变化而缓慢变化
+- **粒子模拟（Particle Simulation）**：随模拟进行，粒子位置缓慢变化，可定期重分布
+
+### 2.1 定义
+
+静态分配指：
+
+- 工作在程序开始或某个阶段开始时就确定好分给哪个线程。
+- 分配不依赖执行过程中线程跑得快还是慢。
+
+### 2.2 优点
+
+- 几乎没有运行时调度成本。
+- 实现简单。
+- 结果可预测，便于调试。
+- 通常有较好的局部性，因为线程常处理连续数据块。
+
+### 2.3 适用条件
+
+静态分配适合：
+
+- 每个任务成本差不多
+- 成本虽然不完全一样，但统计上比较稳定
+- 任务总量与每块负载可提前估计
+
+### 2.4 常见静态策略
+
+- **块状划分（blocked）**：每个线程处理连续一块数据。
+- **交错划分（interleaved）**：线程按步长轮流拿元素。
+
+### 2.5 二者如何权衡
+
+- 块状划分通常更利于缓存和 NUMA 局部性。
+- 交错划分有时更能平均不同区域的工作量。
+- 如果每个元素开销接近，块状通常是首选。
+
+> 对应源码：`lecture5_part1.cpp`
+> 内容：静态与动态工作分配、任务粒度、素数测试这类不规则工作负载。
+
+---
+
+## 3. 半静态分配（Semi-Static Assignment）
+
+### 3.1 什么时候需要半静态
+
+有些程序的工作量会变化，但不是瞬间乱跳，而是：
+
+- 缓慢演化
+- 短时间内可预测
+- 最近一段历史能反映未来一段趋势
+
+这时完全动态调度可能太贵，完全静态又会逐步失衡。
+
+### 3.2 基本思想
+
+- 在一段时间窗口内采用静态分配。
+- 定期做 profile 或统计。
+- 根据最新负载重新切分任务。
+
+### 3.3 典型场景
+
+- 粒子模拟：粒子随时间移动，但不是瞬移。
+- 自适应网格：局部区域逐渐细化或稀疏。
+- 稀疏图算法：活跃区域缓慢迁移。
+
+### 3.4 它本质上是一种折中
+
+- 保留静态分配的大部分低开销优势。
+- 又避免长期运行后的严重负载倾斜。
+
+---
+
+## 4. 动态分配（Dynamic Assignment）
+
+### 4.0 动态分配的共享计数器完整代码
+
+**顺序版**：
+```c
+int counter = 0;
+while (counter < N) {
+    int task_index = counter++;
+    process(task_index);
+}
+```
+
+**并行版**：
+```c
 while (1) {
-    lock(counter_lock);
-    i = counter++;
-    unlock(counter_lock);
-    if (i >= N) break;
-    is_prime[i] = test_primality(x[i]);
+    lock(mutex);
+    int task_index = counter++;
+    unlock(mutex);
+    if (task_index >= N) break;
+    process(task_index);
 }
 ```
 
-### 5. Dynamic Assignment Using Work Queues
+### 4.0.1 任务粒度对比
 
-```
-Sub-problems (tasks) → Shared work queue → Worker threads pull/push work
-```
+- `GRANULARITY=1`：负载可能很均衡，但同步成本极高（每元素一次临界区）
+- `GRANULARITY=10`：同步成本降低 10 倍（临界区进入次数减少 10 倍）
+- 理想粒度：每任务的开销 << 每任务的实际计算时间
 
-- Worker threads pull data from shared work queue
-- Push new work to queue as it is created
-- When queue is empty, thread goes idle
+### 4.1 定义
 
-### 6. Task Granularity
+动态分配指：
 
-**Fine granularity** (1 task = 1 element):
-- Good workload balance (many small tasks)
-- High synchronization cost (frequent critical section entry)
-- High overhead
+- 哪个线程做哪个任务，不在一开始固定。
+- 线程在运行时按需领取工作。
 
-**Coarse granularity** (1 task = 10+ elements):
-- Decreased synchronization cost
-- Fewer critical section entries
-- Potentially worse load balance
+### 4.2 为什么需要它
 
-**Ideal granularity depends on**: workload characteristics, machine parameters.
+适合以下情况：
 
-**Rule of thumb**: Have many more tasks than processors (for good balance), but not so many that overhead dominates.
+- 任务成本差异巨大
+- 任务总数无法提前知道
+- 递归产生新任务
+- 某些任务会进一步拆分出子任务
 
-### 7. Smarter Task Scheduling
+### 4.3 最简单的实现：共享计数器
 
-**Problem with simple queue**: Long task run last → load imbalance.
+做法是：
 
-**Solutions**:
-1. Divide work into larger number of smaller tasks
-2. Schedule long tasks first (requires workload knowledge)
-3. Distributed work queues with work stealing
+1. 所有线程共享一个计数器。
+2. 每次进入临界区获取下一个任务编号。
+3. 处理完再回来继续领。
 
-### 8. Distributed Work Queues & Work Stealing
+### 4.4 好处与坏处
 
-```
-Set of work queues (one per worker thread)
-Worker: pull from OWN queue, push to OWN queue
-When local queue empty → STEAL from another worker's queue
-```
+好处：
 
-**Benefits**:
-- Avoid need for all workers to synchronize on single work queue
-- Reduces contention
-- Theft only occurs when a thread would be idle anyway
+- 自然实现负载均衡
+- 适合开销不可预测的问题
 
-### 9. Fork-Join Parallelism (Cilk Plus)
+坏处：
 
-**Core primitives**:
-```cpp
-cilk_spawn foo(args);  // "fork": caller may continue executing asynchronously with foo
-cilk_sync;             // "join": returns when all spawned calls have completed
-```
-
-**Note**: Implicit `cilk_sync` at end of every function containing `cilk_spawn`.
-
-### 10. Parallel Quicksort in Cilk Plus
-
-```cpp
-void quick_sort(int* begin, int* end) {
-    if (begin >= end - PARALLEL_CUTOFF)
-        std::sort(begin, end);           // sequential for small problems
-    else {
-        int* middle = partition(begin, end);
-        cilk_spawn quick_sort(begin, middle);
-        quick_sort(middle + 1, end);
-    }
-}
-```
-
-- Switch to sequential sort when problem size is small enough
-- Overhead of spawn would trump benefits of parallelization for small problems
-
-### 11. Cilk Work Scheduler Design
-
-**Pool of worker threads**: Exactly as many threads as execution contexts.
-
-**At spawn, choice**: Run child first or run continuation first?
-
-| Strategy | Behavior | Queue Content |
-|----------|----------|--------------|
-| **Run child first** ("continuation stealing") | Thread executes foo(), enqueues continuation | Single continuation (represents all remaining iterations) |
-| **Run continuation first** ("child stealing") | Thread enqueues child, continues with next spawn | O(N) items in queue |
-
-**Cilk uses "run child first" (continuation stealing)**:
-- Depth-first traversal of call graph
-- Order of execution same as sequential program if no stealing
-- Work queue storage bounded: at most T times stack storage of sequential execution
-
-### 12. Dequeue Per Worker
-
-Work queue implemented as a **dequeue** (double-ended queue):
-- **Local thread**: pushes/pops from the **tail** (bottom) → LIFO
-- **Remote threads**: steal from the **head** (top) → FIFO
-
-**Why steal from head?**
-- Steals largest amount of work (reduces number of steals)
-- Maximum locality in work each thread performs
-- Local thread and stealing thread don't contend for same elements
-- Enables efficient lock-free implementations
-
-### 13. Victim Selection
-
-- Idle threads **randomly** choose a thread to attempt to steal from
-- Random choice distributes stealing load
-
-### 14. Sync Implementation
-
-**Descriptor per sync block**:
-- Tracks: number of outstanding spawns, number completed
-- Created only when stealing occurs
-
-**No-stealing case**: `cilk_sync` is a no-op (all work done by same thread).
-
-**Stealing case**: Threads check descriptor; last thread to complete a spawn resumes continuation.
-
-### 15. Greedy Join Scheduling
-
-- All threads always attempt to steal if there is nothing to do
-- Threads only go idle if there is **no work to steal** in the entire system
-- Worker that initiated spawn may NOT be the thread that executes logic after `cilk_sync`
-
-**Key design insight**: Overhead of bookkeeping steals and managing sync points only occurs when steals actually happen.
-
-### 16. Parallel Programming Rules of Thumb
-
-- Want at least as much work as parallel execution capability
-- Want more independent work than execution capability for good load balance
-- "Parallel slack" = ratio of independent work to machine's parallel execution capability (in practice: ~8 is good)
-- But not too much: too much slack incurs overhead of managing fine-grained work
+- 每次领任务都要同步
+- 共享计数器可能成为热点
+- 任务过细时，调度成本会盖过计算本身
 
 ---
 
-## Actionable Learning Points
+## 5. 任务队列模型（Work Queue）
 
-1. **Start simple, measure first**: don't over-optimize prematurely.
-2. **Static when predictable, dynamic when unpredictable**: choose assignment strategy based on workload knowledge.
-3. **Task granularity is a tradeoff**: fine = good balance but high overhead; coarse = low overhead but potential imbalance.
-4. **Work stealing is locality-aware**: continuation stealing ensures depth-first execution, good cache behavior.
-5. **Distributed queues reduce contention**: one queue per worker, steal only when idle.
-6. **Dequeue structure matters**: local LIFO, remote FIFO - maximizes locality and minimizes steals.
-7. **Steal from head of queue**: takes largest piece of work, reducing total steal count.
-8. **Parallel slack ~8**: practical rule for amount of over-decomposition.
-9. **Overhead only paid when stealing occurs**: Cilk's design minimizes common-case cost.
-10. **Greedy scheduling**: never wait at sync if there's work to steal elsewhere.
+### 5.1 基本结构
+
+- 初始任务被放入共享队列。
+- 工作线程从队列中弹出任务执行。
+- 执行过程中如果产生子任务，再压回队列。
+
+### 5.2 它比共享计数器更通用
+
+因为它不要求任务集合是：
+
+- 预先编号好的
+- 固定长度的
+- 一次性展开的
+
+### 5.3 使用代价
+
+- 队列访问需要同步
+- 队列过热会成为争用点
+- 任务太细时，push/pop 的成本很显著
+
+### 5.4 常见优化方向
+
+- 本地队列 + 工作窃取
+- 批量领取任务
+- 无锁队列 / 低开销同步
+- 按任务大小采用不同调度策略
 
 ---
 
-## C++ Source Files Reference
+## 6. 任务粒度（Granularity）是调度问题的核心
 
-| Knowledge Point | C++ File |
-|----------------|----------|
-| Static vs dynamic assignment, task granularity | `../src/lecture5_part1.cpp` |
-| Work stealing scheduler simulation with dequeues | `../src/lecture5_part2.cpp` |
-| Fork-join parallelism, quicksort, Cilk-like simulation | `../src/lecture5_part3.cpp` |
+### 6.1 细粒度任务
+
+优点：
+
+- 更容易均衡负载
+- 更灵活地填满处理器
+
+缺点：
+
+- 调度次数多
+- 同步和队列操作成本高
+- 局部性可能变差
+
+### 6.2 粗粒度任务
+
+优点：
+
+- 调度成本低
+- 更容易保持缓存局部性
+
+缺点：
+
+- 最后一波任务容易失衡
+- 对不规则工作负载不友好
+
+### 6.3 一个非常重要的经验法则
+
+理想粒度通常要满足：
+
+- 单个任务足够大，能摊薄领取成本
+- 任务总数又足够多，能在高并发下保持平衡
+
+也就是常说的：
+
+- **任务数要明显多于线程数，但不能多到调度占主导。**
+
+### 6.3.1 调度长任务优先策略
+
+当能预估任务成本时，先调度计算量最大的任务。执行长任务的线程完成的**总任务数更少**，但完成的总**计算量**与其他线程近似相等。这需要一定的先验知识。
+
+### 6.3.2 任务依赖的工作队列
+
+任务不能在工作线程分配之前完成，直到其所有依赖都被满足：
+```c
+foo_handle = enqueue_task(foo);
+bar_handle = enqueue_task(bar, foo_handle);  // bar 依赖 foo
+run_tasks();
+```
+
+### 6.3.3 常见并行模式的代码示例集
+
+| 模型 | 示例代码 |
+|---|---|
+| OpenMP | `#pragma omp parallel for` |
+| ISPC | `foreach (i = 0 ... N)` |
+| ISPC task | `launch[numTasks] myTask()` |
+| map | `map(myFunc, myArray)` |
+| CUDA | `myKernel<<<numBlocks, threadsPerBlock>>>()` |
+| C++ threads | `std::thread t(myFunc, args); t.join();` |
+
+---
+
+## 7. 工作窃取（Work Stealing）
+
+### 7.1 为什么出现工作窃取
+
+共享大队列虽然简单，但扩展性不好。工作窃取的思路是：
+
+- 每个线程维护自己的本地双端队列。
+- 自己优先处理本地任务。
+- 空闲线程去偷别人的任务。
+
+### 7.2 典型策略
+
+- 本地线程从尾部弹出，往往是 LIFO。
+- 偷窃线程从头部拿走，常是 FIFO。
+
+### 7.3 这样做的好处
+
+- 本地任务保持更好局部性。
+- 大多数操作在本地发生，减少全局争用。
+- 只在必要时才跨线程迁移工作。
+
+### 7.4 为什么它适合递归并行
+
+如 quicksort、递归图遍历、fork-join 程序：
+
+- 任务树天然动态生成。
+- 一部分线程先结束后，可以去偷尚未展开的分支。
+
+> 对应源码：`lecture5_part2.cpp`
+> 内容：Cilk 风格工作窃取调度、双端队列、本地 push/pop 与远程 steal。
+
+---
+
+## 8. Fork-Join 并行与 Cilk 思想
+
+### 8.0.1 `cilk_spawn` 的精确语义
+
+- `cilk_spawn foo()`：调用者可继续异步执行 foo，两者可并行
+- **每个含 cilk_spawn 的函数末尾有隐式的 cilk_sync**
+- 一个 spawn + bar 与两个 spawn 的区别：并行工作量相同，但两个 spawn 的运行时开销可能更高
+
+### 8.0.2 Cilk 抽象与实现的边界
+
+问题：如果实现将 `cilk_spawn foo()` 等同于普通的 `foo()` 函数调用，这样的 Cilk 实现正确吗？
+- **答案：正确**（语义上满足），但**不高效**（没有实现并行）
+
+### 8.0.3 并行松弛度（Parallel Slack）
+
+> 实践数据：并行松弛度 ~8 是一个比较好的比例
+
+并行松弛度 = 独立工作量 / 机器的并行执行能力。太多 slack 会导致细粒度工作管理开销过大。
+
+### 8.0.4 为什么不用 pthread_create 做每次 spawn
+
+若每次 `cilk_spawn` 都用 `pthread_create` 创建线程：spawn 操作本身极重、并发线程远多于核心数、上下文切换开销大、缓存局部性差。
+
+### 8.0.5 双端队列的本地/远程设计
+
+- 本地线程从**尾部（bottom）** push/pop（LIFO）
+- 远程线程从**头部（top）** steal（FIFO）
+- 从头部偷的三层理由：(1) 偷最大工作量减少偷窃次数；(2) 配合 run-child-first 最大化局部性；(3) 偷者和本地方不争用同一端
+
+### 8.0.6 Continuation Stealing vs Child Stealing
+
+Cilk 调度器的核心设计决策：
+- **Run continuation first ("child stealing")**：广度优先，O(N) 空间
+- **Run child first ("continuation stealing")**：深度优先，空间 ≤ T × 单线程栈，执行顺序与去除 spawn 的串行程序相同
+
+### 8.0.7 cilk_sync 的实现
+
+- 无窃取时：sync 是 no-op
+- 有窃取时：创建 descriptor 跟踪 spawn count 和 done count。当 spawn == done 时 sync 完成
+
+### 8.0.8 recursive_for 的重要性
+
+二叉递归分解 `recursive_for` 比线性 spawn 能更快填满并行机——因为前者在每个递归层级都快速生成大量并行任务。
+
+### 8.0.9 Greedy Join Scheduling
+
+所有线程在不忙时总是尝试窃取。仅当系统中没有可偷的工作时线程才 idle。启动 spawn 的工作线程不一定是执行 cilk_sync 后逻辑的线程。
+
+### 8.1 基本模式
+
+- 主任务分裂出子任务（fork / spawn）
+- 若干子任务并行执行
+- 在某个同步点汇合（join / sync）
+
+### 8.2 为什么它非常常见
+
+很多分治算法天然符合这个结构：
+
+- quicksort
+- mergesort
+- recursive tree traversal
+- divide-and-conquer numerical methods
+
+### 8.3 真正决定性能的不是“能不能 fork”
+
+而是：
+
+- 子任务是否足够大
+- 递归树是否平衡
+- 截断阈值是否合理
+- join 是否形成过多等待
+
+### 8.4 并行松弛度（parallel slack）
+
+要想让工作窃取和 fork-join 真正跑得好：
+
+- 递归展开出来的并行任务数量要显著多于处理器数
+- 否则即便逻辑上可并行，也很难让硬件持续饱和
+
+> 对应源码：`lecture5_part3.cpp`
+> 内容：fork-join 模式、Cilk 风格 quicksort、递归任务截断与性能对比。
+
+---
+
+## 9. 这讲的底层本质：调度也是“工作”
+
+很多初学者只统计算法本身的算术工作量，却忽视：
+
+- 线程创建
+- 任务领取
+- 队列竞争
+- 锁/原子操作
+- 任务切换
+
+这些都是真实成本，而且在轻量任务中可能占大头。
+
+所以评估一个并行方案时，必须同时问：
+
+1. 算法工作量是多少？
+2. 调度和协调额外做了多少“无效工作”？
+3. 这些额外工作换来了多少负载均衡收益？
+
+---
+
+## 常见误区
+
+1. **误区：动态调度一定更快。**
+   若工作规则且均匀，静态分配通常更简单、更快。
+2. **误区：任务越细越好。**
+   过细会让调度成本失控。
+3. **误区：平均分元素数就等于平均分工作量。**
+   真正需要平均的是执行时间，不是数据量本身。
+4. **误区：工作窃取只是运行时技巧。**
+   它直接决定很多递归并行程序能否扩展。
+
+---
+
+## 对应源码
+
+| 文件 | 主题 | 重点 |
+|---|---|---|
+| `lecture5_part1.cpp` | 静态 / 动态 / 半静态分配 | 什么时候需要运行时领任务 |
+| `lecture5_part2.cpp` | 工作窃取调度器 | 为什么本地 deque 比全局队列更可扩展 |
+| `lecture5_part3.cpp` | fork-join 与 quicksort | 分治并行、截断阈值、并行松弛度 |
+
+---
+
+## 学完本讲应做到
+
+- 能判断一个任务更适合静态还是动态分配。
+- 能解释任务粒度为何直接决定并行效率。
+- 能说清楚工作窃取为什么适合递归并行。
+- 能意识到调度开销本身必须计入性能模型。
+

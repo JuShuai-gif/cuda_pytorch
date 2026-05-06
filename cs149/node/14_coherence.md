@@ -1,97 +1,432 @@
-# Lecture 14: Cache Coherence
+# CS149 第 14 讲：缓存一致性（Cache Coherence）
 
-**PDF:** Lecture 14 — Cache Coherence  
-**Course:** Stanford CS149, Fall 2025 — Parallel Computing
+**PDF**：Lecture 14 — Cache Coherence
+
+**课程**：Stanford CS149，2025 年秋季
 
 ---
 
-## Core Concepts Summary
+## 本讲核心问题
 
-### 1. The Cache Coherence Problem
-- In shared-memory multiprocessors, each core has a private cache
-- Without coherence, different cores can observe **different values** for the same memory location
-- This is a *hardware* problem (data replication), NOT a mutual exclusion problem — locks can't fix it
+1. 多核系统里，为什么同一个内存地址会在多个缓存里出现多个副本？
+2. 如果没有一致性协议，会发生什么错误？
+3. MSI、MESI、目录一致性分别在解决什么问题？
+4. 为什么“伪共享”能让一个逻辑上没有通信的程序变得很慢？
 
-### 2. Formal Definition of Coherence
-A memory system is **coherent** if, for each memory location, there exists a hypothetical serial order of all operations such that:
-1. Operations from any one processor appear in program order
-2. A read returns the value of the last write in that serial order
+---
 
-### 3. Cache Coherence Invariants
-- **Single-Writer, Multiple-Read (SWMR)** invariant:
-  - Read-Write epoch: exactly one processor may write
-  - Read-Only epoch: multiple processors may read
-- **Data-Value invariant** (write serialization): value at epoch start = value at end of previous read-write epoch
+## 1. 一致性问题从何而来
 
-### 4. MSI Protocol (Snooping, Write-Back Invalidation)
-| State | Meaning |
-|-------|---------|
-| **M** (Modified) | Line valid in exactly one cache; dirty; can write without bus transaction |
-| **S** (Shared) | Line valid in one or more caches; clean; memory is up-to-date |
-| **I** (Invalid) | Line not valid in this cache |
+### 1.0.1 Intel Core i7 缓存占芯片面积
 
-**Bus transactions:**
-| Transaction | Purpose |
-|-------------|---------|
-| BusRd | Obtain shared copy (no intent to modify) |
-| BusRdX | Obtain exclusive copy (intent to modify); invalidates others |
-| BusWB | Write dirty line back to memory |
+> 30+% 的芯片面积是缓存。缓存是处理器设计的核心组成部分。
 
-**Key transitions:**
-- I → S: PrRd triggers BusRd (miss, load shared copy)
-- I → M: PrWr triggers BusRdX (miss, load with exclusive intent)
-- S → M: PrWr triggers BusRdX (upgrade — hit in S, but need exclusive access)
-- M → S: BusRd from another cache triggers BusWB (downgrade, writeback dirty data)
-- M → I: BusRdX from another cache triggers BusWB then invalidate
+### 1.0.2 Write-back Write-allocate Cache 的 Write Miss 五步流程
 
-### 5. MESI Protocol
-- Adds **E (Exclusive Clean)** state: line is clean but only in this cache
-- Eliminates unnecessary BusRdX when doing read-then-write to unshared data
-- E → M upgrade: no bus transaction needed (cache knows it's the only copy)
-- On BusRd, other caches signal "shared" or not → determines whether entering S or E
+1. 处理器写地址未命中缓存
+2. 缓存选择位置——若该位置有脏行则写回内存
+3. 缓存从内存加载整行（"allocates line in cache"）
+4. 整行取回后 32 位被更新
+5. 缓存行标记为 dirty
 
-### 6. Snooping vs. Directory-Based Coherence
-| Approach | Mechanism | Scalability |
-|----------|-----------|-------------|
-| **Snooping** | Broadcast to all caches; all controllers "snoop" the bus | Limited (bus bandwidth bottleneck) |
-| **Directory** | Point-to-point messages; directory tracks which caches hold each line | Scalable (no broadcast) |
+### 1.0.3 Intel Skylake CPU 缓存层次精确参数
 
-**Intel Core i7 example:** L3 cache serves as a centralized directory. Instead of broadcasting coherence traffic to all L2 caches, only send messages to L2s that contain the line.
+| 层级 | 容量 | 相联度 | 策略 | 带宽 | 延迟 |
+|---|---|---|---|---|---|
+| L1 | 32KB | 8-way | write back | 2×32B load + 1×32B store/clock | 4 cycles |
+| L2 | 256KB | 4-way | write back | 64B/clock | 12 cycles |
+| L3 | 8MB | inclusive, 16-way | — | 32B/clock/bank | 42 cycles |
 
-### 7. False Sharing
-- Two processors write to **different** addresses that map to the **same cache line**
-- Cache line "ping-pongs" between caches → massive coherence traffic
-- **No inherent communication** — purely artifactual
-- **Fix**: pad per-thread data to cache line size (usually 64 bytes)
+- 64 字节缓存行
+- 支持 72 个 outstanding loads、56 个 outstanding stores
 
-### 8. AMAT in Multiprocessors
+### 1.0.4 3 Cs 缓存缺失模型
+
+1. **Cold**（冷缺失）—— 第一次访问
+2. **Capacity**（容量缺失）—— 工作集超过缓存容量
+3. **Conflict**（冲突缺失）—— 映射冲突
+
+### 1.1 多核机器为什么必须复制数据
+
+每个核心都希望：
+
+- 尽量从自己的私有缓存快速取数
+- 尽量减少反复访问更远层级的内存
+
+因此同一个地址常会在多个核心缓存中同时存在副本。
+
+### 1.2 问题的本质
+
+如果核心 A 修改了某个地址，而核心 B 还持有旧副本，那么：
+
+- 两个核心会看到不同的值
+- 程序的共享内存语义被破坏
+
+### 1.3 这不是锁能单独解决的问题
+
+锁能约束临界区进入顺序，但不能凭空让旧缓存副本自动更新。
+
+所以缓存一致性是一个：
+
+- **硬件层的数据副本维护问题**
+- 不是简单的软件互斥问题
+
+---
+
+## 2. 一致性的形式化含义
+
+### 2.0.1 缓存在多处理器中的共享地址空间抽象
+
+"线程间通信在内存操作中隐式发生。这是顺序编程的自然扩展。"
+
+但在多处理器中，"last"的含义变得模糊——"两个处理器同时写怎么办？写-读时间太短无法通信怎么办？"
+
+> 在单处理器中，提供一致性行为很简单（写通常来自一个源，例外是 DMA 的 device I/O）。多处理器中问题大幅复杂化。
+
+### 2.0.2 缓存不一致的完整 trace 示例
+
+1. P1 写 X ← 1（X 在 P1 缓存中，脏）
+2. P1 因容量不足 evict X（写回内存 X=1）
+3. P3 从内存读 X（得到 1，P3 缓存有 X=1）
+4. P3 写 X ← 2（P3 缓存有 X=2，内存仍是 X=1！）
+5. P1 重新读 X（P1 缓存缺失，从内存读——得到 1！❌）
+
+→ P1 和 P3 看到不同的 X 值。**这不是互斥问题！加锁不能修复！** 这是缓存复制数据导致的硬件层问题。
+
+### 2.0.3 一致性的形式化定义
+
+存在一个对该位置所有程序操作的**假设串行顺序**，满足：
+1. 单处理器上的操作按程序顺序执行
+2. 读取返回该串行顺序中最后一次写入的值
+
+### 2.0.4 软件一致性方案（基于 VM Page Fault）
+
+OS 利用 page-fault 机制来传播写入——可用于集群一致性，但有 false sharing 性能问题。同时存在共享缓存方案（简化一致性但增加冲突缺失和争用）。
+
+对于某个具体内存位置，一致性要求可以直观理解为：
+
+1. 所有处理器对该地址的读写，必须能嵌入某个全局串行顺序。
+2. 每个处理器自己的操作顺序要与程序顺序一致。
+3. 读取应当看到这个串行顺序中最近一次写入的值。
+
+### 2.1 重点注意
+
+一致性谈的是：
+
+- **同一个地址** 的读写顺序是否统一
+
+它不涉及不同地址之间什么时候对其他线程可见，那是第 15 讲的**一致性模型（consistency）**问题。
+
+---
+
+## 3. SWMR：一致性协议的核心不变量
+
+### 3.1 Single-Writer, Multiple-Reader
+
+任意时刻，一个缓存行大体上只允许处于两种 epoch：
+
+- **单写者阶段**：只有一个处理器可写
+- **多读者阶段**：可以有多个处理器同时读，但不能有人私自写
+
+### 3.2 为什么这是根本
+
+只要这个不变量被打破，就可能出现：
+
+- 多个处理器同时写同一行
+- 一部分处理器读旧值，一部分读新值
+- 无法构造统一的写入顺序
+
+### 3.3 数据值不变量
+
+每个读写 epoch 之间，数据值必须顺序衔接：
+
+- 新 epoch 开始时的值，应该等于前一个写者结束后留下的值
+
+这保证写入不会“丢”或“平行分叉”。
+
+---
+
+## 4. MSI 协议：最基础的一致性状态机
+
+### 4.0.1 Write-through 一致性协议 Trace
+
+简单协议（写入即广播 invalidate）的完整 trace：
+
+1. P1 read X (miss → BusRd → 从内存得 0)
+2. P0 read X (miss → BusRd → 从内存得 0)
+3. P0 write 100 to X (广播 invalidation for X → 内存更新为 100)
+4. P1 read X (miss → BusRd → 从内存得 100)
+
+Write-through 每次写都去内存——带宽需求极高。Write-back 吸收大部分写流量为缓存命中，显著降低带宽需求，但需要更复杂的一致性协议。
+
+### 4.0.2 Dirty State = Ownership
+
+在 write-back 缓存中，"Dirty state of cache line now indicates **exclusive ownership**（Read-Write Epoch）"。
+- Modified: cache 是唯一持有有效副本的缓存
+- Owner: cache 负责将信息传播给其他处理器
+
+### 4.0.3 MSI 完整状态转换图
+
 ```
-AMAT_multiprocessor > AMAT_uniprocessor
+I → S: PrRd/BusRd（获取 shared 副本）
+I → M: PrWr/BusRdX（获取 exclusive 副本）
+S → M: PrWr/BusRdX（升级，即使 hit in S 也要 BusRdX 来失效其他副本）
+S → I: BusRdX/--（其他处理器请求 exclusive）
+M → S: BusRd/BusWB（其他处理器请求 shared，需写回脏数据）
+M → I: BusRdX/BusWB（其他处理器请求 exclusive，需写回脏数据）
 ```
-Latency hierarchy (Core i7 Xeon 5500, approximate):
-- L2 hit: ~10 cycles
-- L3 hit, unshared: ~40 cycles
-- L3 hit, shared in another core: ~65 cycles
-- L3 hit, modified in another core: ~75 cycles
-- Local DRAM: ~120 cycles
-- Remote DRAM: ~400 cycles
+
+### 4.0.4 一个完整的 MSI Trace 示例
+
+| 步骤 | 操作 | P1 状态 | P2 状态 | P3 状态 | 总线事务 | 数据来源 |
+|---|---|---|---|---|---|---|
+| 1 | P1 read X | S | I | I | BusRd | Memory |
+| 2 | P3 read X | S | I | S | BusRd | Memory |
+| 3 | P3 write X | I | I | M | BusRdX | P3$ |
+| 4 | P1 read X | S | I | S | BusRd (from P3) | P3$ |
+| 5 | P1 read X(hit) | S | I | S | — | P1$ |
+| 6 | P2 write X | I | M | I | BusRdX | P1$ |
+
+### 4.0.5 MSI 如何满足一致性不变量
+
+- **SWMR**: 只有一个缓存可处于 M 状态，所有其他缓存收到 invalidation 消息
+- **Data-Value**: BusRd/BusRdX 时数据由 M 状态缓存提供，总线串行化所有事务
+
+所有缓存独立运行相同的状态机逻辑，"缓存之间相互合作"维持一致性。
+
+### 4.1 三种状态
+
+| 状态 | 含义 |
+|---|---|
+| `M`（Modified） | 该缓存持有唯一可写副本，且数据已脏 |
+| `S`（Shared） | 该缓存持有共享只读副本，主存或共享副本是最新的 |
+| `I`（Invalid） | 该缓存中此行无效 |
+
+### 4.2 为什么要有状态机
+
+每个缓存控制器要根据：
+
+- 处理器本地读写请求
+- 其他缓存在总线上的请求
+
+来决定：
+
+- 是否获取该行
+- 是否失效本地副本
+- 是否写回脏数据
+
+### 4.3 典型总线事务
+
+- `BusRd`：读取共享副本
+- `BusRdX`：带修改意图读取，需要让其他副本失效
+- `BusWB`：把脏数据写回主存
+
+### 4.4 典型状态迁移直觉
+
+- `I -> S`：读未命中，请求共享副本
+- `I -> M`：写未命中，请求独占副本
+- `S -> M`：写共享副本前，先升级为独占
+- `M -> S` 或 `M -> I`：别的核心请求同一行时，要降级或失效
+
+> 对应源码：`lecture14_part1.cpp`
+> 内容：MSI 状态机、总线事务和多缓存行交互的模拟。
 
 ---
 
-## Knowledge Points → Corresponding C++ Files
+## 5. MESI：在 MSI 基础上减少无谓总线流量
 
-| Knowledge Point | C++ File |
-|-----------------|----------|
-| MSI state machine simulation | `lecture14_part1.cpp` |
-| MESI state machine + false sharing demo | `lecture14_part2.cpp` |
-| Directory-based coherence simulation | `lecture14_part3.cpp` |
+### 5.0.1 MESI 引入 E 状态的精确动机
+
+MSI 的一个关键低效：对于"先读一个地址、然后写它"的常见模式，需要两次互连事务：
+- 事务 1: BusRd（I→S）
+- 事务 2: BusRdX（S→M）
+
+**即使应用程序完全没有共享，这种低效也存在。** 添加 E 状态后：E→M 不需要总线事务（因为已知自己是唯一持有者）。
+
+### 5.0.2 MESI 状态转换的关键区别
+
+- I→E: 当没有其他缓存声明 Shared 时获得 Exclusive
+- I→S: 当有其他缓存声明 Shared 时获得 Shared
+
+### 5.1 新增的 `E` 状态
+
+`E`（Exclusive）表示：
+
+- 该缓存是唯一持有者
+- 但数据仍是干净的
+- 主存也拥有同样最新的值
+
+### 5.2 为什么这个状态重要
+
+考虑典型模式：
+
+1. 先读某地址
+2. 随后立刻写它
+
+若系统知道自己是唯一副本持有者：
+
+- `E -> M` 可在本地完成
+- 不必再额外发起一次总线升级事务
+
+### 5.3 本质收益
+
+MESI 的意义不是更“正确”，而是：
+
+- 在满足一致性的前提下减少不必要通信
+
+> 对应源码：`lecture14_part2.cpp`
+> 内容：MESI 讲解、`E` 状态作用、伪共享性能对比。
 
 ---
 
-## Actionable Learning Points
-1. **Coherence ≠ synchronization** — it's a hardware mechanism, not a software fix
-2. **SWMR invariant** is the core guarantee of all coherence protocols
-3. **MESI saves a bus transaction** on the common read-then-write-to-unshared-data pattern
-4. **False sharing kills performance** — always pad per-thread data to 64 bytes
-5. **Directory-based coherence scales** better than snooping by avoiding broadcasts
-6. **Cache line size affects miss rate**: larger lines reduce cold/capacity misses but increase false sharing
+## 6. Snooping 与 Directory：一致性如何扩展到更多核心
+
+### 6.0.1 Intel Core i7 的目录一致性实现
+
+- L3 充当集中式目录——"Serialization point"
+- L3 是 inclusive cache → L2 中的任何行保证也驻留在 L3
+- 目录维护包含该行的 L2 缓存列表
+- 互连是 ring，不是 bus
+- 目录维度：P=4, M = L3 缓存行数
+
+### 6.0.2 多核 AMAT 的精确延迟数据
+
+Core i7 Xeon 5500 系列：
+
+| 事件 | 延迟 |
+|---|---|
+| L1 hit | ~4 cycles |
+| L2 hit | ~10 cycles |
+| L3 hit (unshared) | ~40 cycles |
+| L3 hit (shared in another core) | ~65 cycles |
+| L3 hit (modified in another core) | ~75 cycles |
+| Local DRAM | ~30 ns (~120 cycles) |
+| Remote DRAM | ~100 ns (~400 cycles) |
+
+记住：即使很小比例（不到 1%）的这类访问也会显著影响性能！
+
+### 6.1 Snooping
+
+- 所有缓存控制器都监听共享总线上的事务
+- 每次请求默认广播给所有缓存
+
+优点：
+
+- 设计概念简单
+- 小规模系统实现自然
+
+缺点：
+
+- 广播成本高
+- 总线带宽成为瓶颈
+- 难扩展到很多核心或很多缓存 slice
+
+### 6.2 Directory
+
+- 目录记录“哪些缓存持有某条缓存行”
+- 一致性消息只发给真正相关的缓存
+
+优点：
+
+- 避免全广播
+- 更可扩展
+
+缺点：
+
+- 需要额外目录状态
+- 设计和消息流更复杂
+
+### 6.3 为什么现代大系统更偏目录思想
+
+核心数和缓存层次一大，广播会非常昂贵。目录机制更适合：
+
+- 多核
+- 多 socket
+- 片上 mesh / distributed LLC 环境
+
+> 对应源码：`lecture14_part3.cpp`
+> 内容：目录项状态、点对点一致性消息、与 snooping 的对比模拟。
+
+---
+
+## 7. 伪共享：没有共享变量，也会有共享代价
+
+### 7.0.1 伪共享 Demo 的精确性能对比
+
+num_threads=8, 4-core system:
+- 无 padding 版本: 14.2 秒
+- 有 padding 版本: 4.7 秒
+
+### 7.0.2 缓存行大小对缺失率的影响
+
+在 Barnes-Hut、Radiosity、Ocean Sim、Radix Sort 四个应用中测试 8/16/32/64/128/256 字节缓存行——缺失率分解为 Upgrade、False sharing、True sharing、Capacity/Conflict、Cold 五类。来源：Culler, Singh, and Gupta。
+
+### 7.1 定义
+
+如果两个线程写的是不同变量，但这些变量恰好落在同一缓存行上，那么：
+
+- 一致性协议仍把这一整行当作共享对象处理
+- 缓存行会在各核心间来回失效 / 转移
+
+### 7.2 为什么性能会暴跌
+
+因为系统误以为这条行是高频共享热点，实际上只是：
+
+- 共享粒度过大（按 cache line 而不是按标量）
+
+### 7.3 修复方法
+
+- 为每线程私有数据加 padding 到缓存行边界
+- 调整结构体字段布局
+- 采用局部缓冲后批量归约
+
+### 7.4 重要认识
+
+伪共享没有增加任何真实问题规模，也没有增加任何真实依赖。
+它是纯粹由底层存储粒度引入的额外成本。
+
+---
+
+## 8. 多核 AMAT 为什么更复杂
+
+在多核环境中，一次 miss 不只是“去更慢层级取数据”这么简单，还可能涉及：
+
+- 别的核心缓存中有共享干净副本
+- 别的核心缓存中有修改后脏副本
+- 本地或远端内存访问
+- 一致性消息仲裁与互连传输
+
+因此多核下的平均访存时间（AMAT）会显著高于单核模型中的简单层级估计。
+
+---
+
+## 常见误区
+
+1. **误区：一致性问题可以靠加锁解决。**
+   锁能管理进入顺序，但缓存副本维护仍需硬件协议保证。
+2. **误区：一致性和一致性模型是同一个东西。**
+   coherence 管单地址，consistency 管跨地址可见顺序。
+3. **误区：伪共享只是一个小优化点。**
+   在高频写场景中，它可能完全摧毁扩展性。
+4. **误区：目录协议只是实现细节。**
+   它决定系统能否扩展到更大规模。
+
+---
+
+## 对应源码
+
+| 文件 | 主题 | 重点 |
+|---|---|---|
+| `lecture14_part1.cpp` | MSI 协议 | 状态机、一致性事务、总线嗅探 |
+| `lecture14_part2.cpp` | MESI 与伪共享 | `E` 状态价值、缓存行乒乓 |
+| `lecture14_part3.cpp` | 目录一致性 | 从广播到定点消息的扩展思路 |
+
+---
+
+## 学完本讲应做到
+
+- 能清楚区分一致性问题与互斥问题。
+- 能解释 MSI / MESI 状态背后的不变量。
+- 能理解目录协议为什么更可扩展。
+- 能识别伪共享这一类“没有逻辑共享却有硬件共享代价”的性能陷阱。
+

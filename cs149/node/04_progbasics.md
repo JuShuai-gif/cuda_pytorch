@@ -1,159 +1,412 @@
-# Lecture 4: Parallelizing Code - The Programming Thought Process
+# CS149 第 4 讲：并行化代码时应该怎样思考
 
-**Source**: Stanford CS149, Fall 2025 - Lecture 4 PDF
+**来源**：Stanford CS149，2025 年秋季，第 4 讲
 
 ---
 
-## Core Concepts Summary
+## 本讲核心目标
 
-### 1. ISPC Semantics Deeper Dive
+第 4 讲从“硬件是什么”转向“程序员如何把一个顺序问题真正变成并行程序”。
 
-**SPMD Programming Model** (Single Program, Multiple Data):
-- Call to ISPC function spawns a "gang" of ISPC "program instances"
-- All instances run ISPC code concurrently
-- Each instance has its own copy of local variables (varying)
-- Upon return, all instances have completed
+核心问题包括：
 
-**Key ISPC Keywords:**
-- `programCount`: number of simultaneously executing instances in the gang (uniform value, e.g., 8)
-- `programIndex`: id of the current instance in the gang (0..programCount-1, varying)
-- `uniform`: a type modifier - all instances have the same value; purely an optimization
-- `varying`: each instance has its own copy (default for local variables)
+1. 如何从顺序算法中识别出真正独立的工作单元？
+2. 为什么表达并行不只是“开线程”这么简单？
+3. 数据划分、任务分配、同步编排之间是什么关系？
+4. 为什么好的并行程序通常遵循“分解 -> 分配 -> 协调”的过程？
 
-**Abstraction vs. Implementation:**
-- **Programming abstraction**: SPMD - programmer thinks of spawning `programCount` logical instruction streams
-- **Implementation**: SIMD - ISPC compiler emits vector instructions (AVX2, ARM NEON) that carry out gang logic
-- ISPC handles mapping of conditional control flow to vector instructions (masking vector lanes)
+---
 
-### 2. Interleaved vs Blocked Assignment
+## 1. 更深入地理解 ISPC / SPMD 语义
 
-**Interleaved Assignment**:
-- `idx = i + programIndex` (i increments by programCount)
-- Consecutive elements processed by different instances in the same iteration
-- Load pattern: contiguous memory → efficient packed vector load (`vmovaps`)
+### 1.1 SPMD 模型再次回顾
 
-**Blocked Assignment**:
-- `start = programIndex * count; idx = start + i`
-- Each instance processes a contiguous block
-- Load pattern: non-contiguous → requires gather instruction (`vgatherdps`), more costly
+SPMD 的核心语义是：
 
-### 3. foreach Abstraction
+- 调用一个并行函数，相当于启动一组逻辑程序实例。
+- 每个实例执行相同代码，但拥有不同的 lane 身份和不同的数据值。
+- 函数返回时，所有实例都完成了自己的工作。
 
-- Declares parallel loop iterations: `foreach (i = 0 ... N)`
-- Programmer says "these are the iterations the entire gang must perform"
-- ISPC runtime handles assignment of iterations to program instances
-- In simple cases, allows expressing program almost as sequential code
-- Possible implementations: interleave, block, dynamic assignment via atomic counter
+### 1.1.1 `uniform` 关键字：仅用于性能优化
 
-### 4. Cross-Instance Operations
+`uniform` 关键字纯粹是优化提示，**不是正确性要求**。它告知编译器该值在所有实例间共享，可避免逐 lane 的冗余存储与计算。ISPC 编译器将 gang 实例数设置为硬件 SIMD 宽度（或其小倍数），并生成包含 SIMD 指令的 .o 目标文件，C++ 代码可正常链接。
+
+### 1.2 为什么“抽象”和“实现”还要再强调一遍
+
+因为很多初学者会把：
+
+- “一个 gang 中有多个实例”
+
+误解成：
+
+- “程序员必须手工写向量寄存器代码”
+
+实际上不是。程序员表达的是并行语义，编译器负责把它映射到 SIMD 执行。
+
+### 1.3 `uniform` 与 `varying` 的真正意义
+
+- `varying` 才是默认世界：每个实例各有一份局部值。
+- `uniform` 表示这个量可共享，不必为每个 lane 分别存储与计算。
+- 这对编译器做代码生成和寄存器分配至关重要。
+
+### 1.3.1 跨实例通信完整 API
+
+- `reduce_add`：gang 内求和
+- `reduce_min`：gang 内最小值
+- `broadcast`：将某个 lane 的值广播给所有 lane
+- `rotate`：lane 间循环移位
+
+这些原语让 SPMD 模型能处理需要一定通信但仍是结构化的场景。
+
+> 对应源码：`lecture4_part1.cpp`
+> 内容：SPMD 抽象、interleaved / blocked、`foreach`、`reduce_add` 等概念模拟。
+
+---
+
+## 2. 交错分配、分块分配与 `foreach`
+
+### 2.1 交错分配为什么常见
+
+因为它往往能让一个向量 gang 同时处理内存中连续的一段数据，从而获得：
+
+- 更高效的向量加载
+- 更少的 gather/scatter 成本
+- 更好的 SIMD 利用率
+
+### 2.1.1 交错分配与分块分配的 SIMD 指令级差异
+
+- **交错分配**：利用 `vmovaps`（packed vector load）指令，一次加载连续 8 个元素
+- **分块分配**：需要 `vgatherdps`（gather instruction）指令，更复杂、成本更高
+
+这就是为什么交错分配对 SIMD 向量化更友好的底层原因——相同的抽象、不同的指令实现会导致巨大性能差异。
+
+### 2.1.2 `foreach` 的四种实现策略
+
+ISPC `foreach` 可由编译器映射为至少四种具体实现：
+1. 实例 0 串行执行所有迭代（退化情况）
+2. 交错分配（Interleaved）— 标准映射
+3. 分块分配（Blocked）— 每个 instance 处理连续一段
+4. 动态分配 — 使用 `atomic_add_local` 的计数器动态领任务
+
+### 2.2 分块分配为什么也重要
+
+在多核或缓存分块中，分块分配往往能带来：
+
+- 更好的线程局部性
+- 更少的跨块共享
+- 更清晰的任务边界
+
+### 2.3 `foreach` 的真正价值
+
+`foreach` 让程序员声明：
+
+- “这个迭代空间整体可并行”
+
+从而不需要在源代码里过早绑定：
+
+- 具体每次由哪个 lane、哪个线程、哪个核心来做
+
+这就是高质量并行抽象的关键：
+
+- 让程序员表达约束和独立性
+- 让系统决定最合适的执行映射
+
+---
+
+## 3. 阿姆达尔定律在程序设计中的现实意义
+
+第 4 讲把阿姆达尔定律重新拉回“怎么写程序”这一层。
+
+### 3.0 加速比公式
+
+$$
+Speedup(P) = \frac{Time(1)}{Time(P)}
+$$
+
+除性能速度外，并行化的目标还包括：效率、用更少功率做同样工作、处理单机装不下的更大问题。
+
+### 3.0.1 阿姆达尔定律的 N×N 图像推导实例
+
+以 N×N 图像的两步处理为例，顺序版约需 2N² 工作：
+- **方案 1**（仅并行第一步）：Time = N²/P + N²，speedup ≤ 2（P→∞）
+- **方案 2**（两步都并行）：Time = N²/P + N²/P + P，当 N >> P 时 speedup → P
+
+### 3.0.2 Summit 超级计算机的算例
+
+Summit 有 27,648 GPUs × 5,376 ALUs/GPU = 148,635,648 ALUs。如果程序的 0.1% 是串行，最大加速比是多少？答案：1/(0.001) = 1000 倍。但问题是现实中的“串行 0.1%”极难达到。
+
+### 3.1 不是只会套公式
+
+真正重要的是：
+
+- 找出程序中仍然无法并行的部分
+- 判断这些部分是否能通过重构进一步缩小
+- 识别哪些同步其实是人为引入的，而不是问题本身需要的
+
+### 3.2 串行瓶颈的常见来源
+
+- 主线程统一分发任务
+- 每轮迭代后的全局 barrier
+- 归约结果集中汇总
+- 单一锁保护大块共享状态
+- 不合理的数据依赖设计
+
+### 3.3 课程想传达的工程思维
+
+并行优化不仅是“把并行部分做快”，更是“把不必要的串行部分删掉”。
+
+> 对应源码：`lecture4_part2.cpp`
+> 内容：阿姆达尔定律、并行开销、不同串行比例下的速度上限分析。
+
+---
+
+## 4. 从顺序程序到并行程序的三步法
+
+这是本讲最重要的方法论之一：
+
+1. **Decomposition（分解）**
+2. **Assignment（分配）**
+3. **Orchestration（协调）**
+
+### 4.0.1 分解主要由程序员完成
+
+"神奇的全自动并行编译器"目前尚未实现（针对复杂的通用代码）。分解（Decomposition）主要由程序员完成——这是并行编程的核心智力工作。
+
+### 4.0.2 Gauss-Seidel 网格求解器的完整伪代码
 
 ```c
-uniform int64 reduce_add(int32 x);     // sum across all instances
-uniform int32 reduce_min(int32 a);     // min across all instances
-int32 broadcast(int32 value, uniform int index);  // broadcast from one instance
-int32 rotate(int32 value, uniform int offset);    // rotate values between instances
+void solve(float A[N+2][N+2]) {
+    float diff;
+    do {
+        diff = 0;
+        for (int i=1; i<=N; i++)
+            for (int j=1; j<=N; j++) {
+                float prev = A[i][j];
+                A[i][j] = 0.2 * (A[i-1][j] + A[i][j-1] + A[i][j] + A[i][j+1] + A[i+1][j]);
+                diff += fabs(A[i][j] - prev);
+            }
+    } while (diff/(N*N) > TOLERANCE);
+}
 ```
 
-- `reduce_add` is critical for parallel reductions (e.g., summing array elements)
-- Each instance accumulates private partial sum, then `reduce_add` combines them
+### 4.0.3 对角线独立性与算法的选择
 
-### 5. ISPC Tasks (Multi-Core)
+原始 Gauss-Seidel 中**对角线元素**相互独立——并行性是存在的！但问题在于：
+- 对角线开头和结尾的并行度极低
+- 完成每条对角线后需要频繁同步
+- 解决方案：**改变算法** —— 切换到红黑排序（Red-Black），用不同的浮点值但同样收敛到误差阈值内
 
-- Gang abstraction uses SIMD on one core
-- ISPC "tasks" achieve multi-core execution
-- `launch[N] my_task(...)` creates N tasks
-- ISPC runtime assigns tasks to worker threads in a thread pool
+> 改变算法以暴露更多并行性是并行编程中的重要方法论，这需要领域知识（例如了解 Gauss-Seidel 的不同变体）。
 
-### 6. Amdahl's Law
+### 4.1 分解：先找独立工作单元
 
-$$
-\text{speedup} \leq \frac{1}{S}
-$$
+要问的问题是：
 
-Where S = fraction of execution that is inherently sequential.
+- 哪些计算可以独立进行？
+- 这些独立单元是按元素、按块、按任务，还是按阶段划分更自然？
 
-**Key insight**: A small serial region can severely limit speedup on a large parallel machine.
-- S = 0.01 (1% serial) → max speedup = 100x
-- S = 0.001 (0.1% serial) on 148M ALU machine → max speedup ≈ 1000x
+一个好的分解应该尽量满足：
 
-### 7. Creating a Parallel Program: Decomposition → Assignment → Orchestration
+- 工作量足够多，能喂饱机器
+- 每个单元之间依赖少
+- 数据访问局部性还不错
 
-```
-Problem → Decomposition → Subproblems (tasks)
-Subproblems → Assignment → Parallel Threads (workers)
-Parallel Threads → Orchestration → Parallel Program (communicating threads)
-Parallel Program → Mapping → Execution on parallel machine
-```
+### 4.2 分配：把工作映射到硬件
 
-**Decomposition**: Break up problem into independent tasks; identify dependencies.
+即便工作单元已经独立，仍要决定：
 
-**Assignment**: Assign tasks to workers.
-- Static: determined before execution (simple, zero runtime overhead)
-- Dynamic: determined at runtime (handles unpredictable workloads)
-- ISPC `foreach`: system-managed assignment
+- 哪些由不同线程处理
+- 哪些由同一 SIMD gang 处理
+- 数据是交错分配还是分块分配
 
-**Orchestration**: Structure communication, add synchronization, organize data, schedule tasks.
+分配阶段关注的是：
 
-### 8. Case Study: 2D Grid Solver (Gauss-Seidel)
+- 负载均衡
+- 缓存友好性
+- 同步成本
+- 调度开销
 
-**Problem**: Solve PDE on (N+2) × (N+2) grid iteratively:
-```
-A[i,j] = 0.2 * (A[i,j] + A[i,j-1] + A[i-1,j] + A[i,j+1] + A[i+1,j])
-```
+### 4.2.1 硬件映射三层
 
-**Dependencies**: Each row element depends on left neighbor; each row depends on previous row.
+1. **OS** → 把线程映射到 CPU 核
+2. **编译器** → 把 ISPC 实例映射到向量 lane
+3. **硬件** → 把 CUDA thread blocks 映射到 GPU cores
 
-**Red-Black Coloring** (parallelism-enabling algorithm change):
-- Update all RED cells in parallel
-- When done, update all BLACK cells in parallel (respecting dependency on red cells)
-- Repeat until convergence
+两种分配策略：
+- "把相关线程放在同一核" → 最大化局部性
+- "把不相关线程放在同一核" → 更高效利用机器
 
-### 9. Two Programming Models for Grid Solver
+### 4.3 协调：保证结果正确且成本可控
 
-**Data-Parallel Expression**:
-- `for_all` over red/black cells
-- Synchronization: implicit barrier at end of for_all block
-- Communication: implicit in loads/stores
-- Built-in primitives: `reduceAdd`
+协调包括：
 
-**Shared Address Space (SPMD) Expression**:
-- Multiple threads, shared variables
-- Synchronization: locks (mutual exclusion), barriers (phase dependencies)
-- Communication: implicit in reads/writes to shared address space
-- Programmer manages synchronization explicitly
+- barrier
+- 锁
+- 原子操作
+- 条件同步
+- 归约
 
-### 10. Synchronization Primitives
+并行程序常见问题不是“算错公式”，而是：
 
-- **Locks**: mutual exclusion - only one thread in critical section at a time
-- **Barriers**: `barrier(num_threads)` - all threads must reach barrier before any proceeds
-- **Atomic operations**: `atomicAdd`, hardware-supported read-modify-write
-
-### 11. Performance Optimization in Shared Address Space Solver
-
-- Accumulate partial sum locally per worker, then do global reduction once per iteration
-- Lock only once per thread per iteration (not once per grid cell!)
-- Remove unnecessary barriers by using multiple diff variables (space-for-dependencies tradeoff)
+- 同步太多导致慢
+- 同步太少导致错
+- 同步位置不对导致扩展性差
 
 ---
 
-## Actionable Learning Points
+## 5. 网格求解器：一类典型并行模式
 
-1. **Think in terms of abstraction vs. implementation**: SPMD is the abstraction; SIMD is one possible implementation.
-2. **Data layout matters for SIMD**: interleaved assignment enables contiguous memory access (packed loads); blocked assignment requires gathers.
-3. **Use foreach when possible**: let the system manage assignment; focus on expressing parallelism.
-4. **Amdahl's Law is unforgiving**: minimize serial portions aggressively.
-5. **Decomposition first, then assignment, then orchestration**: follow the structured thought process.
-6. **Algorithm changes can unlock parallelism**: red-black coloring is an example of changing algorithm to expose more parallelism.
-7. **Lock granularity matters**: accumulate locally, then lock once for global update.
-8. **Space-for-dependencies tradeoff**: use extra storage to remove synchronization dependencies.
+讲义中的网格迭代问题很有代表性，因为它同时具有：
+
+- 规则数据布局
+- 邻域依赖
+- 迭代更新
+- 局部可并行、全局需同步
+
+### 5.1 为什么它适合做教学案例
+
+它能让你看到：
+
+- 表面上“每个格点都做差不多的事”，似乎很好并行
+- 但实际上相邻元素依赖会限制同一轮中可同时更新的集合
+
+### 5.2 红黑染色（Red-Black）
+
+把网格按棋盘格染成红和黑：
+
+- 红点只依赖黑点
+- 黑点只依赖红点
+
+于是每一轮可以拆成两个阶段：
+
+1. 并行更新所有红点
+2. 同步后并行更新所有黑点
+
+### 5.3 它带来的启发
+
+很多实际问题并不是“完全独立”，而是可以通过重新组织顺序，把依赖变成阶段性同步，从而暴露并行。
+
+> 对应源码：`lecture4_part3.cpp`
+> 内容：红黑 Gauss-Seidel、隐式 barrier、网格更新的分解与协调。
 
 ---
 
-## C++ Source Files Reference
+## 6. 共享地址空间实现：并行代码真正困难的地方
 
-| Knowledge Point | C++ File |
-|----------------|----------|
-| SPMD abstraction, interleaved vs blocked assignment, foreach, reduce_add | `../src/lecture4_part1.cpp` |
-| Amdahl's Law simulation and speedup calculation | `../src/lecture4_part2.cpp` |
-| Grid solver: data-parallel with red-black coloring | `../src/lecture4_part3.cpp` |
-| Grid solver: shared address space SPMD with barriers/locks | `../src/lecture4_part4.cpp` |
+### 6.0.1 分块分配 vs 交错分配的通信量差异
+
+**分块分配需要的处理器间通信数据量更少**。因为每个处理器处理连续的数据块，边界交换只发生在块的边缘，而不是每个元素交错分布时的大量分散通信。
+
+### 6.0.2 共享地址空间求解器的性能优化过程
+
+**初版**：每次迭代都 lock/unlock（性能差，锁开销大）
+**优化版**：每个线程先局部累加 diff，最后全局归约
+→ "每个线程每轮迭代只需锁一次，而非每 (i,j) 循环锁一次！"
+
+### 6.0.3 三个 barrier 的作用分析
+
+```c
+barrier(bar1);  // #1: 确保上轮所有线程已重置 diff
+// 计算并局部累加 diff
+barrier(bar2);  // #2: 确保全局 diff 已完整（归约后）
+// 检查收敛
+barrier(bar3);  // #3: 确保所有线程同时进入下一轮迭代
+```
+
+### 6.0.4 用空间换依赖的优化技巧
+
+通过 3 个 diff 变量 + `index = (index+1) % 3` 轮换使用，可将三个 barrier 减为一个。这是"以内存占用换取消除依赖"的典型并行编程技术。
+
+### 6.1 共享地址空间的优点
+
+- 编程自然
+- 数据共享方便
+- 不需要显式消息传递
+
+### 6.2 共享地址空间的代价
+
+- 多线程对同一数据结构读写时要同步
+- barrier 会形成全局等待
+- 锁粒度不合适会严重串行化
+- 数据虽然“逻辑共享”，但物理上分布在不同缓存和内存层次中
+
+### 6.3 课程开始让你感受到的一件事
+
+从这一讲开始，并行编程不再只是“有没有并行”，而是：
+
+- 如何在正确性、复杂度和性能之间权衡同步设计
+
+> 对应源码：`lecture4_part4.cpp`
+> 内容：共享地址空间下的网格求解、barrier、锁粒度与同步优化。
+
+---
+
+## 7. 如何判断一个并行化方案是不是好方案
+
+一个合格的并行方案通常要同时满足四件事：
+
+1. **正确性**：结果与顺序语义一致。
+2. **足够的并行度**：有足够多的可调度工作。
+3. **低同步开销**：不要让大部分时间花在等待上。
+4. **良好的局部性**：不要因为并行化打碎缓存行为。
+
+很多“看起来并行”的方案，只满足第 2 点，却在第 3、4 点上失败。
+
+---
+
+## 8. 本讲最值得记住的工程口诀
+
+### 8.1 先分解，再想线程
+
+不要一上来就问“我要开几个线程”，先问：
+
+- 问题的独立工作单元是什么？
+
+### 8.2 同步要尽量后置、合并、结构化
+
+- 能分阶段同步，就不要每一步都同步。
+- 能局部归约，就不要全局频繁写共享变量。
+- 能靠问题结构规避数据竞争，就不要一开始就到处加锁。
+
+### 8.3 并行抽象越接近问题结构，越容易优化
+
+- `forall`
+- `foreach`
+- map / reduce / scan
+- stencil / tile / task
+
+这些高层结构并不是“语法糖”，而是让系统有机会生成更好实现的关键。
+
+---
+
+## 常见误区
+
+1. **误区：并行化就是把 for 循环平均切给几个线程。**
+   真正难的是依赖、同步、局部性和扩展性。
+2. **误区：只要结果正确，就是好的并行程序。**
+   很多正确程序因为 barrier 或锁太重，几乎没有加速。
+3. **误区：同步越细越安全。**
+   过细同步可能导致极大开销，甚至让并行程序比顺序版更慢。
+4. **误区：并行抽象只是教学概念。**
+   实际工业 DSL 和并行框架都依赖这些抽象来获得可移植性能。
+
+---
+
+## 对应源码
+
+| 文件 | 主题 | 重点 |
+|---|---|---|
+| `lecture4_part1.cpp` | ISPC/SPMD 抽象 | 如何表达数据并行语义 |
+| `lecture4_part2.cpp` | 阿姆达尔定律 | 串行部分如何卡住扩展性 |
+| `lecture4_part3.cpp` | 红黑网格求解器 | 阶段同步与局部并行 |
+| `lecture4_part4.cpp` | 共享地址空间实现 | 锁、barrier 与实际同步成本 |
+
+---
+
+## 学完本讲应做到
+
+- 能用“分解 -> 分配 -> 协调”分析一个并行问题。
+- 能解释为何并行抽象的价值在于延迟绑定底层实现。
+- 能看懂网格 / stencil 类程序的并行结构。
+- 能识别 barrier、共享写入、锁粒度对性能的影响。
+

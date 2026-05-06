@@ -1,258 +1,447 @@
-# CS149 Lecture 2: A Modern Multi-Core Processor (Part I)
+# CS149 第 2 讲：现代多核处理器（上）
 
-**PDF**: `02_basicarch.pdf`
+**PDF**：`02_basicarch.pdf`
 
-**Instructor**: Prof. Kayvon Fatahalian
+**授课教师**：Prof. Kayvon Fatahalian
 
-**University**: Stanford CS149, Fall 2025
-
----
-
-## Core Concepts Summary
-
-### Review from Lecture 1
-
-- A program = list of processor instructions
-- Superscalar processors exploit ILP within a single instruction stream
-- Memory hierarchy: cache reduces latency, data locality matters
-- Power wall ended frequency scaling (~2005)
-
-### Today's Focus
-
-Three ideas in throughput computing hardware:
-1. **Multi-core execution** — multiple independent instruction streams
-2. **SIMD execution** — multiple ALUs controlled by one instruction
-3. **Hardware multi-threading** — hide memory stalls by interleaving threads
+**课程**：Stanford CS149，2025 年秋季
 
 ---
 
-## 1. Three Forms of Parallel Execution
+## 本讲核心目标
 
-| Form | Mechanism | Who Controls? | Key Property |
-|------|-----------|---------------|--------------|
-| **Superscalar** | Exploit ILP within one instruction stream | Hardware (automatic) | Within a single core |
-| **SIMD** | Multiple ALUs, same instruction, different data | Compiler (explicit) or HW (implicit) | Amortizes control cost over many ALUs |
-| **Multi-core** | Multiple independent instruction streams | Programmer (creates threads) | Each core can run different code |
+这一讲的重点不是背硬件名词，而是建立一个统一框架来理解吞吐型处理器的三种并行来源：
 
-### Multi-Core Rationale
+1. **多核并行**：多个独立指令流同时执行。
+2. **SIMD 并行**：一条指令控制多个算术单元处理不同数据。
+3. **硬件多线程**：用线程切换隐藏长延迟，尤其是访存延迟。
 
-- **Pre multi-core era**: transistors used for fancy branch predictors, OoO logic, large caches — all to accelerate a single instruction stream
-- **Multi-core era**: use increasing transistor count to add more cores (simpler cores, but more of them)
-- Trade-off: each core may be ~25% slower, but 2 cores × 0.75 = 1.5x potential speedup
-
-> **C++ Demo**: `lecture2_part1.cpp` — Sequential vs multi-core vs SIMD vs combined sin(x) computation
+它们是后续 CPU、ISPC、GPU、CUDA 课程内容的共同基础。
 
 ---
 
-## 2. The sin(x) Example Program
+## 1. 三种并行形态的区别
 
-```c
-void sinx(int N, int terms, float* x, float* y) {
-    for (int i = 0; i < N; i++) {
-        float value = x[i];
-        float numer = x[i] * x[i] * x[i];
-        int denom = 6;               // 3!
+| 形态 | 解决的问题 | 谁来控制 | 典型收益 | 主要限制 |
+|---|---|---|---|---|
+| 超标量 / ILP | 单线程内部找独立指令 | 硬件自动 | 降低单线程停顿 | 可挖掘并行度有限 |
+| SIMD | 同一操作作用于多份数据 | 编译器 / 程序员显式暴露 | 摊薄控制开销 | 要求数据并行、控制一致 |
+| 多核 | 多条独立任务流 | 程序员划分任务 | 大幅提升吞吐 | 同步、共享数据、负载均衡 |
+| 硬件多线程 | 隐藏等待时间 | 硬件调度 | 提升资源利用率 | 不能减少真实工作量 |
+
+### 1.1 超标量与 SIMD 不一样
+
+- 超标量是在一条指令流中自动找不同指令并行执行。
+- SIMD 是同一条指令同时作用于多个数据通道。
+- 前者主要挖掘**指令级并行**，后者主要利用**数据级并行**。
+
+### 1.2 多核与硬件多线程也不一样
+
+- 多核是真正增加了计算资源。
+- 硬件多线程更多是在同一核心内切换线程，避免某个线程卡在内存访问时整个核心闲着。
+
+---
+
+## 2. 为什么体系结构转向吞吐计算
+
+### 2.1 过去的思路
+
+在单核时代，更多晶体管主要用来：
+
+- 分支预测
+- 乱序执行
+- 大寄存器重命名表
+- 更复杂的调度逻辑
+- 更大的缓存
+
+目标是尽可能提升单线程性能。
+
+### 2.2 现在的思路
+
+进入多核时代后，芯片厂商发现：
+
+- 再堆复杂控制逻辑，收益递减严重。
+- 但如果把晶体管用来增加更多核、更多 SIMD 宽度、更多线程上下文，往往更划算。
+
+### 2.3 一个重要的设计权衡
+
+- 2 个稍微简单一点的核，可能比 1 个极其复杂的大核在吞吐上更有价值。
+- 代价是：程序必须更好地并行化，否则硬件潜力无法释放。
+
+### 2.3.1 简单核 vs 复杂核的定量权衡
+
+- 简单核比复杂核运行单指令流慢约 25%
+- 但若有两个简单核：2 × 0.75 = 1.5 → 仍有加速潜力
+- 这证明了"用更多简单核替代单个大核"在吞吐方面的优势
+
+---
+
+## 3. 以 `sin(x)` 计算为例理解并行表达
+
+讲义里用泰勒展开近似 `sin(x)`，这个例子非常经典，因为它能同时说明：
+
+- 外层对数组元素的遍历天然可并行。
+- 内层单个元素的计算则包含严格顺序依赖。
+
+### 3.1 顺序版本在做什么
+
+对每个输入元素 `x[i]`：
+
+1. 初始化 `value = x[i]`
+2. 逐项累加高阶项
+3. 把结果写到 `y[i]`
+
+单个元素内部存在依赖链：
+
+- 当前项依赖上一个 `numer`、`denom`、`sign`
+- 所以内层循环不容易并行
+
+### 3.2 真正可并行的部分在哪
+
+- **不同 `i` 之间是独立的**
+- 因此最自然的并行方式是按元素划分工作
+- 这也是数据并行程序最常见的结构：
+  - 对很多元素执行相同代码
+  - 每个元素内部仍然是顺序逻辑
+
+### 3.2.1 使用 C++ std::thread 实现的并行 sinx
+
+```cpp
+struct my_args { int N; float* x; float* y; float* terms; };
+
+void my_thread_func(my_args* args) {
+    for (int i = 0; i < args->N; i++) {
+        float value = args->x[i];
+        float numer = args->x[i] * args->x[i] * args->x[i];
+        int denom = 6;
+        int sign = -1;
+        for (int j = 1; j <= args->terms; j++) {
+            value += sign * numer / denom;
+            numer *= args->x[i] * args->x[i];
+            denom *= (2*j+2) * (2*j+3);
+            sign = -sign;
+        }
+        args->y[i] = value;
+    }
+}
+
+void parallel_sinx(int N, float* x, float* y, int terms) {
+    my_args args1 = {N/2, x, y, terms};
+    my_args args2 = {N - N/2, x + N/2, y + N/2, terms};
+    std::thread t1 = std::thread(my_thread_func, &args1);
+    std::thread t2 = std::thread(my_thread_func, &args2);
+    t1.join(); t2.join();
+}
+```
+
+### 3.3 这一讲最重要的抽象转换
+
+不是问：
+
+- “线程 0 做什么，线程 1 做什么？”
+
+而是先问：
+
+- “哪一层循环的不同迭代彼此独立？”
+
+一旦独立，就有机会用：
+
+- 多核线程切分
+- SIMD 向量化
+- 后续的 SPMD / ISPC / CUDA 抽象
+
+> 对应源码：`lecture2_part1.cpp`
+> 内容：顺序、多核、SIMD 以及组合方式的 `sin(x)` 近似计算对比。
+
+---
+
+## 4. 多核执行：多条独立指令流
+
+### 4.1 编程模式
+
+多核程序通常显式创建多个线程，每个线程负责一段输入范围。
+
+典型步骤：
+
+1. 划分输入数据
+2. 创建工作线程
+3. 各线程各自计算
+4. 同步等待所有线程结束
+5. 汇总结果
+
+### 4.2 优点
+
+- 控制灵活
+- 能处理控制流复杂的任务
+- 每个核心都有自己完整的取指、解码、寄存器与私有缓存
+
+### 4.3 缺点
+
+- 线程管理有开销
+- 需要处理同步与共享内存问题
+- 如果任务太小，线程开销会掩盖收益
+- 如果任务负载差异大，会出现空等
+
+---
+
+## 5. SIMD：一条指令同时处理多个元素
+
+### 5.1 基本思想
+
+如果多个数据元素都要做同样的操作，就把它们打包到向量寄存器里，一条指令同时算多个结果。
+
+例如：
+
+- 标量一次做 1 次加法
+- AVX2 一次可做 8 个单精度浮点加法
+- 更宽的向量一次处理更多元素
+
+### 5.1.1 AVX Intrinsics 向量化 sinx 实现
+
+```cpp
+void sinx_avx(int N, float* x, float* y, int terms) {
+    __m256 three_fact = _mm256_set1_ps(6.0f);
+    for (int i = 0; i < N; i += 8) {
+        __m256 value = _mm256_load_ps(&x[i]);
+        __m256 numer = _mm256_mul_ps(value, _mm256_mul_ps(value, value));
+        __m256 denom = three_fact;
         int sign = -1;
         for (int j = 1; j <= terms; j++) {
-            value += sign * numer / denom;
-            numer *= x[i] * x[i];
-            denom *= (2*j+2) * (2*j+3);
-            sign *= -1;
+            __m256 tmp = _mm256_div_ps(numer, denom);
+            if (sign == 1) value = _mm256_add_ps(value, tmp);
+            else value = _mm256_sub_ps(value, tmp);
+            numer = _mm256_mul_ps(numer, _mm256_mul_ps(value, value));
+            // ... update denom and sign
+            sign = -sign;
         }
-        y[i] = value;
+        _mm256_store_ps(&y[i], value);
     }
 }
 ```
 
-This sequential code runs on **one core** with **one instruction stream**. To use multiple cores, we need to express parallelism.
+编译后的向量指令如 `vmulps xmm1, xmm0, xmm0` 和 `vaddps xmm0, xmm1, xmm2` 可同时操作 8 个单精度浮点数。
 
-### Expressing Parallelism
+### 5.2 SIMD 的本质收益
 
-1. **C++ threads** (explicit): manually split work across threads
-2. **Data-parallel "forall"** (abstraction): declare loop iterations as independent — compiler can auto-generate threaded code
-3. **ISPC/OpenMP**: higher-level parallel abstractions
+不是“让单个加法更快”，而是：
 
-The `forall` construct is Kayvon's fictitious parallel language feature:
+- **摊薄控制开销**
+- 一次取指、一次译码、一次调度，驱动多个 ALU 一起干活
+
+### 5.3 SIMD 的前提条件
+
+- 多个数据元素执行同样的运算序列
+- 数据布局适合成批加载
+- 控制流分歧不要太强
+
+### 5.3.1 SIMD 条件执行的四步时序
+
+以 8 宽 SIMD 执行 if/else 为例：
+1. **第一步**：所有 lane 执行 `float t = x[i]`（全部激活）
+2. **第二步**：仅条件为真的 lane 执行 if 分支，假 lane 被 mask 掉
+   - 最坏情况：仅 1/8 的峰值性能
+3. **第三步**：仅条件为假的 lane 执行 else 分支，真 lane 被 mask 掉
+4. **第四步**：所有 lane 恢复统一执行
+
+核心教训：分支分歧会严重降低 SIMD 效率。
+
+### 5.4 常见性能障碍
+
+- 分支分歧
+- 非连续访存，需要 gather/scatter
+- 数据相关性导致无法批处理
+
+### 5.5 Explicit SIMD vs Implicit SIMD
+
+- **Explicit SIMD**：编译器生成 SIMD 指令（可在二进制中看到 `vstoreps`, `vmulps` 等），程序员通过 intrinsics 或并行语义显式表达
+- **Implicit SIMD (SIMT)**：编译器生成标量指令，硬件负责同时执行多个程序实例的同一条指令（GPU 的常见模式）
+- GPU SIMD 宽度范围通常为 8 到 32。糟糕的代码可能仅达到 1/32 的峰值能力。
+
+---
+
+## 6. `forall` 抽象：从“线程思维”转向“迭代思维”
+
+课程里引入的 `forall` 不是某个真实语言的关键字，而是一种重要思维方式：
+
 ```c
 forall (int i from 0 to N) {
-    // iterations are independent — compiler can parallelize
+    y[i] = f(x[i]);
 }
 ```
 
-> **C++ Demo**: `lecture2_part1.cpp` — Thread-based parallel sinx, forall simulation
+### 6.1 程序员表达什么
+
+- 表达“这些迭代彼此独立，可以并行执行”。
+- 不提前绑定到底层实现是多核、SIMD，还是两者结合。
+
+### 6.2 抽象的价值
+
+这使得编译器与运行时有更大自由去选择：
+
+- 哪些迭代放到不同核
+- 哪些元素打包成向量
+- 怎么平衡线程与向量宽度
+
+### 6.3 这为什么重要
+
+后面的 ISPC、Halide、Triton、Tensor DSL，本质上都在做同一件事：
+
+- 让程序员描述并行语义
+- 把调度与映射交给系统或较高层抽象
 
 ---
 
-## 3. SIMD Execution (Single Instruction, Multiple Data)
+## 7. 硬件多线程：隐藏延迟，而不是减少工作量
 
-### Key Idea
-**Amortize the cost/complexity of managing an instruction stream across many ALUs.**
+### 7.1 问题背景
 
-Instead of one fetch/decode per ALU, use one fetch/decode for N ALUs that all perform the same operation on different data.
+即使程序有并行性，处理器仍可能因为内存访问停住。
 
-### AVX Intrinsics Example (Vector sinx)
+- 加载一个值可能要等几十到几百个周期
+- 这期间算术单元会闲着
 
-```c
-#include <immintrin.h>
-for (int i = 0; i < N; i += 8) {
-    __m256 origx = _mm256_load_ps(&x[i]);    // load 8 floats
-    __m256 value = origx;
-    __m256 numer = _mm256_mul_ps(origx, _mm256_mul_ps(origx, origx));
-    // ... compute sin(x) for 8 elements simultaneously ...
-    _mm256_store_ps(&y[i], value);           // store 8 results
-}
-```
+### 7.2 硬件多线程怎么做
 
-- `__m256` = vector of eight 32-bit floats (256 bits)
-- `_mm256_load_ps` = vector load (vmovaps)
-- `_mm256_mul_ps` = vector multiply (vmulps)
-- Each instruction operates on **8 data elements simultaneously**
+- 一个核心保存多个线程上下文。
+- 当线程 A 因访存停顿时，立刻切换去执行线程 B。
 
-### Conditional Execution in SIMD
+### 7.3 它解决的是什么问题
 
-When different lanes need different paths:
-```
-if (t > 0.0) {
-    t = t * t;        // only lanes where condition is true
-} else {
-    t = t + 30.0;     // only lanes where condition is false
-}
-```
+- 提升核心资源利用率
+- 用更多可执行线程覆盖长延迟
 
-- **Mask bits**: each ALU lane has a mask bit (1 = active, 0 = masked off)
-- Masked lanes still execute but results are **discarded**
-- **Worst case**: only 1/WIDTH lanes active → 1/WIDTH peak performance
-- This is why **coherent execution** is critical for SIMD efficiency
+### 7.4 它不能解决什么
 
-> **C++ Demo**: `lecture2_part2.cpp` — SIMD vector class, mask simulation, conditional execution
+- 不能让 DRAM 真的变快
+- 不能减少总内存流量
+- 不能自动把串行程序变成高吞吐程序
 
-### Coherent vs. Divergent Execution
+所以它更像“掩盖等待”，而不是“消灭等待”。
 
-| Property | Coherent | Divergent |
-|----------|----------|-----------|
-| Instruction stream | Same for all data | Differs per data element |
-| SIMD efficiency | 100% ALU utilization | Reduced (masked lanes) |
-| Multi-core impact | Not necessary | No problem (independent fetch/decode) |
+### 7.2.1 利用率定量分析
 
-### SIMD on Real Hardware
+程序模式：3 条算术指令后跟 12 周期访存延迟的 load。
 
-| Instruction Set | Width | Data Types |
-|----------------|-------|------------|
-| Intel AVX2 | 256-bit | 8×32b or 4×64b |
-| Intel AVX512 | 512-bit | 16×32b or 8×64b |
-| ARM Neon | 128-bit | 4×32b or 2×64b |
+| 线程数 | 计算周期 | 总周期 | 利用率 |
+|---|---|---|---|
+| 1 | 3 | 15 | 20% |
+| 2 | 6 | 15 | 40% |
+| 5 | 15 | 15 | 100% |
+| 6 | 18 | 18 | 100%（仍有空闲槽） |
 
-- **Explicit SIMD** (CPU): compiler generates vector instructions, programmer uses intrinsics or auto-vectorization
-- **Implicit SIMD** (GPU): compiler generates scalar instructions, hardware runs N instances in lockstep on SIMD ALUs
+- 需要 5 个线程才能达到 100% 利用率
+- 若算术增至 6 条指令后访存，仅需 3 个线程即可达到 100%
+- **核心原理**：n 个线程需要的算术量 = n × 3 ≥ 3 + 12，即 n = 5
+
+### 7.2.2 Interleaved Multi-threading vs Simultaneous Multi-threading (SMT)
+
+- **交错多线程（Interleaved）**：时间多线程，每拍从多个线程中选择一个执行一条指令
+- **同步多线程（SMT）**：每拍从多个线程中选择指令同时执行（如 Intel Hyper-threading，每核 2 线程）
+- GPU 通常采用交错多线程，CPU 同时使用两种方式
+
+### 7.2.3 Kayvon 的教学虚构芯片模型
+
+一个虚构的吞吐优化芯片：
+- 16 核，每核 8 个 SIMD ALU（共 128 个 ALU）
+- 每核支持 4 个硬件线程上下文
+- 共 16 条同时指令流，共 64 个并发硬件线程流
+- **需要 512 个独立工作单元才能达到最大延迟隐藏**
 
 ---
 
-## 4. Hardware Multi-Threading
+## 8. 多核、SIMD、硬件多线程如何协同
 
-### Problem: Memory Stalls
+现代吞吐型处理器通常同时使用这三类机制：
 
-- DRAM access: ~248 cycles at 4 GHz
-- During a memory load, the processor **stalls** (cannot execute dependent instructions)
-- This wastes ALU resources
+1. 多核：扩展任务数
+2. SIMD：扩展每条指令的并行数据量
+3. 多线程：在遇到延迟时保持硬件不闲置
 
-### Solution: Interleave Threads
+这也是课程后面反复强调的多层次并行：
 
-When one thread stalls on a memory load, **execute instructions from another thread** on the same core's ALUs.
+- 任务级并行
+- 数据级并行
+- 延迟隐藏
 
-**Key idea**: potentially increase time to complete one thread, but increase overall system throughput.
-
-### Types of Multi-Threading
-
-| Type | Description | Example |
-|------|-------------|---------|
-| **Interleaved** (temporal) | Each clock, core chooses one thread to run | GPU-style |
-| **Simultaneous** (SMT) | Each clock, core runs instructions from multiple threads | Intel Hyper-Threading (2 threads/core) |
-
-### Thread Count vs. Utilization
-
-- More arithmetic per memory access → **fewer threads needed** for 100% utilization
-- `threads_needed = ceil(1 + latency / math_per_load)`
-- Example: 3 math + 1 load (12-cycle latency) → need 5 threads for 100%
-
-### Context Storage Trade-off
-
-| Design | Pros | Cons |
-|--------|------|------|
-| Many small contexts | Excellent latency hiding | Small per-thread working set, more cache pressure |
-| Few large contexts | Large per-thread working set, better cache locality | Less latency hiding ability |
-
-> **C++ Demo**: `lecture2_part3.cpp` — Multi-threaded core simulator, latency hiding analysis
+真正高性能程序，往往必须同时利用多个层次，而不是只靠一种技巧。
 
 ---
 
-## 5. Real Processor Examples
+## 9. 程序员视角的设计问题
 
-### Intel i7-7700K (Kaby Lake, 4 cores)
+写并行程序时，至少要连续问自己以下问题：
 
-- 4 cores × 8-wide AVX2 × 3 ALUs × 4.2 GHz ≈ 400 GFLOPs
-- 2-way SMT (Hyper-Threading): 2 threads per core
-- L1: 32KB, L2: 256KB, L3: 8MB
+1. **独立工作单元是什么？**
+2. **我应该按核切，还是按向量切，还是两者结合？**
+3. **工作切得够均匀吗？**
+4. **每个工作单元里是否有高局部性？**
+5. **线程之间的共享和同步能否最小化？**
 
-### NVIDIA V100 GPU
+第 2 讲的真正价值，是把这些问题抬到显式层面。
 
-- 80 SMs (Streaming Multiprocessors)
-- Per SM: 64 fp32 ALUs, 64 warp execution contexts
-- 64 warps × 32 SIMD width = 2048 concurrent data items per SM
-- 80 × 2048 = **163,840 concurrent data items** for maximal latency hiding
-- 16 GB HBM2 at 900 GB/s
+### 9.1 代表性处理器参数
 
----
+| 处理器 | 核心规格 | 峰值算力 |
+|---|---|---|
+| Intel i7-7700K | 4 核，每核 3×8 宽 SIMD ALU (AVX2)，4.2 GHz | ~400 GFLOPS |
+| NVIDIA V100 | 80 SM，每 SM 128 SIMD ALU，1.6 GHz | ~16 TFLOPS |
+| V100 功耗 | ~250W，L2 6MB |  |
 
-## 6. Review: How It All Fits Together
+### 9.2 Intel Skylake/Kaby Lake 核的微架构
 
-The lecture builds up from the simplest processor to a full modern design:
+每核架构特征：
+- 2 路 SMT（Hyper-threading）
+- 最多 4 条独立标量指令 + 3 条 8 宽向量指令并行发射
+- 向量单元：2 条 MUL 或 3 条 ADD
+- 独立的 LD/ST 单元
 
-1. **Simple processor**: 1 core, 1 thread, 1 scalar instruction/clock
-2. **Superscalar**: 1 core, 1 thread, up to N independent instructions/clock
-3. **SIMD**: 1 core, 1 thread, 1 vector instruction operates on W data elements
-4. **Heterogeneous superscalar**: 1 core, scalar + vector ALUs
-5. **Multi-threaded**: 1 core, M threads (interleaved execution)
-6. **Multi-threaded superscalar**: 1 core, M threads, N instructions/clock
-7. **Multi-core**: C cores, each with M threads and N-issue superscalar + SIMD
-8. **GPU SIMT**: many cores, each with many warps, implicit SIMD execution
+### 9.3 GPU SIMT 执行模型
 
----
+SIMT（Single Instruction Multiple Thread）：
+- GPU 核心检测不同硬件线程何时执行相同指令
+- 然后使用 SIMD ALU 同时执行
+- 如果某线程走不同分支（分歧），对应 ALU lane 被"masked off"
+- 这是 CUDA 编程模型的基础，将在后续 GPU 课程中深入展开
 
-## Actionable Learning Points
+### 9.4 OS 线程到硬件执行上下文的映射
 
-1. **Know your processor's capabilities**: cores × SIMD width × ALUs × frequency = peak throughput
-2. **Write coherent code for SIMD**: avoid divergent branches in data-parallel regions
-3. **Use enough threads**: to hide memory latency (more threads ≠ better if already 100%)
-4. **Cache matters**: L1 hits are 60x faster than DRAM (4 vs 248 cycles)
-5. **Amortize control**: SIMD shares one fetch/decode across many ALUs
-
----
-
-## C++ Source Files
-
-| File | Topic | Key Demonstration |
-|------|-------|-------------------|
-| `lecture2_part1.cpp` | Multi-core & SIMD sin(x) | Sequential vs threads vs SIMD vs combined |
-| `lecture2_part2.cpp` | SIMD conditional execution | Mask simulation, coherent vs divergent |
-| `lecture2_part3.cpp` | Hardware multi-threading | Latency hiding, thread count vs. utilization |
-
-### Compilation
-
-```bash
-g++ -std=c++17 -O2 -pthread lecture2_part1.cpp -o lecture2_part1 && ./lecture2_part1
-g++ -std=c++17 -O2 lecture2_part2.cpp -o lecture2_part2 && ./lecture2_part2
-g++ -std=c++17 -O2 -pthread lecture2_part3.cpp -o lecture2_part3 && ./lecture2_part3
-```
+一个值得思考的设计问题：
+- 程序 spawn 2 个线程，运行在 2 核、每核 2 上下文、支持超标的处理器上
+- **谁负责把线程映射到硬件执行上下文？** 答：操作系统
+- **如何分配？** 若只有 2 个线程，最合理的是各分配一个核
+- **如果 spawn 5 个线程呢？** 需要更复杂的调度策略
 
 ---
 
-## Terminology to Know
+## 常见误区
 
-- **Instruction stream**: sequence of instructions for one logical thread
-- **Multi-core processor**: multiple independent cores on one chip
-- **SIMD execution**: single instruction broadcast to multiple ALUs
-- **Coherent control flow**: all lanes follow the same execution path
-- **Divergent execution**: different lanes take different paths (bad for SIMD)
-- **Hardware multi-threading**: interleaving/simultaneous execution of multiple HW threads
-- **SMT**: simultaneous multi-threading (Intel Hyper-Threading)
-- **Prefetching**: hardware guesses future memory accesses to pre-load into cache
+1. **误区：SIMD 就是“自动更快的 for 循环”。**
+   如果控制流分歧重、数据布局差，SIMD 反而发挥不好。
+2. **误区：多线程一定比 SIMD 更通用，所以更重要。**
+   两者解决的问题不同，现代机器经常需要两者叠加。
+3. **误区：硬件多线程等于更多计算核心。**
+   它主要用于隐藏等待，不等于增加同等规模的执行资源。
+4. **误区：只要外层循环能并行，性能就一定好。**
+   还要看任务粒度、缓存局部性和同步开销。
+5. **误区：`forall` 是某种真实编程语言的关键字。**
+   它是 Kayvon 为教学目的设计的虚构语言中的构造，用于说明"表达并行 = 不与底层实现绑定"的思想。
+
+---
+
+## 对应源码
+
+| 文件 | 主题 | 重点 |
+|---|---|---|
+| `lecture2_part1.cpp` | 顺序、多核、SIMD 协同 | 同一算法如何映射到多种并行形态 |
+| `lecture2_part2.cpp` | SIMD 宽度、打包、访存模式 | 数据布局如何影响 SIMD 效率 |
+| `lecture2_part3.cpp` | 硬件多线程与吞吐 | 为什么切换线程可以隐藏延迟 |
+
+---
+
+## 学完本讲应做到
+
+- 能清晰区分多核、SIMD、硬件多线程的职责。
+- 能从循环结构中识别可并行迭代空间。
+- 能解释为什么“表达并行语义”和“决定底层映射”应尽量分离。
+- 能理解后续 ISPC 与 GPU 编程为什么都属于“吞吐优先”的思维体系。
+

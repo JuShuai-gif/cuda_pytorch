@@ -1,236 +1,482 @@
-# Lecture 6: Performance Optimization Part II - Locality, Communication, and Contention
+# CS149 第 6 讲：性能优化（下）—— 局部性、通信与争用
 
-**Source**: Stanford CS149, Fall 2025 - Lecture 6 PDF
+**来源**：Stanford CS149，2025 年秋季，第 6 讲
 
 ---
 
-## Core Concepts Summary
+## 本讲核心问题
 
-### 1. The Reality of Shared Address Space Hardware
+1. 为什么共享地址空间并不意味着“访问成本都一样”？
+2. 为什么线程之间不显式通信，也可能因为缓存而彼此拖慢？
+3. 多核程序里的“通信”到底应该如何理解？
+4. 怎样把局部性、同步、硬件互连放进统一性能视角？
 
-The abstraction of a single shared address space is implemented by a complex hierarchy:
+---
+
+## 1. 共享地址空间只是编程抽象，不是物理现实
+
+### 1.1 程序员看到的世界
+
+在共享内存模型下，所有线程似乎都能直接访问同一份地址空间。
+
+### 1.2 真实硬件里的世界
+
+底层其实存在复杂层次：
+
+- 每个核心有自己的寄存器
+- 私有 L1 / L2 缓存
+- 共享 L3 或片上互连
+- DRAM 控制器和主存
+- 多插槽系统中甚至还有远端内存
+
+### 1.3 这意味着什么
+
+- 两次“访问同一个地址空间”的成本可能完全不同。
+- 地址虽然逻辑统一，但物理距离、缓存命中情况、所在 NUMA 节点都会影响性能。
+
+---
+
+## 2. 局部性在多核环境下变得更复杂也更重要
+
+### 2.1 不只是单核缓存命中率问题
+
+在单核里谈局部性，多数时候只是在说：
+
+- 能否让数据留在缓存里，减少主存访问
+
+在多核里还要问：
+
+- 这个数据更靠近哪个核心？
+- 它是否在别的核心缓存里？
+- 是否会因为共享写入引发一致性流量？
+
+### 2.2 常见优化方向
+
+- 块化 / tiling
+- 循环融合
+- 数据布局调整
+- 线程亲和性绑定
+- NUMA 感知分配
+
+> 对应源码：`lecture6_part1.cpp`
+> 内容：遍历顺序、块化访问、循环融合、算术强度和缓存局部性示例。
+
+---
+
+## 3. 硬件互连：核心之间怎样交换信息
+
+### 3.0.1 Intel Ring Interconnect 具体参数
+
+Sandy Bridge 架构的环网：
+- 4 条环形路径：Request、Snoop、Ack、Data (32 bytes)
+- 6 个互连节点：4 个 L3 cache slice + System Agent + Graphics
+- 每个 L3 bank 连接环两次
+- @ 3.4 GHz，核到 L3 的理论峰值带宽 ≈ 435 GB/sec
+
+### 3.0.2 Sun Niagara 2 Crossbar 面积讨论
+
+8 核处理器中，crossbar 的芯片面积约等于一个核的面积。这说明在核数增多时，crossbar 的面积成本变得显著。
+
+### 3.0.3 单 Socket 也存在的 NUMA 效应
+
+即使在单 socket 系统上也会观察到 NUMA 行为——不同的 cache slice 离不同核心的距离不同，访问延迟也因此不同。
+
+### 3.1 为什么互连很重要
+
+多个核心不仅要计算，还要：
+
+- 读共享数据
+- 写共享结果
+- 传递一致性消息
+- 访问共享 LLC 或内存控制器
+
+所以核心之间、核心与缓存切片之间，必须有互连网络。
+
+### 3.2 环形总线、交叉开关、片上网络
+
+常见结构包括：
+
+- ring（环形）
+- crossbar（交叉开关）
+- mesh / NoC（片上网络）
+
+### 3.3 它们影响什么
+
+- 访问远处 cache slice 的延迟
+- 一致性消息带宽
+- 高并发下的互连拥塞
+- 共享数据结构的扩展性
+
+所以并行程序的性能不仅由计算和主存决定，也常常由“片上交通”决定。
+
+---
+
+## 4. NUMA：同一地址空间下也会有远近之分
+
+### 4.0.1 共享地址空间硬件的扩展成本
+
+> 这就是为什么高核数处理器价格昂贵的部分原因
+
+当处理器数量很大时，维护共享地址空间的硬件成本（一致性协议、互连网络）显著上升。
+
+### 4.1 定义
+
+NUMA = **Non-Uniform Memory Access**
+
+含义是：
+
+- 不同处理器访问同一逻辑地址空间里的不同物理页面时，延迟和带宽可能不一样。
+
+### 4.2 常见来源
+
+- 多插槽服务器：每个 socket 有自己的本地内存控制器和内存条。
+- 单插槽大芯片：不同 cache slice、不同互连路径也会形成“远近差”。
+
+### 4.3 对程序的影响
+
+- 如果线程长期访问“远端内存”，吞吐会显著下降。
+- 初始化在哪个线程上完成，常常会影响页面最终绑定到哪个 NUMA 节点。
+- “first touch policy” 在 NUMA 程序里非常关键。
+
+### 4.4 工程启发
+
+- 让线程尽量就近访问自己初始化或自己拥有的数据块。
+- 大型并行程序要把“任务分配”和“数据放置”一起考虑。
+
+---
+
+## 5. 通信：不仅仅指网络消息
+
+### 5.0.1 扩展内存层次视图
+
+从寄存器到远端机器的完整谱系：
+
+| 层次 | 延迟 | 带宽 | 容量 |
+|---|---|---|---|
+| Register | 最快 | 最高 | 最小 |
+| Local L1 | ↑ | ↑ | ↑ |
+| Local L2 | ↑ | ↑ | ↑ |
+| L3 | ↑ | ↑ | ↑ |
+| Local memory | ↑ | ↑ | ↑ |
+| Remote memory (1 hop) | ↑ | ↑ | ↑ |
+| Remote memory (N hops) | ↓ | ↓ | 最大 |
+
+越往外，延迟越高、带宽越低、容量越大。这个统一视角可以理解缓存未命中、远端内存访问、MPI 消息收发之间的本质联系。
+
+### 5.1 课程在这一讲中扩展了“通信”的含义
+
+通信可以是：
+
+- 核心从本地缓存取数据
+- 核心从别的缓存获取数据
+- 核心从 DRAM 读取数据
+- 一个节点向另一个节点显式发送消息
+
+### 5.2 为什么要这么统一理解
+
+因为在现代机器里，性能问题往往不是“是否通信”，而是：
+
+- 通信发生在哪一层
+- 距离多远
+- 能否重叠
+- 是否频繁
+- 是否带来争用
+
+### 5.3 一个很有价值的思维升级
+
+把寄存器到远端机器的路径看成一条扩展内存层次：
+
+- 越往外，延迟越高，带宽越低，容量越大。
+
+这让你能用统一语言理解：
+
+- 缓存未命中
+- 远端内存访问
+- MPI 消息收发
+- GPU HBM / 片上 SRAM / 寄存器的关系
+
+---
+
+## 6. 消息传递模型：共享地址空间之外的另一条路
+
+### 6.0.1 消息传递的精确 API 定义
+
+```c
+send(void* send_buf, int size, int dest, int tag);
+recv(void* recv_buf, int size, int src, int tag);
 ```
-L1 cache (32 KB) → L2 cache (256 KB) → L3 cache (20 MB) → DRAM (32 GB)
-```
-Each core has its own L1/L2; L3 is shared.
 
-### 2. Hardware Interconnects
+- tag 用于匹配发送与接收，防止消息错位
+- 每次通信都涉及缓冲区、大小、对方编号和标签
 
-**Intel Ring Interconnect** (Sandy Bridge+):
-- Four rings for different message types: request, snoop, ack, data (32 bytes)
-- Six interconnect nodes: four L3 cache slices + system agent + graphics
-- Each L3 bank connected to ring bus twice
-- Peak BW ~435 GB/sec at 3.4 GHz (when each core accesses its local slice)
+### 6.0.2 消息传递网格求解器的完整伪代码
 
-**SUN Niagara 2 (UltraSPARC T2)**: Crossbar interconnect
-- All cores connected directly to all others
-- Crossbar area ≈ area of one core
-
-### 3. NUMA (Non-Uniform Memory Access)
-
-**Definition**: Latency of accessing a memory location differs from different processing cores.
-
-**Example**: Modern multi-socket systems:
-- Each socket has its own memory controller and local memory
-- Accessing remote memory (other socket) has higher latency/lower bandwidth
-- NUMA behavior even on single-socket systems (different cache slices at different distances)
-
-**Implication**: Shared address space model requires reasoning about locality for performance.
-
-### 4. Message Passing Model (Alternative to Shared Address Space)
-
-**Abstraction**:
-- Threads operate within their own **private** address spaces
-- Communication only via explicit `send()` and `recv()` messages
-- `send(X, recipient, msg_id)`: send contents of local variable X to thread recipient
-- `recv(Y, sender, msg_id)`: receive message from sender into local variable Y
-
-**Implementation**:
-- Hardware need not implement a single shared address space
-- Can connect commodity systems via network (Infiniband)
-- Programming model for clusters and supercomputers
-
-**Grid solver in message passing**:
-- Each thread has its own private array (partition of grid)
-- "Ghost cells": grid cells replicated from remote address space
-- Threads send/receive ghost rows to/from neighbors before computation
-
-**Synchronous send/recv**:
-- `send()`: returns when acknowledgement received (data in receiver's address space)
-- `recv()`: returns when data copied and ack sent
-
-**Deadlock problem**: If all threads try to send first → deadlock. Solution: even threads send then recv; odd threads recv then send.
-
-**Non-blocking asynchronous send/recv**:
-- `send()`: returns immediately (buffer cannot be modified until send complete)
-- `recv()`: posts intent, returns immediately
-- `checksend()`, `checkrecv()`: poll for completion
-
-### 5. Extended Memory Hierarchy - "Communication" Generalized
-
-Think of "communication" at ALL levels:
-- Processor ↔ its cache
-- Processor ↔ memory (same machine)
-- Processor ↔ remote memory (other node in cluster)
-
-```
-Reg → Local L1 → Local L2 → L2 from another core → L3 → Local memory → Remote memory (1 hop) → Remote memory (N hops)
-Lower latency, higher BW, smaller capacity                                                     Higher latency, lower BW, larger capacity
-```
-
-### 6. Arithmetic Intensity
-
-$$
-\text{Arithmetic Intensity} = \frac{\text{amount of computation (e.g., instructions)}}{\text{amount of communication (e.g., bytes)}}
-$$
-
-- 1 / Arithmetic Intensity = communication-to-computation ratio
-- High arithmetic intensity = low communication-to-computation ratio (desirable)
-- Required to efficiently utilize modern parallel processors
-
-### 7. Inherent vs. Artifactual Communication
-
-**Inherent communication**: Communication that fundamentally MUST occur given the algorithm and assignment.
-- Example: sending ghost rows in message-passing grid solver
-
-**Artifactual communication**: All other communication resulting from practical implementation details.
-- Example: loading entire cache line when only one float is needed (minimum granularity)
-- Example: capacity misses (cache too small to retain data between accesses)
-- Example: unnecessary loads (loading cache line only to overwrite it entirely)
-
-### 8. Reducing Inherent Communication via Assignment
-
-**Grid solver example**:
-
-| Assignment | Elements computed/proc | Elements communicated/proc | Arithmetic Intensity |
-|------------|----------------------|---------------------------|---------------------|
-| 1D blocked | N²/P | 2N | N/(2P) |
-| 1D interleaved | N²/P | ~N²/2 | 2 |
-| 2D blocked | N²/P | ∝ N/√P | N/√P |
-
-**2D blocked assignment captures 2D locality**: communication costs increase sub-linearly with P.
-
-### 9. Artifactual Communication from Cache Behavior
-
-**Row-major grid traversal problem**:
-- Cache line = 4 grid elements, cache capacity = 24 elements (6 lines)
-- By the time we return to access elements from previous rows, they've been evicted
-- Result: 3 cache line loads for every 4 output elements (instead of 1)
-
-**Solution: Blocked iteration**:
-- Process grid in blocks that fit in cache
-- Now: 2 cache line loads for every 6 output elements
-
-### 10. Loop Fusion
-
-**Before** (separate loops):
-```cpp
-void add(float* A, float* B, float* C, int n);
-void mul(float* A, float* B, float* C, int n);
-// E = D + ((A + B) * C) → 3 separate loops
-// Arithmetic intensity = 1/3
-```
-
-**After** (fused loop):
-```cpp
-void fused(float* A, float* B, float* C, float* D, float* E, int n) {
-    for (int i = 0; i < n; i++)
-        E[i] = D[i] + (A[i] + B[i]) * C[i];
+```c
+// 每个线程拥有本地 rows_per_proc 行
+for (int iter=0; iter<MAX_ITER; iter++) {
+    // 交换 ghost rows（边界行）
+    if (pid != 0) send(my_rows[0], N+2, pid-1, GHOST_TAG);
+    if (pid != num_procs-1) recv(my_rows[rows_per_proc+1], N+2, pid+1, GHOST_TAG);
+    // ... 反之亦然
+    
+    // 本地计算（含 ghost cells）
+    float my_diff = 0;
+    for (int i=1; i<=rows_per_proc; i++)
+        for (int j=1; j<=N; j++) {
+            // 更新 A[i][j]
+            my_diff += fabs(A[i][j] - prev);
+        }
+    
+    // All-to-one reduce + broadcast 收敛判定
+    allReduce(&my_diff, &global_diff, 1, SUM);
+    if (global_diff/(N*N) < TOLERANCE) break;
 }
-// Arithmetic intensity = 3/5 (4 loads, 1 store per 3 math ops)
 ```
 
-**Tradeoff**: Modularity vs. performance. NumPy-style array operations are modular but lower arithmetic intensity.
+### 6.0.3 消息传递的三个要点
 
-### 11. Contention
+1. **数组索引基于本地地址空间**进行
+2. **批量传输**：一次通信一整行，而不是逐元素
+3. **同步由收发消息完成**：通过消息传递可以实现互斥、barrier、flags 等同步原语
 
-**Definition**: Many requests to a resource within a small window of time → "hot spot".
+### 6.0.4 同步 send/recv 的死锁与修复
 
-**Examples**:
-- Multiple threads updating a shared variable
-- Flat communication (high contention, low latency without contention)
-- Tree-structured communication (reduces contention, higher latency without contention)
-
-**Solutions**:
-- Replicate contended resources (local copies, fine-grained locks, distributed work queues)
-- Stagger access to contended resources
-
-### 12. False Sharing
-
-When multiple threads modify different variables that happen to reside on the same cache line, the cache coherence protocol causes unnecessary invalidations.
-
-### 13. Performance Analysis Strategy
-
-**Three questions to diagnose bottlenecks**:
-1. Is performance limited by **computation**?
-2. Is performance limited by **memory bandwidth** (or memory latency)?
-3. Is performance limited by **synchronization**?
-
-### 14. Roofline Model
-
-```
-        |  Compute-limited region (horizontal)
-GFLOP/s |  ................
-        | / Memory BW-limited region (diagonal)
-        |/
-        +-------------------------------
-              Arithmetic Intensity
+问题代码（两个线程同时 send）：
+```c
+if (pid == 0) { send(A, 1); recv(B, 1); }
+if (pid == 1) { send(B, 0); recv(A, 0); }
+// → 死锁！双方都在等对方先 recv
 ```
 
-- Diagonal region: memory bandwidth limited execution
-- Horizontal region: compute limited execution
-- Each point = a program with different arithmetic intensity
-- Maximum obtainable throughput for given arithmetic intensity
+修复方案（奇偶排序）：
+```c
+if (pid % 2 == 0) { send(A, pid+1); recv(B, pid+1); }
+else             { recv(A, pid-1); send(B, pid-1); }
+```
 
-### 15. Establishing High Watermarks
+### 6.0.5 非阻塞通信 API
 
-**Techniques to identify bottlenecks**:
-1. **Add math**: If execution time increases linearly with operation count → compute-limited
-2. **Remove math but keep loads**: If execution time doesn't decrease much → memory bottleneck
-3. **Change all accesses to `A[0]`**: Upper bound on locality improvement benefit
-4. **Remove all atomics/locks**: Upper bound on sync overhead reduction benefit
+```c
+handle_t send_nb(void* buf, int size, int dest, int tag);
+handle_t recv_nb(void* buf, int size, int src, int tag);
+bool check_send(handle_t h);  // 是否完成
+bool check_recv(handle_t h);  // 是否完成
+```
 
-### 16. Performance Monitoring Tools
+- send 返回 handle 后缓冲区不能修改直到 checkSend 确认
+- 调用线程可在等待期间做其他工作
+- 可选择阻塞等待或轮询
 
-- Intel Performance Counter Monitor (PCM)
-- Intel VTune
-- PAPI (Performance API)
-- oprofile
+### 6.1 基本思想
 
-Modern processors have performance counters: instructions completed, clock ticks, cache hits/misses, bytes read from memory controller, etc.
+消息传递模型中：
 
-### 17. Scaling Issues
+- 每个线程 / 进程拥有私有地址空间。
+- 数据不能被别的执行体直接 load/store。
+- 必须通过 `send()` / `recv()` 显式交换。
 
-**Fixed problem size speedup pitfalls**:
-- Too small: parallelism overheads dominate (may even slow down)
-- Too large for small machine: working set may not fit in cache/memory (thrashing)
-- Super-linear speedup: working set fits in cache on large machine but not on single core
+### 6.2 优点
 
-**Weak scaling vs. strong scaling**:
-- Scale problem size with machine size (buy bigger machine to compute more, not just faster)
+- 所有通信都是显式的，程序语义清晰。
+- 硬件不需要维护全局共享一致性。
+- 更适合大规模分布式系统和集群。
+
+### 6.3 代价
+
+- 程序员必须手工管理数据分发和边界交换。
+- 死锁、消息匹配、同步顺序都会成为编程难点。
+
+### 6.4 Ghost Cell 思想
+
+在网格算法中常把相邻节点需要的数据复制为“幽灵单元”：
+
+- 每轮迭代前交换边界
+- 本地计算时把远端边界当作只读副本使用
+
+这其实和缓存中的数据副本有某种抽象上的相似性。
 
 ---
 
-## Actionable Learning Points
+## 7. 同步与死锁：通信不是零成本的
 
-1. **Communication happens at ALL levels**: not just network messages; cache-memory communication dominates.
-2. **Arithmetic intensity is key**: maximize computation per byte of data transferred.
-3. **Assignment dramatically affects communication**: 2D blocked assignment captures 2D locality.
-4. **Cache behavior creates artifactual communication**: tune traversal order to keep data in cache.
-5. **Loop fusion improves arithmetic intensity**: combine operations on same data into one pass.
-6. **Contention destroys scalability**: distributed queues, fine-grained locks, staggered access.
-7. **False sharing is invisible but expensive**: align/pad data to avoid cache line sharing.
-8. **Roofline model guides optimization**: know if you're compute-bound or memory-bound.
-9. **High watermarks establish upper bounds**: remove components to isolate bottlenecks.
-10. **Problem size matters for scaling**: fixed problem size speedup can be misleading.
+### 7.1 同步发送 / 接收
+
+如果 `send` 要等对方确认，`recv` 要等消息到达，那么：
+
+- 稍不注意就会形成相互等待
+- 这和锁死锁本质上是一类问题：双方都等别人先动
+
+### 7.2 典型避免方式
+
+- 约定奇偶顺序
+- 使用非阻塞通信
+- 分离“发起操作”和“等待完成”
+
+### 7.3 非阻塞通信的价值
+
+- 允许通信与计算重叠
+- 提高链路利用率
+- 降低纯等待时间
+
+这和后续 AI 集群里“计算-通信重叠”是同一条主线。
 
 ---
 
-## C++ Source Files Reference
+## 8. 缓存一致性与伪共享：无形的通信
 
-| Knowledge Point | C++ File |
-|----------------|----------|
-| Memory locality: blocked traversal, loop fusion, arithmetic intensity | `../src/lecture6_part1.cpp` |
-| Cache coherency simulation, false sharing demonstration | `../src/lecture6_part2.cpp` |
-| Contention, NUMA, message passing simulation | `../src/lecture6_part3.cpp` |
-| Roofline model, high watermarks, performance counters | `../src/lecture6_part4.cpp` |
+### 8.1 为什么会出现无形通信
+
+即便两个线程写的是不同变量，只要它们落在同一缓存行里：
+
+- 缓存一致性协议会把这整条行来回迁移
+- 于是产生大量额外流量
+
+这就是**伪共享（false sharing）**。
+
+### 8.2 它为什么危险
+
+- 程序逻辑上并没有真正共享同一个标量
+- 但硬件按缓存行作为一致性单位
+- 结果导致严重的“乒乓效应”
+
+### 8.3 常见修复方法
+
+- 给每线程私有计数器加 padding
+- 调整结构体布局，避免热点字段同线
+- 做局部累加后再归约，而不是每步都写共享位置
+
+### 8.4 Roofline 模型
+
+Roofline 是理解性能瓶颈的统一工具：
+- **水平区域**：Compute Limited（算力受限）
+- **对角线区域**：Memory Bandwidth Limited（带宽受限）
+
+不同优化级别（含/不含 SIMD、含/不含 ILP 等）对应 roofline 图上的不同"天花板"。
+
+### 8.5 确定高水位线（High Watermarks）方法论
+
+通过以下实验来确定优化上限：
+1. 添加多余算术指令 → 若执行时间线性增加 → 当前 compute limited
+2. 将所有数组访问改为 `A[0]` → 建立 locality 改进上界
+3. 移除所有原子操作和锁 → 建立同步开销改进上界
+4. 移除大部分算术但保留相同数据加载 → 判断内存瓶颈
+
+### 8.6 性能计数器与分析工具
+
+现代处理器有底层事件性能计数器：
+- instructions completed, clock ticks
+- L2/L3 cache hits/misses
+- bytes read from memory controller
+
+Intel PCM (Performance Counter Monitor) API 提供对这些计数器的访问。
+
+### 8.7 固有通信与人造通信
+
+- **固有通信（Inherent Communication）**：算法本质要求的最小数据交换量
+- **人造通信（Artifactual Communication）**：由于实现细节（缓存行粒度、容量不足、写分配策略等）产生的额外数据移动
+
+人造通信的量化示例：
+- 加载 4 字节 float 但传输整个 64 字节 cache line → **16 倍于必要通信**
+- 写 16 个连续值导致 cache line 先被 load 再 store → **2 倍开销**（load 不必要，因为整行都被覆盖）
+
+### 8.8 1D Blocked vs 2D Blocked 的算术强度对比
+
+- **1D Blocked**：算术强度 = 1/2（常数，不随 P 改善）
+- **2D Blocked**：算术强度随 P 改善 → **渐进更好的通信扩展**，通信成本亚线性增长
+
+### 8.9 Blocking 优化的量化改进
+
+以 row-major 遍历为例：
+- 原生版本：每 4 个输出元素加载 3 个 cache line
+- Blocked 版本：每 6 个输出元素加载 2 个 cache line
+
+### 8.10 循环融合的算术强度变化
+
+- 未融合（3 次独立循环）：算术强度 = 1/3（每次 2 load + 1 store per op）
+- 融合后（1 次循环）：算术强度 = 3/5（4 loads + 1 store per 3 math ops）
+→ 虽然代码更不"模块化"，但性能显著更好
+
+### 8.11 争用的"办公室"比喻
+
+学生去 Kayvon 教授办公室咨询：无预约时学生总耗时 23 分钟（大量等待），有预约每人 10 分钟。这对应并行程序中的 **contention**（争用）——共享资源上的排队等待时间。
+
+### 8.12 树形通信 vs 扁平通信的权衡
+
+- **树形通信**：减少争用，但无争用时延迟更高
+- **扁平通信**：低争用时延迟低，但高争用下性能急剧下降
+
+### 8.13 减少通信成本的四大策略
+
+1. **减少开销（Reduce Overhead）**：摊销、合并
+2. **减少延迟（Reduce Latency）**：局部性、更好的硬件
+3. **减少争用（Reduce Contention）**：复制、错峰
+4. **增加重叠（Increase Overlap）**：异步、流水、预取、乱序 → 需要额外并发度（超过执行单元数量）
+
+### 8.14 可扩展性分析：问题规模与机器规模
+
+- 衡量 scaling 时应比较 best sequential program，而非 parallel program on 1 core
+- 固定问题大小的陷阱：太小 → 无收益甚至 slowdown；太大 → 可能产生 super-linear speedup（各处理器工作集开始 fit in cache）
+- **更好的思维**：随机器规模增长也缩放问题规模（买更大机器是为了算更多，而不只是算更快）
+
+### 8.15 258×258 vs 1K×1K 网格实测对比
+
+在 SGI Origin 2000（32 处理器）上：
+- 258×258 网格：每处理器仅 310 个网格元素 → 出现 slowdown
+- 1K×1K 网格：每处理器约 32K 个网格元素 → 表现良好
+
+这说明：**必须有足够大的问题规模才能让并行有意义**。
+
+> 对应源码：`lecture6_part2.cpp`
+> 内容：缓存一致性、伪共享、padding、共享地址空间上的“人为通信”。
+
+---
+
+## 9. 从这讲开始建立的统一性能模型
+
+并行程序时间常可粗略分成：
+
+- 计算时间
+- 本地访存时间
+- 共享数据传输时间
+- 同步等待时间
+- 互连争用时间
+
+真正的高性能优化，不是只减少其中一项，而是尽量让：
+
+- 数据靠近计算
+- 通信规模最小化
+- 通信频次最小化
+- 必要通信与计算重叠
+- 共享写入热点消失
+
+---
+
+## 常见误区
+
+1. **误区：共享地址空间意味着访问成本均匀。**
+   实际上缓存层次、互连和 NUMA 会让成本差异巨大。
+2. **误区：只有 MPI 那种显式 `send/recv` 才算通信。**
+   缓存一致性和远端内存访问同样是通信。
+3. **误区：伪共享只是小问题。**
+   它常常能把一个本来很好的并行程序彻底拖垮。
+4. **误区：只看线程数和算术量就能判断程序性能。**
+   局部性和互连行为往往更关键。
+
+---
+
+## 对应源码
+
+| 文件 | 主题 | 重点 |
+|---|---|---|
+| `lecture6_part1.cpp` | 局部性优化 | 块化、遍历顺序、融合、算术强度 |
+| `lecture6_part2.cpp` | 一致性与伪共享 | 为什么不同变量也会互相干扰 |
+
+---
+
+## 学完本讲应做到
+
+- 能解释共享地址空间和物理数据路径之间的差别。
+- 能从局部性、通信和争用三方面分析多核性能。
+- 能看懂 NUMA、伪共享、Ghost Cell 这些概念背后的统一逻辑。
+- 能理解为什么高性能并行程序必须“把数据放对地方”。
+

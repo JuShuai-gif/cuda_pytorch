@@ -1,133 +1,458 @@
-# CS149 Lecture 1: Why Parallelism? Why Efficiency?
+# CS149 第 1 讲：为什么需要并行？为什么需要效率？
 
-**PDF**: `01_efficiency_hyF1AJq.pdf`
+**PDF**：`01_efficiency_hyF1AJq.pdf`
 
-**Instructors**: Prof. Kayvon Fatahalian, Prof. Kunle Olukotun
+**授课教师**：Prof. Kayvon Fatahalian，Prof. Kunle Olukotun
 
-**University**: Stanford CS149, Fall 2025
-
----
-
-## Core Concepts Summary
-
-### 1. Speedup & Parallelism Fundamentals
-
-- **Speedup formula**: `speedup(P) = T(1) / T(P)` (execution time with 1 processor / execution time with P processors)
-- **Communication overhead** limits real speedup (partial sums must be communicated between processors)
-- **Work imbalance** limits speedup (idle processors waiting for others to finish)
-- **Amdahl's Law**: $S(P) = \frac{1}{(1 - f_{par}) + f_{par} / P}$, where $f_{par}$ is the parallelizable fraction
-  - Even with infinite processors, speedup is bounded by $1/(1 - f_{par})$
-
-> **C++ Demo**: `lecture1_part1.cpp` — Parallel sum with timing, Amdahl's Law table, balanced vs unbalanced work distribution
-
-### 2. What Is a Program? (Processor's Perspective)
-
-- A program is a **list of processor instructions** (compiled from C/C++ source)
-- Instructions modify processor state: registers and memory
-- Simple processor: Fetch/Decode → ALU (Execute) → Registers → Memory
-- Each instruction: load data, compute, store result
-
-> **C++ Demo**: `lecture1_part2.cpp` — Instruction dependency graph, superscalar scheduling simulation
-
-### 3. Instruction-Level Parallelism (ILP) & Superscalar Execution
-
-- **Superscalar processor**: automatically finds independent instructions and executes them in parallel on multiple execution units
-- Example: `a = x*x + y*y + z*z` → 3 independent multiplies can execute simultaneously
-- **ILP is limited** by instruction dependencies (critical path length)
-- **Diminishing returns**: most available ILP exploited by ~4-wide superscalar (beyond 4-issue width, negligible benefit)
-
-> **C++ Demo**: `lecture1_part2.cpp` — Schedule 5-instruction program on 1/2/3/4-wide superscalar, compute IPC
-
-### 4. The Power Wall & End of Frequency Scaling
-
-- **Power ∝ Capacitance × Voltage² × Frequency**
-- Increasing frequency requires increasing voltage → quadratic power growth
-- **Dynamic power** (switching) + **Static power** (leakage) both increase with transistor count
-- ~2005: clock frequency stopped increasing (power/thermal limits)
-- **ILP tapped out** + **frequency scaling ended** → shift to multi-core architectures
-- "No more free lunch for software developers" — must write parallel code to see performance gains
-
-> **C++ Demo**: `lecture1_part2.cpp` (Part 3) — Power scaling calculation for different frequencies
-
-### 5. Multi-Core CPUs, GPUs & Specialized Hardware
-
-- **Multi-core CPUs**: use transistor budget to add more cores instead of more sophisticated single-core logic
-  - Intel i9-10900K: 10 cores
-  - AMD Threadripper 3990X: 64 cores
-- **GPUs**: massive parallelism (NVIDIA RTX 4090: 18,432 fp32 multipliers)
-- **Specialized hardware**: Apple Neural Engine, Google TPU, etc. for domain-specific efficiency
-- **Mobile**: power constraints → heterogeneous designs (big.LITTLE: 2 big + 4 small cores)
-
-### 6. Memory Hierarchy
-
-- **Memory** = byte-addressable array
-- **Load instruction**: `ld R0 ← mem[R2]` — access memory at address in R2, store in R0
-- **Memory access latency**: DRAM access ~100s of cycles → causes processor stalls
-- **Cache hierarchy**: L1 (32KB, ~4 cycles) → L2 (256KB, ~12 cycles) → L3 (8-20MB, ~38 cycles) → DRAM (~248 cycles)
-- **Cache**: on-chip copy of a subset of memory, operates at cache line granularity
-- **LRU replacement policy**: evict least recently used line when cache is full
-
-> **C++ Demo**: `lecture1_part3.cpp` — LRU cache simulator, temporal/spatial locality
-
-### 7. Cache Locality & Performance
-
-- **Temporal locality**: repeated accesses to the same memory address → cache hits
-- **Spatial locality**: loading a cache line preloads nearby addresses → subsequent hits
-- **Miss types**:
-  - **Cold miss**: first access to data (cache is initially empty)
-  - **Capacity miss**: working set exceeds cache size (eviction occurs)
-  - **Conflict miss**: set-associativity issues (not covered in detail)
-- **Caches reduce memory access latency AND provide higher bandwidth**
-
-### 8. Data Movement Energy Costs
-
-| Operation | Energy (ballpark) |
-|-----------|-------------------|
-| Integer op | ~1 pJ |
-| Floating point op | ~20 pJ |
-| Read 64b from on-chip SRAM (1mm away) | ~26 pJ |
-| Read 64b from mobile DRAM (LPDDR) | ~1200 pJ |
-
-- **Implication**: reading from DRAM costs ~1200x more than an integer operation
-- Reading 10 GB/sec from memory: ~1.6 watts
-- Mobile GPU power budget: ~1 watt total
-- **Exploiting locality matters** — it's not just about performance, it's about battery life
+**课程**：Stanford CS149，2025 年秋季
 
 ---
 
-## Actionable Learning Points
+## 本讲要回答的核心问题
 
-1. **Always measure speedup, not just speed**: 2x speedup on 10 processors = 20% efficiency
-2. **Think about Amdahl's Law**: identify and minimize serial bottlenecks
-3. **Write code with cache locality in mind**: sequential access > strided > random
-4. **Understand the memory hierarchy**: L1 is fast but tiny; DRAM is huge but slow
-5. **Consider power**: efficient programs extend battery life on mobile devices
+1. 为什么单核越来越快这条路走不通了？
+2. 为什么“并行”不等于“线性加速”？
+3. 为什么现代高性能程序的瓶颈常常不是算力，而是数据移动？
+4. 为什么理解缓存和局部性，是写并行程序的基础？
 
 ---
 
-## C++ Source Files
+## 1. 加速比、并行度与效率
 
-| File | Topic | Key Demonstration |
-|------|-------|-------------------|
-| `lecture1_part1.cpp` | Speedup & Amdahl's Law | Parallel sum timing, work imbalance, Amdahl table |
-| `lecture1_part2.cpp` | ILP & Superscalar | Dependency graph, issue width scheduling, power wall |
-| `lecture1_part3.cpp` | Cache Simulation | LRU cache, temporal/spatial locality, energy costs |
+### 1.1 加速比的定义
 
-### Compilation
+- 加速比：`speedup(P) = T(1) / T(P)`
+- 其中 `T(1)` 是单处理器执行时间，`T(P)` 是使用 `P` 个处理器的执行时间。
+- 理想情况下，`P` 个处理器应该获得 `P` 倍加速，但现实中几乎总会更低。
 
-```bash
-g++ -std=c++17 -O2 -pthread lecture1_part1.cpp -o lecture1_part1 && ./lecture1_part1
-g++ -std=c++17 -O2 lecture1_part2.cpp -o lecture1_part2 && ./lecture1_part2
-g++ -std=c++17 -O2 lecture1_part3.cpp -o lecture1_part3 && ./lecture1_part3
+### 1.2 为什么达不到理想线性加速
+
+并行程序常见的三类损失：
+
+- **串行部分**：有些步骤天然不能并行。
+- **通信开销**：处理器之间需要交换中间结果。
+- **负载不均衡**：有的线程先做完，只能空等其他线程。
+
+### 1.2.1 课堂演示的三条具体观察
+
+课程通过三个课堂 Demo 得出具体结论：
+- **Demo 1（通信开销）**：通信限制了最大加速比。学生（"处理器"）需要互相告知部分和，间距越远通信越慢。
+- **Demo 2（负载不均衡）**：工作分配不均限制加速比。部分学生提前完成（空闲），而其他人仍在工作。
+- **Demo 3（大规模并行）**：当通信量相比计算量较大时，通信成本将主导并行计算，严重限制加速比。
+
+### 1.3 并行效率
+
+- 并行效率：`efficiency = speedup / P`
+- 例子：10 个核只得到 2 倍加速，效率只有 20%。
+- 所以“程序变快了”不代表“程序把硬件用好了”。
+
+### 1.4 两个容易混淆的概念
+
+- **吞吐提升**：单位时间完成更多工作。
+- **单任务延迟降低**：单次任务更快结束。
+- 并行架构更擅长前者，但很多用户误以为只要加核数，单任务也会线性变快。
+
+### 1.5 FAST ≠ EFFICIENT
+
+程序的运行速度变快，并不代表它高效地使用了硬件。
+
+- 10 核机器上获得 2 倍加速 = 效率仅 20%
+- **程序员视角**：能否善用机器提供的能力
+- **硬件设计师视角**：选择在系统中投入哪些能力（性能/成本权衡，成本 = 硅面积、功耗等）
+
+课程三个主题：
+1. **设计能扩展的并行程序**：分解工作 → 分配处理器 → 管理通信/同步
+2. **并行硬件实现**：抽象的高效实现机制、性能特征、设计权衡
+3. **效率思维**：快 ≠ 高效
+
+> 对应源码：`lecture1_part1.cpp`
+> 内容：并行求和、加速比测量、负载均衡与不均衡对比、阿姆达尔定律表格。
+
+---
+
+## 2. 阿姆达尔定律：并行加速的天花板
+
+### 2.1 公式
+
+若程序中可并行部分占比为 `f_par`，那么：
+
+$$
+S(P) = rac{1}{(1-f_{par}) + f_{par}/P}
+$$
+
+### 2.2 直觉解释
+
+- 串行部分像一道“必须单人通过的窄门”。
+- 即使后面有无限多的处理器在等待，只要窄门存在，总体速度就被卡住。
+
+### 2.3 极限情况
+
+当 `P -> ∞` 时：
+
+$$
+S_{max} = rac{1}{1-f_{par}}
+$$
+
+这意味着：
+
+- 90% 可并行，最大加速比只有 10 倍。
+- 99% 可并行，最大加速比只有 100 倍。
+- 可并行度每提升一点点，都很难，但对上限影响极大。
+
+### 2.4 工程启发
+
+- 优化时不要只盯着最耗时的并行部分，也要排查串行尾巴。
+- 归约、同步、任务分发、结果收集，经常就是被忽视的串行部分。
+- 阿姆达尔定律描述的是“固定问题规模”的上限；如果问题规模也随机器变大而增长，还要结合 Gustafson 视角理解扩展性。
+
+---
+
+## 3. 从处理器视角理解“程序”
+
+### 3.1 程序本质上是什么
+
+从硬件角度看，程序就是一串指令序列：
+
+- 读寄存器
+- 从内存加载数据
+- 在算术逻辑单元上运算
+- 把结果写回寄存器或内存
+
+高级语言如 C/C++ 只是方便人类表达，最终都会被编译为指令。
+
+### 3.1.1 处理器执行指令的逐拍分解
+
+以 `add R0 ← R0, R1` 为例，一条指令在简单处理器上的执行过程：
+1. **取指**：从内存读取指令（`add R0, R0, R1`）
+2. **获取输入**：从寄存器文件读取 R0（=32）和 R1（=64）
+3. **执行**：ALU 计算 32 + 64 = 96
+4. **写回**：将结果 96 写入 R0
+
+对于加载指令 `ld R0 ← mem[R2]`，处理器需要访问内存地址（如 0xff681080），将其中存储的值（如 42）加载到寄存器。
+
+课程用 "Kayvon 的极简处理器模型" 来逐步演示这一过程：每拍执行一条指令，处理器状态由寄存器和内存共同构成。
+
+### 3.2 处理器状态
+
+程序执行过程中会不断修改两类状态：
+
+- **寄存器**：速度极快，容量很小。
+- **内存**：容量大，但访问慢得多。
+
+### 3.3 为什么这件事重要
+
+- 写并行程序不只是“把 for 循环分给多个线程”。
+- 你必须理解数据什么时候在寄存器、缓存、主存之间移动。
+- 很多性能问题，本质上不是算术慢，而是等数据。
+
+> 对应源码：`lecture1_part2.cpp`
+> 内容：指令依赖图、超标量调度、IPC 分析、功耗墙示意。
+
+---
+
+## 4. 指令级并行（ILP）与超标量处理器
+
+### 4.1 什么是 ILP
+
+指令级并行指的是：
+
+- 在**同一个线程**的指令流内部，自动找出彼此独立的指令，重叠执行。
+
+### 4.1.1 完整 ILP 调度示例
+
+以 `a = x*x + y*y + z*z` 为例的详细调度：
+
+在 2 个执行单元的处理器上（5 条指令的逐拍调度）：
+- Cycle 1: `mul r1, x, x` | `mul r2, y, y`
+- Cycle 2: `mul r3, z, z` | (空闲)
+- Cycle 3: `add r4, r1, r2` | (空闲)
+- Cycle 4: `add r5, r4, r3` | (空闲)
+
+在 3 个执行单元的处理器上：
+- Cycle 1: `mul r1, x, x` | `mul r2, y, y` | `mul r3, z, z`
+- Cycle 2: `add r4, r1, r2` | (空闲) | (空闲)
+- Cycle 3: `add r5, r4, r3` | (空闲) | (空闲)
+
+关键观察：3 个乘法可并行（依赖树中 ILP=3），但最后的加法存在依赖链（ILP=1），限制了整体加速。
+
+### 4.2 超标量的核心思想
+
+- 一个核心里放多个执行单元。
+- 硬件在运行时分析依赖关系。
+- 如果几条指令互不依赖，就在同一拍或邻近拍并行执行。
+
+### 4.3 ILP 的限制
+
+- 数据依赖不能违背。
+- 分支会让未来指令不确定。
+- 乱序执行、重命名、预测等机制本身也很耗功耗与芯片面积。
+- 实践里大部分通用程序的可挖掘 ILP 很有限，通常 4 发射宽度左右收益已经明显递减。
+
+### 4.3.1 复杂 ILP 示例的依赖图
+
+更复杂的程序揭示了 ILP 挖掘的局限性：
+
+```
+PC   Instruction             依赖图
+00   a = 2                   
+01   b = 4                   
+02   tmp2 = a + b    // 6    00 → 02, 01 → 02
+03   tmp3 = tmp2 + a // 8    02 → 03
+04   tmp4 = b + b    // 8    01 → 04
+05   tmp5 = b * b    // 16   01 → 05
+06   tmp6 = tmp2+tmp4// 14   02 → 06, 04 → 06
+07   tmp7 = tmp5+tmp6// 30   05 → 07, 06 → 07
+08   if (tmp3 > 7)           03 → 08
 ```
 
+即使有 11 条指令，只有有限的指令级并行可被挖掘。
+
+> 关键数据：大多数可挖掘的 ILP 可被 4 发射宽度的处理器利用（来源：Culler & Singh，基于 Johnson 1991 的数据）。超过 4 发射后收益急剧递减。
+
+### 4.4 课程想让你建立的认知
+
+- 单核“自动替你找并行”这条路早就被挖得差不多了。
+- 继续指望处理器神奇地把顺序代码自动提速，不现实。
+- 程序员必须显式暴露更大粒度的并行。
+
 ---
 
-## Course Meta-Information
+## 5. 功耗墙：为什么频率不再持续上涨
 
-- 5 programming assignments (56% of grade): ISPC, task scheduling, CUDA, DNN, CUDA optimization
-- 4 written assignments in teams of 3 (12%)
-- Per-lecture participation (4%)
-- Midterm + Final exam (28%)
-- 8 late days for programming assignments 1-4
-- No textbook — use course website and internet resources
+### 5.1 经典趋势的终结
+
+过去几十年，CPU 变快很大程度来自更高的时钟频率。但大约 2005 年后，这条路基本停住了。
+
+### 5.2 核心原因
+
+动态功耗可粗略理解为：
+
+$$
+Power \propto Capacitance 	imes Voltage^2 	imes Frequency
+$$
+
+含义是：
+
+- 频率提高，通常需要更高电压支撑。
+- 电压平方项会让功耗和发热急剧上升。
+- 晶体管数继续增加，但不能再简单地全换成更高主频。
+
+### 5.2.1 动态功耗与静态功耗
+
+功耗包含两个组成部分：
+- **动态功耗**：∝ Capacitance × Voltage² × Frequency（晶体管开关时的功耗）
+- **静态功耗（漏电）**：晶体管即使不切换也因漏电而消耗功率
+
+具体硬件 TDP 数据（作为参考）：
+| 设备 | TDP |
+|---|---|
+| Intel Core i9 10900K 桌面 CPU | 95W |
+| Apple M1 | 13W |
+| NVIDIA RTX 4090 | 450W |
+| 标准微波炉 | 900W |
+| 手机处理器 | 0.5-2W |
+| 世界最快超算 | 兆瓦级 |
+
+### 5.3 后果
+
+- 单核频率不再“免费”增长。
+- 处理器厂商转而把晶体管预算投入：
+  - 多核
+  - 更宽 SIMD
+  - 更大缓存
+  - 专用加速器
+
+### 5.4 对软件开发者的现实含义
+
+- “等下一代 CPU 自动加速旧代码”这件事不再可靠。
+- 程序性能要增长，软件必须主动拥抱并行和局部性优化。
+
+---
+
+## 6. 多核、GPU 与专用硬件
+
+### 6.1 多核 CPU
+
+- 思路：不再极度复杂地优化一个核，而是放更多核。
+- 优点：适合多任务、任务级并行、相对复杂的控制流。
+- 挑战：程序员需要显式划分任务、同步线程、处理共享数据。
+
+### 6.2 GPU
+
+- 思路：用海量算术单元换取超高吞吐。
+- 适合规则、数据并行、高算术强度任务。
+- 不擅长复杂分支、强串行依赖、细粒度不规则控制流。
+
+### 6.3 专用硬件
+
+- 如 TPU、NPU、视频编解码单元等。
+- 通过牺牲通用性换取极高能效比。
+- 这是后续课程讲 AI 加速器、数据流架构的重要铺垫。
+
+---
+
+## 7. 内存层次：为什么“数据离算子近”如此重要
+
+### 7.1 主存太慢
+
+处理器很快，DRAM 很慢。
+
+典型地：
+
+- 寄存器：最快
+- L1：很快，容量很小
+- L2/L3：更大更慢
+- DRAM：容量最大，但延迟高很多个数量级
+
+### 7.1.1 各级缓存的精确访问延迟
+
+在 4GHz Kaby Lake CPU 上的实测数据：
+- L1 缓存：~4 cycles
+- L2 缓存：~12 cycles  
+- L3 缓存：~38 cycles
+- DRAM（最优情况）：~248 cycles
+
+这说明 DRAM 访问延迟是 L1 的约 60 倍，是 L3 的约 6.5 倍。
+
+### 7.2 缓存的作用
+
+缓存本质上是：
+
+- 在芯片上保存主存中一小部分数据副本。
+- 以**缓存行**为单位搬运数据，不是一字节一字节搬。
+
+### 7.3 为什么缓存不是“可有可无的小优化”
+
+没有缓存时，处理器会频繁因为访存停顿。
+有缓存时：
+
+- 访问命中可以大幅降低延迟。
+- 同时还能提高单位时间的数据供应能力，也就是带宽。
+
+### 7.4 缓存替换与失效
+
+常见概念：
+
+- **冷启动失效**：第一次访问，必然不在缓存。
+- **容量失效**：工作集超过缓存容量。
+- **冲突失效**：映射到同一组或同一位置导致相互挤掉。
+- **LRU**：最近最少使用替换策略，是理解缓存行为的常见近似模型。
+
+> 对应源码：`lecture1_part3.cpp`
+> 内容：LRU 缓存模拟、时间局部性和空间局部性演示、数据移动能耗估算。
+
+---
+
+## 8. 局部性：性能与能耗的共同核心
+
+### 8.1 时间局部性
+
+如果一个地址刚被访问过，那么它很可能很快再次被访问。
+
+例子：
+
+- 循环中反复使用同一个变量
+- 多次累加同一个局部结果
+
+### 8.2 空间局部性
+
+如果访问了某个地址，那么相邻地址很可能也会被访问。
+
+例子：
+
+- 顺序遍历数组
+- 扫描图像中的连续像素
+
+### 8.3 为什么局部性在并行时代更重要
+
+- 核数越多，总数据需求越大。
+- 如果每个核都频繁打到 DRAM，内存系统会先崩。
+- 并行程序不只要“有足够线程”，还要“减少每个线程的远距离访存”。
+
+---
+
+## 9. 数据移动的能耗远高于计算
+
+典型数量级：
+
+| 操作 | 能耗数量级 |
+|---|---:|
+| 整数运算 | ~1 pJ |
+| 浮点运算 | ~20 pJ |
+| 片上 SRAM 读 64b | ~26 pJ |
+| 从 LPDDR 读 64b | ~1200 pJ |
+
+这说明：
+
+- 很多时候“多算一点”比“多搬一次数据”更省电。
+- 算法设计里，减少中间结果写回和反复读取，往往比单纯减少几次乘加更重要。
+- 在移动端和大规模数据中心里，这个问题不仅影响性能，也直接影响功耗、散热和成本。
+
+### 9.1 能耗推导的具体场景含义
+
+以 10 GB/sec 从内存读取数据约消耗 ~1.6W。而：
+- 移动 GPU 整个功率预算仅约 ~1W
+- iPhone 6 电池约 7 瓦时
+- Macbook Pro 电池约 99 瓦时
+
+省电的两条核心理由：
+1. 在固定时间内以更高性能运行
+2. 在更长时间内以足够性能运行
+
+功耗直接关联两个关键问题：Power = Heat（芯片过热必须降频）和 Power = Battery（长续航是移动设备的核心需求）。
+
+### 9.2 Apple A15 内部的专用处理单元
+
+现代 SoC 已高度异构化，Apple A15 芯片包含：
+- CPU 核心
+- GPU 核心
+- Neural Engine (NPU) — 用于 DNN 加速
+- Image/Video Encode/Decode Processor
+- Motion (Sensor) Processor
+
+---
+
+## 10. 本讲与后续课程的逻辑关系
+
+第 1 讲建立的是整门课最重要的底层世界观：
+
+- 并行是必须，不是可选项。
+- 线程数不是性能的全部，串行比例和负载均衡同样关键。
+- 单核自动优化能力有限，必须显式暴露并行。
+- 数据移动是现代体系结构中的核心成本。
+- 局部性是后续多核、GPU、AI 加速器优化的共同主线。
+
+---
+
+## 常见误区
+
+1. **误区：核数翻倍，性能自然翻倍。**
+   实际上串行部分、同步、通信和内存瓶颈都会阻止线性扩展。
+2. **误区：程序慢一定是算力不够。**
+   很多程序真正慢在访存、缓存未命中、带宽不足。
+3. **误区：缓存只是“锦上添花”。**
+   在现代机器上，缓存往往决定程序是可用还是不可用。
+4. **误区：超标量和乱序执行可以自动解决并行问题。**
+   它们只能挖掘很有限的指令级并行，远远不够支撑持续性能增长。
+
+---
+
+## 对应源码
+
+| 文件 | 主题 | 你应该重点观察什么 |
+|---|---|---|
+| `lecture1_part1.cpp` | 加速比、阿姆达尔定律、负载均衡 | 为什么线程数增加后效率会下降 |
+| `lecture1_part2.cpp` | ILP、超标量、功耗墙 | 指令依赖怎样限制单线程并行 |
+| `lecture1_part3.cpp` | 缓存、局部性、能耗 | 为什么减少访存往往比减少算术更重要 |
+
+---
+
+## 建议掌握到的程度
+
+学完这一讲，至少应该能独立回答：
+
+- 为什么 21 世纪中期以后性能提升主要依赖并行？
+- 阿姆达尔定律如何约束扩展性？
+- 为什么缓存和局部性属于“第一性原理”而不是微调技巧？
+- 为什么现代机器经常是“数据移动受限”而不是“算术受限”？
+
