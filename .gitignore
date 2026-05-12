@@ -47,7 +47,7 @@ output
 *.egg-info
 *.whl
 dist
-*.pdf
+# *.pdf
 *.tex
 *.log
 *.md5
