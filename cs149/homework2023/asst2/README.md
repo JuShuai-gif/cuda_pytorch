@@ -1,86 +1,81 @@
 
-# Assignment 2: Building A Task Execution Library from the Ground Up #
+# 作业2：从零构建任务执行库
 
-**Due Thurs Oct 16, 11:59pm**
+**截止日期：10月16日周四，晚上11:59**
 
-**100 points total**
+**总分100分**
 
-## Overview ##
+## 概述
 
-Everyone likes to complete tasks quickly, and in this assignment we are asking you to do just that! You will implement a C++ library that executes tasks provided by an application as efficiently as possible on a multi-core CPU.
+每个人都喜欢快速完成任务，在本作业中，我们正是要你做到这一点！你将实现一个 C++ 库，在多核 CPU 上尽可能高效地执行应用程序提交的任务。
 
-In the first part of the assignment, you will implement a version of the task execution library that supports bulk (data-parallel) launch of many instances of the same task. This functionality is similar to the [ISPC task launch behavior](http://ispc.github.io/ispc.html#task-parallelism-launch-and-sync-statements) you used to parallelize code across cores in Assignment 1.
+在作业的第一部分，你将实现一个任务执行库，支持批量（数据并行）启动同一任务的多个实例。此功能类似于你在作业1中用于跨核心并行化代码的 [ISPC 任务启动行为](http://ispc.github.io/ispc.html#task-parallelism-launch-and-sync-statements)。
 
-In the second part of the assignment, you will extend your task runtime system to execute more complex _task graphs_, where the execution of tasks may depend on the results produced by other tasks. These dependencies constrain which tasks can be safely run in parallel by your task scheduling system.  Scheduling execution of data-parallel task graphs on a parallel machine is a feature of many popular parallel runtime systems ranging from the popular [Thread Building Blocks](https://github.com/intel/tbb) library, to [Apache Spark](https://spark.apache.org/), to modern deep learning frameworks such as [PyTorch](https://pytorch.org/) and [TensorFlow](https://www.tensorflow.org/).
+在作业的第二部分，你将扩展你的任务运行时系统，以执行更复杂的**任务图**，其中任务的执行可能依赖于其他任务产生的结果。这些依赖关系约束了哪些任务可以被你的任务调度系统安全地并行运行。在并行机器上调度数据并行任务图的执行是许多流行并行运行时系统的特性，从 [Thread Building Blocks](https://github.com/intel/tbb) 库，到 [Apache Spark](https://spark.apache.org/)，再到现代深度学习框架如 [PyTorch](https://pytorch.org/) 和 [TensorFlow](https://www.tensorflow.org/)。
 
-This assignment will require you to:
+本作业要求你：
 
-* Manage task execution using a thread pool
-* Orchestrate worker thread execution using synchronization primitives such as mutexes and condition variables
-* Implement a task scheduler that reflects dependencies defined by a task graph
-* Understand workload characteristics to make efficient task scheduling decisions
+* 使用线程池管理任务执行
+* 使用互斥锁和条件变量等同步原语协调工作线程的执行
+* 实现一个反映任务图依赖关系的任务调度器
+* 理解工作负载特性以做出高效的任务调度决策
 
-We recommend reviewing our [C++ synchronization tutorial](tutorial/README.md) for more information on the synchronization primitives in the C++ standard library. Additionally, it may be helpful to look over the [test case descriptions](tests/) to understand the types of workloads your library will support.
+我们建议你复习 [C++ 同步教程](tutorial/README.md) 以获取更多关于 C++ 标准库中同步原语的信息。此外，查看[测试用例描述](tests/)以了解你的库将支持的工作负载类型可能会有所帮助。
 
-### Wait, I Think I've Done This Before? ###
+### 等等，我是不是做过这个？
 
-You may have already created thread pools and task execution libraries in classes such as CS107 or CS111.
-However, the current assignment is a unique opportunity to better understand these systems.
-You will implement multiple task execution libraries, some without thread pools and some with different types of thread pools.
-By implementing multiple task scheduling strategies and comparing their performance on difference workloads, you will better understand the implications of key design choices when creating a parallel system.
+你可能在 CS107 或 CS111 等课程中已经创建过线程池和任务执行库。然而，本次作业是一个更好地理解这些系统的独特机会。你将实现多个任务执行库，有些不使用线程池，有些使用不同类型的线程池。通过实现多种任务调度策略并比较它们在不同工作负载上的性能，你将更好地理解创建并行系统时关键设计选择的含义。
 
-## Environment Setup ##
+## 环境设置
 
-**We will be grading this assignment on an Amazon AWS `c7g.4xlarge` instance - we provide instructions for setting up your VM [here](https://github.com/stanford-cs149/asst2/blob/master/cloud_readme.md). Please ensure your code works on this VM as we will be using this for performance testing and grading.**
+**我们将在 Amazon AWS `c7g.4xlarge` 实例上批改此作业 —— 我们提供了[此处](https://github.com/stanford-cs149/asst2/blob/master/cloud_readme.md)的 VM 设置说明。请确保你的代码在此 VM 上能正常工作，因为我们将使用它进行性能测试和评分。**
 
-The assignment starter code is available on [Github](https://github.com/stanford-cs149/asst2). Please download the Assignment 2 starter code at:
+作业初始代码可在 [Github](https://github.com/stanford-cs149/asst2) 上获取。请从以下地址下载作业2的初始代码：
 
     https://github.com/stanford-cs149/asst2/archive/refs/heads/master.zip
 
-**IMPORTANT:** DO NOT modify the provided `Makefile`. Doing so may break our grading script.
+**重要提示：** 不要修改提供的 `Makefile`。这样做可能会破坏我们的评分脚本。
 
-## Part A: Synchronous Bulk Task Launch
+## Part A：同步批量任务启动
 
-In Assignment 1, you used ISPC's task launch primitive to launch N instances of an ISPC task (`launch[N] myISPCFunction()`).  In the first part of this assignment, you will implement similar functionality in your task execution library.
+在作业1中，你使用了 ISPC 的任务启动原语来启动 N 个 ISPC 任务实例（`launch[N] myISPCFunction()`）。在本作业的第一部分，你将在你的任务执行库中实现类似的功能。
 
-To get started, get acquainted with the definition of `ITaskSystem` in `itasksys.h`. This [abstract class](https://www.tutorialspoint.com/cplusplus/cpp_interfaces.htm) defines the interface to your task execution system.  The interface features a method `run()`, which has the following signature:
+首先，请熟悉 `itasksys.h` 中 `ITaskSystem` 的定义。这个[抽象类](https://www.tutorialspoint.com/cplusplus/cpp_interfaces.htm)定义了你任务执行系统的接口。该接口包含一个 `run()` 方法，其签名如下：
 
     virtual void run(IRunnable* runnable, int num_total_tasks) = 0;
 
-`run()` executes `num_total_tasks` instances of the specified task.  Since this single function call results in the execution of many tasks, we refer to each call to `run()` as a _bulk task launch_.
+`run()` 执行指定任务的 `num_total_tasks` 个实例。由于单次函数调用导致多个任务的执行，我们将每次 `run()` 调用称为一次**批量任务启动**。
 
-The starter code in `tasksys.cpp` contains a correct, but serial, implementation of `TaskSystemSerial::run()` which serves as an example of how the task system uses the `IRunnable` interface to execute a bulk task launch. (The definition of `IRunnable` is in `itasksys.h`) Notice how in each call to `IRunnable::runTask()` the task system provides the task a current task identifier (an integer between 0 and `num_total_tasks`), as well as the total number of tasks in the bulk task launch.  The task's implementation will use these parameters to determine what work the task should do.
+`tasksys.cpp` 中的初始代码包含了一个正确但串行的 `TaskSystemSerial::run()` 实现，作为任务系统如何使用 `IRunnable` 接口执行批量任务启动的示例。（`IRunnable` 的定义在 `itasksys.h` 中。）注意在每次调用 `IRunnable::runTask()` 时，任务系统会为任务提供一个当前任务标识符（0 到 `num_total_tasks` 之间的整数），以及批量任务启动中的任务总数。任务的实现将使用这些参数来确定该任务应执行什么工作。
 
-One important detail of `run()` is that it must execute tasks synchronously with respect to the calling thread.  In other words, when the call to `run()` returns, the application is guaranteed that the task system has completed execution of ****all tasks**** in the bulk task launch.  The serial implementation of `run()` provided in the starter code executes all tasks on the calling thread and thus meets this requirement.
+`run()` 的一个重要细节是它必须相对于调用线程**同步**执行任务。换句话说，当 `run()` 调用返回时，应用程序保证任务系统已经完成了批量任务启动中**所有任务**的执行。初始代码中提供的串行 `run()` 实现在调用线程上执行所有任务，因此满足此要求。
 
-### Running Tests ###
+### 运行测试
 
-The starter code contains a suite of test applications that use your task system. For a description of the test harness tests, see `tests/README.md`, and for the test definitions themselves, see `tests/tests.h`. To run a test, use the `runtasks` script. For example, to run the test called `mandelbrot_chunked`, which computes an image of a Mandelbrot fractal using a bulk launch of tasks that each process a continuous chunk of the image, type:
+初始代码包含一套使用你任务系统的测试应用程序。关于测试框架的描述，请参见 `tests/README.md`，测试定义本身请参见 `tests/tests.h`。要运行测试，请使用 `runtasks` 脚本。例如，要运行名为 `mandelbrot_chunked` 的测试（该测试使用批量任务启动来计算 Mandelbrot 分形图像，每个任务处理图像的一个连续块），请输入：
 
 ```bash
 ./runtasks -n 16 mandelbrot_chunked
 ```
 
-
-The different tests have different performance characteristics -- some do little work per task, others perform significant amounts of processing.  Some tests create large numbers of tasks per launch, others very few.  Sometimes the tasks in a launch all have similar compute cost.  In others, the cost of tasks in a single bulk launch is variable. We have described most of the tests in `tests/README.md`, but we encourage you to inspect the code in `tests/tests.h` to understand the behavior of all tests in more detail.
+不同的测试具有不同的性能特征 —— 有些每个任务的工作量很少，有些则执行大量处理。有些测试每次启动创建大量任务，有些则很少。有时一次启动中的所有任务具有相似的计算成本。在其他情况下，单次批量启动中任务的成本是可变的。我们已在 `tests/README.md` 中描述了大多数测试，但我们鼓励你检查 `tests/tests.h` 中的代码以更详细地理解所有测试的行为。
 
 > [!TIP]
-> One test that may be helpful to debug correctness while implementing your solution is `simple_test_sync`, which is a very small test that should not be used to measure performance but is small enough to be debuggable with print statements or debugger. See function `simpleTest` in `tests/tests.h`.
+> 在实现解决方案时，`simple_test_sync` 测试可能有助于调试正确性，这是一个非常小的测试，不应用于衡量性能，但足够小，可以用打印语句或调试器进行调试。参见 `tests/tests.h` 中的 `simpleTest` 函数。
 
+我们鼓励你创建自己的测试。查看 `tests/tests.h` 中的现有测试以获取灵感。我们还包含了一个由 `class YourTask` 和函数 `yourTest()` 组成的骨架测试，供你在此基础上构建。对于你创建的测试，请确保将它们添加到 `tests/main.cpp` 的测试列表和测试名称中，并相应调整变量 `n_tests`。请注意，虽然你可以用自己的解决方案运行自己的测试，但你将无法编译参考解决方案来运行你的测试。
 
-We encourage you to create your own tests. Take a look at the existing tests in `tests/tests.h` for inspiration. We have also included a skeleton test composed of `class YourTask` and function `yourTest()` for you to build on if you so choose. For the tests you do create, make sure to add them to the list of tests and test names in `tests/main.cpp`, and adjust the variable `n_tests` accordingly. Please note that while you will be able to run your own tests with your solution, you will not be able to compile the reference solution to run your tests.
+`-n` 命令行选项指定任务系统实现可以使用的最大线程数。在上面的例子中，我们选择 `-n 16`，因为 AWS 实例中的 CPU 有十六个执行上下文。可运行测试的完整列表可通过命令行帮助（`-h` 命令行选项）获取。
 
-The `-n` command-line option specifies the maximum number of threads the task system implementation can use.  In the example above, we chose `-n 16` because the CPU in the AWS instance features sixteen execution contexts.  The full list of tests available to run is available via command line help  (`-h` command line option).
+`-i` 命令行选项指定性能测量期间运行测试的次数。为了获得准确的性能测量，`./runtasks` 多次运行测试并记录多次运行中的**最小**运行时间；一般来说，默认值就足够了 —— 更大的值可能产生更准确的测量结果，但代价是测试运行时间更长。
 
-The `-i` command-line options specifies the number of times to run the tests during performance measurement. To get an accurate measure of performance, `./runtasks` runs the test multiple times and records the _minimum_ runtime of several runs; In general, the default value is sufficient---Larger values might yield more accurate measurements, at the cost of greater test runtime.
-
-In addition, we also provide you the test harness that we will use for grading performance:
+此外，我们还提供了将用于评分性能的测试框架：
 
 ```bash
 >>> python3 ../tests/run_test_harness.py
 ```
 
-The harness has the following command line arguments,
+该框架有以下命令行参数：
 
 ```bash
 >>> python3 run_test_harness.py -h
@@ -99,7 +94,7 @@ optional arguments:
   -a, --run_async       Run async tests
 ```
 
-It produces a detailed performance report that looks like this:
+它会产生如下详尽的性能报告：
 
 ```bash
 >>> python3 ../tests/run_test_harness.py -t super_light super_super_light
@@ -135,114 +130,114 @@ Overall performance results
 [Parallel + Thread Pool + Sleep]        : Perf did not pass all tests
 ```
 
-In the above output `PERF` is the ratio of your implementation's runtime to the reference solution's runtime. So values less than one indicate that your task system implementation is faster than the reference implementation.
+在上述输出中，`PERF` 是你的实现运行时间与参考解决方案运行时间的比值。因此，小于1的值表示你的任务系统实现比参考实现更快。
 
 > [!TIP]
-> Mac users: While we provided reference solution binaries for both part a and part b, we will be testing your code using the linux binaries. Therefore, we recommend you check your implementation in the AWS instance before submitting. If you are using a newer Mac with an M1 chip, use the `runtasks_ref_osx_arm` binary when testing locally. Otherwise, use the `runtasks_ref_osx_x86` binary.
+> Mac 用户：我们提供了 Part A 和 Part B 的参考解决方案二进制文件，但我们将使用 Linux 二进制文件测试你的代码。因此，我们建议你在提交前在 AWS 实例上检查你的实现。如果你使用的是搭载 M1 芯片的新款 Mac，请在本地测试时使用 `runtasks_ref_osx_arm` 二进制文件。否则，请使用 `runtasks_ref_osx_x86` 二进制文件。
 
 > [!IMPORTANT]
-We'll be grading your solution on AWS with `runtasks_ref_linux_arm` version of the reference solution. Please make sure your solution works correctly on the AWS ARM instance.
+> 我们将在 AWS 上使用 `runtasks_ref_linux_arm` 版本的参考解决方案进行评分。请确保你的解决方案在 AWS ARM 实例上能正确工作。
 
-### What You Need To Do ###
+### 你需要做什么
 
-Your job is to implement a task execution engine that efficiently uses your multi-core CPU. You will be graded on both the correctness of your implementation (it must run all the tasks correctly) as well as on its performance.  This should be a fun coding challenge, but it is a non-trivial piece of work. To help you stay on the right track, to complete Part A of the assignment, we will have you implement multiple versions of the task system, slowly increasing in complexity and performance of your implementation.  Your three implementations will be in the classes defined in `tasksys.cpp/.h`.
+你的工作是实现一个能高效利用多核 CPU 的任务执行引擎。你将根据实现的正确性（必须正确运行所有任务）以及性能来评分。这应该是一个有趣的编程挑战，但也是一项不小的工作。为了帮助你保持正确方向，要完成作业的 Part A，我们将让你实现多个版本的任务系统，实现的复杂度和性能逐步提高。你的三个实现将在 `tasksys.cpp/.h` 中定义的类中：
 
 * `TaskSystemParallelSpawn`
 * `TaskSystemParallelThreadPoolSpinning`
 * `TaskSystemParallelThreadPoolSleeping`
 
-__Implement your part A implementation in the `part_a/` sub-directory to compare to the correct reference implementation (`part_a/runtasks_ref_*`).__
+**在 `part_a/` 子目录中实现你的 Part A 部分，以便与正确的参考实现（`part_a/runtasks_ref_*`）进行比较。**
 
-_Pro tip: Notice how the instructions below take the approach of "try the simplest improvement first". Each step increases the complexity of the task execution system's implementation, but on each step along the way you should have a working (fully correct) task runtime system._
+_专业提示：注意以下说明采取了"先尝试最简单的改进"的方法。每一步都增加了任务执行系统实现的复杂性，但在每一步中你都应该有一个能正常工作的（完全正确的）任务运行时系统。_
 
-We also expect you to create at least one test, which can test either correctness or performance. See the Running Tests section above for more information.
+我们还希望你创建至少一个测试，可以测试正确性或性能。更多信息请参见上面的"运行测试"部分。
 
-#### Step 1: Move to a Parallel Task System ####
+#### 步骤1：迁移到并行任务系统
 
-__In this step please implement the class `TaskSystemParallelSpawn`.__
+**在此步骤中，请实现 `TaskSystemParallelSpawn` 类。**
 
-The starter code provides you a working serial implementation of the task system in `TaskSystemSerial`.  In this step of the assignment you will extend the starter code to execute a bulk task launch in parallel.
+初始代码在 `TaskSystemSerial` 中为你提供了一个能正常工作的串行任务系统实现。在本作业的此步骤中，你将扩展初始代码以并行执行批量任务启动。
 
-* You will need to create additional threads of control to perform the work of a bulk task launch.  Notice that `TaskSystem`'s constructor is provided a parameter `num_threads` which is the ****maximum number of worker threads**** your implementation may use to run tasks.
+* 你需要创建额外的控制线程来执行批量任务启动的工作。注意 `TaskSystem` 的构造函数接收一个参数 `num_threads`，这是你的实现可以用于运行任务的**最大工作线程数**。
 
-* In the spirit of "do the simplest thing first", we recommend that you spawn worker threads at the beginning of `run()` and join these threads from the main thread before `run()` returns.  This will be a correct implementation, but it will incur significant overhead from frequent thread creation.
+* 本着"先做最简单的事情"的精神，我们建议你在 `run()` 开始时创建工作线程，并在 `run()` 返回之前从主线程 join 这些线程。这将是一个正确的实现，但会因为频繁创建线程而产生显著的额外开销。
 
-* How will you assign tasks to your worker threads?  Should you consider static or dynamic assignment of tasks to threads?
+* 你将如何将任务分配给工作线程？你应该考虑静态分配还是动态分配任务给线程？
 
-* Are there shared variables (internal state of your task execution system) that you need to protect from simultaneous access from multiple threads?
+* 是否有共享变量（任务执行系统的内部状态）需要保护以免被多个线程同时访问？
 
-#### Step 2: Avoid Frequent Thread Creation Using a Thread Pool ####
+#### 步骤2：使用线程池避免频繁创建线程
 
-__In this step please implement the class `TaskSystemParallelThreadPoolSpinning`.__
+**在此步骤中，请实现 `TaskSystemParallelThreadPoolSpinning` 类。**
 
-Your implementation in step 1 will incur overhead due to creating threads in each call to `run()`.  This overhead is particularly noticeable when tasks are cheap to compute.  At this point, we recommend you move to a "thread pool" implementation where your task execution system creates all worker threads up front (e.g., during `TaskSystem` construction, or upon the first call to `run()`).
+你在步骤1中的实现会因为每次 `run()` 调用都创建线程而产生开销。当任务计算成本很低时，这种开销尤为明显。此时，我们建议你迁移到"线程池"实现，你的任务执行系统预先创建所有工作线程（例如，在 `TaskSystem` 构造期间，或在首次调用 `run()` 时）。
 
-* As a starting implementation we recommend that you design your worker threads to continuously loop, always checking if there is more work to them to perform. (A thread entering a while loop until a condition is true is typically referred to as "spinning".)  How might a worker thread determine there is work to do?
+* 作为起始实现，我们建议你将工作线程设计为不断循环，始终检查是否有更多工作要执行。（一个线程进入 while 循环直到某个条件为真，通常被称为"自旋"（spinning）。）工作线程如何确定有工作要做？
 
-* It is now non-trivial to ensure that `run()` implements the required synchronous behavior.  How do you need to change the implementation of `run()` to determine that all tasks in the bulk task launch have completed?
+* 现在要确保 `run()` 实现所需的同步行为就不是那么简单了。你需要如何改变 `run()` 的实现来确定批量任务启动中的所有任务已经完成？
 
-#### Step 3: Put Threads to Sleep When There is Nothing to Do ####
+#### 步骤3：当无事可做时让线程休眠
 
-__In this step please implement the class `TaskSystemParallelThreadPoolSleeping`.__
+**在此步骤中，请实现 `TaskSystemParallelThreadPoolSleeping` 类。**
 
-One of the drawbacks of the step 2 implementation is that threads utilize a CPU core's execution resources as they "spin" waiting for something to do.  For example, worker threads might loop waiting for new tasks to arrive.  As another example, the main thread might loop waiting for the worker threads to complete all tasks so it can return from a call to `run()`.  This can hurt performance since CPU resources are used to run these threads even though the threads are not doing useful work.
+步骤2实现的一个缺点是，线程在"自旋"等待有事可做时会占用 CPU 核心的执行资源。例如，工作线程可能循环等待新任务到达。另一个例子是，主线程可能循环等待工作线程完成所有任务，以便从 `run()` 调用返回。这会损害性能，因为 CPU 资源被用来运行这些线程，即使线程并没有做有用的工作。
 
-In this part of the assignment, we want you to improve the efficiency of your task system by putting threads to sleep until the condition they are waiting for is met.
+在作业的这一部分，我们希望你将线程置于休眠状态，直到它们等待的条件得到满足，从而提高任务系统的效率。
 
-* Your implementation may choose to use condition variables to implement this behavior.  Condition variables are a synchronization primitive that enables threads to sleep (and occupy no CPU processing resources) while they are waiting for a condition to exist. Other threads "signal" waiting threads to wake up to see if the condition they were waiting for has been met. For example, your worker threads could be put to sleep if there is no work to be done (so they don't take CPU resources away from threads trying to do useful work).  As another example, your main application thread that calls `run()` might want to sleep while it waits for all the tasks in a bulk task launch to be completed by the worker threads. (Otherwise a spinning main thread would take CPU resources away from the worker threads!) 
+* 你的实现可以选择使用条件变量来实现此行为。条件变量是一种同步原语，使线程能够在等待某个条件存在时休眠（不占用 CPU 处理资源）。其他线程"通知"等待的线程醒来，检查它们等待的条件是否已满足。例如，如果没有工作要做，你的工作线程可以进入休眠（这样它们就不会从试图做有用工作的线程那里占用 CPU 资源）。另一个例子是，调用 `run()` 的主应用程序线程可能希望在等待工作线程完成批量任务启动中的所有任务时休眠。（否则，自旋的主线程会从工作线程那里占用 CPU 资源！）
 
-* Your implementation in this part of the assignment may have tricky race conditions to think about.  You'll need to consider many possible interleavings of thread behavior.
+* 你在这部分作业中的实现可能需要考虑棘手的竞态条件。你需要考虑线程行为的许多可能交错情况。
 
-* You might want to consider writing additional test cases to exercise your system.  __The assignment starter code includes the workloads that the grading script will use to grade the performance of your code, but we will also test the correctness of your implementation using a wider set of workloads that we are not providing in the starter code!__
+* 你可能想考虑编写额外的测试用例来测试你的系统。**作业初始代码包含了评分脚本将用于评分代码性能的工作负载，但我们还将使用初始代码中未提供的更广泛的工作负载集来测试你实现的正确性！**
 
-## Part B: Supporting Execution of Task Graphs
+## Part B：支持任务图的执行
 
-In part B of the assignment you will extend your part A task system implementation to support the asynchronous launch of tasks that may have dependencies on previous tasks.  These inter-task dependencies create scheduling constraints that your task execution library must respect.
+在作业的 Part B 中，你将扩展 Part A 的任务系统实现，以支持可能依赖于先前任务的异步任务启动。这些任务间依赖关系创建了你的任务执行库必须遵守的调度约束。
 
-The `ITaskSystem` interface has an additional method:
+`ITaskSystem` 接口有一个额外的方法：
 
     virtual TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                     const std::vector<TaskID>& deps) = 0;
 
-`runAsyncWithDeps()` is similar to `run()` in that it also is used to perform a bulk launch of `num_total_tasks` tasks. However, it differs from `run()` in a number of ways...
+`runAsyncWithDeps()` 类似于 `run()`，因为它也用于执行 `num_total_tasks` 个任务的批量启动。然而，它在以下几个方面与 `run()` 不同……
 
-#### Asynchronous Task Launch ####
+#### 异步任务启动
 
-First, tasks created using `runAsyncWithDeps()` are executed by the task system _asynchronously_ with the calling thread. This means that `runAsyncWithDeps()`, should return to the caller _immediately_, even if the tasks have not completed execution. The method returns a unique identifier associated with this bulk task launch.
+首先，使用 `runAsyncWithDeps()` 创建的任务由任务系统**异步**执行，相对于调用线程而言。这意味着 `runAsyncWithDeps()` 应该**立即**返回给调用者，即使任务尚未完成执行。该方法返回与此批量任务启动关联的唯一标识符。
 
-The calling thread can determine when the bulk task launch has actually completed by calling `sync()`.
+调用线程可以通过调用 `sync()` 来确定批量任务启动何时实际完成。
 
     virtual void sync() = 0;
 
-`sync()` returns to the caller __only when the tasks associated with all prior bulk task launches have completed.__  For example, consider the following code:
+`sync()` 只有在**与之前所有批量任务启动关联的任务都已完成时**才返回给调用者。例如，考虑以下代码：
 
-    // assume taskA and taskB are valid instances of IRunnable...
+    // 假设 taskA 和 taskB 是 IRunnable 的有效实例...
 
-    std::vector<TaskID> noDeps;  // empty vector
+    std::vector<TaskID> noDeps;  // 空向量
 
     ITaskSystem *t = new TaskSystem(num_threads);
 
-    // bulk launch of 4 tasks
+    // 批量启动 4 个任务
     TaskID launchA = t->runAsyncWithDeps(taskA, 4, noDeps);
 
-    // bulk launch of 8 tasks
+    // 批量启动 8 个任务
     TaskID launchB = t->runAsyncWithDeps(taskB, 8, noDeps);
 
-    // at this point tasks associated with launchA and launchB
-    // may still be running
+    // 此时与 launchA 和 launchB 关联的任务
+    // 可能仍在运行
 
     t->sync();
 
-    // at this point all 12 tasks associated with launchA and launchB
-    // are guaranteed to have terminated
+    // 此时与 launchA 和 launchB 关联的所有 12 个任务
+    // 保证已经终止
 
-As described in the comments above, the calling thread is not guaranteed tasks from previous calls to `runAsyncWithDeps()` have completed until the thread calls `sync()`.  To be precise, `runAsyncWithDeps()` tells your task system to perform a new bulk task launch, but your implementation has the flexibility to execute these tasks at any time prior to the next call to `sync()`.  Note that this specification means there is no guarantee that your implementation performs tasks from launchA prior to starting tasks from launchB!
+如上面注释所述，在调用线程调用 `sync()` 之前，不保证之前 `runAsyncWithDeps()` 调用中的任务已经完成。准确地说，`runAsyncWithDeps()` 告诉你的任务系统执行一次新的批量任务启动，但你的实现可以在下次 `sync()` 调用之前的任何时间灵活地执行这些任务。注意，此规范意味着不保证你的实现在启动 `launchB` 的任务之前先执行来自 `launchA` 的任务！
 
-#### Support for Explicit Dependencies ####
+#### 支持显式依赖
 
-The second key detail of `runAsyncWithDeps()` is its third argument: a vector of TaskID identifiers that must refer to previous bulk task launches using `runAsyncWithDeps()`.  This vector specifies what prior tasks the tasks in the current bulk task launch depend on. __Therefore, your task runtime cannot begin execution of any task in the current bulk task launch until all tasks from the launches given in the dependency vector are complete!__  For example, consider the following example:
+`runAsyncWithDeps()` 的第二个关键细节是其第三个参数：一个 TaskID 标识符向量，这些标识符必须引用之前使用 `runAsyncWithDeps()` 进行的批量任务启动。此向量指定当前批量任务启动中的任务依赖于哪些先前的任务。**因此，你的任务运行时不能开始执行当前批量任务启动中的任何任务，直到依赖向量中给出的启动中的所有任务都完成！** 例如，考虑以下示例：
 
-    std::vector<TaskID> noDeps;  // empty vector
+    std::vector<TaskID> noDeps;  // 空向量
     std::vector<TaskID> depOnA;
     std::vector<TaskID> depOnBC;
 
@@ -259,84 +254,85 @@ The second key detail of `runAsyncWithDeps()` is its third argument: a vector of
     TaskID launchD = t->runAsyncWithDeps(taskD, 32, depOnBC);
     t->sync();
 
-The code above features four bulk task launches (taskA: 128 tasks, taskB: 2 tasks, taskC: 6 tasks, taskD: 32 tasks).  Notice that the launch of taskB and of taskC depend on taskA. The bulk launch of taskD (`launchD`) depends on the results of both `launchB` and `launchC`.  Therefore, while your task runtime is allowed to process tasks associated with `launchB` and `launchC` in any order (including in parallel), all tasks from these launches must begin executing after the completion of tasks from `launchA`, and they must complete before your runtime can begin executing any task from `launchD`.
+上面的代码包含四次批量任务启动（taskA：128个任务，taskB：2个任务，taskC：6个任务，taskD：32个任务）。注意 `launchB` 和 `launchC` 的启动都依赖于 taskA。`launchD` 的批量启动依赖于 `launchB` 和 `launchC` 两者的结果。因此，虽然你的任务运行时允许以任意顺序（包括并行）处理与 `launchB` 和 `launchC` 关联的任务，但这些启动中的所有任务必须在 `launchA` 的任务完成后才能开始执行，并且它们必须在你的运行时可以开始执行 `launchD` 的任何任务之前完成。
 
-We can illustrate these dependencies visually as a __task graph__. A task graph is a directed acyclic graph (DAG), where nodes in the graph correspond to bulk task launches, and an edge from node X to node Y indicates a dependency of Y on the output of X.  The task graph for the code above is:
+我们可以将这些依赖关系可视化为一个**任务图**。任务图是一个有向无环图（DAG），图中的节点对应批量任务启动，从节点 X 到节点 Y 的边表示 Y 依赖于 X 的输出。上述代码的任务图为：
 
 <p align="center">
     <img src="figs/task_graph.png" width=400>
 </p>
 
-Notice that if you were running the example above on a Myth machine with eight execution contexts, the ability to schedule the tasks from `launchB` and `launchC` in parallel might be quite useful, since neither bulk task launch on its own is sufficient to use all the execution resources of the machine.
+注意，如果你在具有八个执行上下文的 Myth 机器上运行上述示例，能够并行调度来自 `launchB` 和 `launchC` 的任务可能非常有用，因为单独任何一个批量任务启动都不足以利用机器的所有执行资源。
 
-### Testing ###
-All of the tests with postfix `Async` should be used to test part B. The subset of tests included in the grading harness are described in `tests/README.md`, and all tests can be found in `tests/tests.h` and are listed in `tests/main.cpp`. To debug correctness, we've provided a small test `simple_test_async`. Take a look at the `simpleTest` function in `tests/tests.h`. `simple_test_async` should be small enough to debug using print statements or breakpoints inside `simpleTest`.
+### 测试
+所有带有 `Async` 后缀的测试应用于测试 Part B。评分框架中包含的测试子集在 `tests/README.md` 中描述，所有测试可在 `tests/tests.h` 中找到，并在 `tests/main.cpp` 中列出。为了调试正确性，我们提供了一个小测试 `simple_test_async`。查看 `tests/tests.h` 中的 `simpleTest` 函数。`simple_test_async` 应该足够小，可以在 `simpleTest` 内使用打印语句或断点进行调试。
 
-We encourage you to create your own tests. Take a look at the existing tests in `tests/tests.h` for inspiration. We have also included a skeleton test composed of `class YourTask` and function `yourTest()` for you to build on if you so choose. For the tests you do create, make sure to add them to the list of tests and test names in `tests/main.cpp`, and adjust the variable `n_tests` accordingly. Please note that while you will be able to run your own tests with your solution, you will not be able to compile the reference solution to run your tests.
+我们鼓励你创建自己的测试。查看 `tests/tests.h` 中的现有测试以获取灵感。我们还包含了一个由 `class YourTask` 和函数 `yourTest()` 组成的骨架测试，供你在此基础上构建。对于你创建的测试，请确保将它们添加到 `tests/main.cpp` 的测试列表和测试名称中，并相应调整变量 `n_tests`。请注意，虽然你可以用自己的解决方案运行自己的测试，但你将无法编译参考解决方案来运行你的测试。
 
-### What You Need to Do ###
+### 你需要做什么
 
-You must extend your task system implementation that uses a thread pool (and sleeps) from part A to correctly implement `TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps()` and `TaskSystemParallelThreadPoolSleeping::sync()`. We also expect you to create at least one test, which can test either correctness or performance. See the `Testing` section above for more information. As a clarification, you will *need* to describe your own tests in the writeup, but our autograder will *NOT* test your test.
-**You do not need to implement the other `TaskSystem` classes in Part B.**
+你必须扩展 Part A 中使用线程池（并休眠）的任务系统实现，以正确实现 `TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps()` 和 `TaskSystemParallelThreadPoolSleeping::sync()`。我们还希望你创建至少一个测试，可以测试正确性或性能。更多信息请参见上面的"测试"部分。需要说明的是，你**需要**在报告中描述你自己的测试，但自动评分器**不会**测试你的测试。
+**你不需要在 Part B 中实现其他 `TaskSystem` 类。**
 
-As with Part A, we offer you the following tips to get started:
-* It may be helpful to think about the behavior of `runAsyncWithDeps()` as pushing a record corresponding to the bulk task launch, or perhaps records corresponding to each of the tasks in the bulk task launch onto a "work queue".  Once the record to work to do is in the queue, `runAsyncWithDeps()` can return to the caller.
+与 Part A 一样，我们提供以下提示帮助你开始：
+* 将 `runAsyncWithDeps()` 的行为想象为将与批量任务启动对应的记录，或者也许是与批量启动中每个任务对应的记录推送到"工作队列"中。一旦待处理的工作记录在队列中，`runAsyncWithDeps()` 就可以返回给调用者。
 
-* The trick in this part of the assignment is performing the appropriate bookkeeping to track dependencies. What must be done when all the tasks in a bulk task launch complete? (This is the point when new tasks may become available to run.)
+* 本部分作业的技巧是执行适当的簿记来跟踪依赖关系。当批量任务启动中的所有任务完成时必须做什么？（这是新任务可能变得可运行的时刻。）
 
-* It can be helpful to have two data structures in your implementation: (1) a structure representing tasks that have been added to the system via a call to `runAsyncWithDeps()`, but are not yet ready to execute because they depend on tasks that are still running (these tasks are "waiting" for others to finish) and (2) a "ready queue" of tasks that are not waiting on any prior tasks to finish and can safely be run as soon as a worker thread is available to process them.
+* 在你的实现中有两个数据结构可能会很有帮助：(1) 一个结构，表示已通过 `runAsyncWithDeps()` 调用添加到系统中但尚未准备好执行的任务，因为它们依赖于仍在运行的任务（这些任务正在"等待"其他任务完成）；(2) 一个"就绪队列"，其中包含不等待任何先前任务完成的任务，只要有工作线程可用就可以安全地运行它们。
 
-* You need not worry about integer wrap around when generating unique task launch ids. We will not hit your task system with over 2^31 bulk task launches.
+* 你不需要担心生成唯一任务启动 ID 时的整数回绕。我们不会对你的任务系统进行超过 2^31 次批量任务启动。
 
-* You can assume all programs will either call only `run()` or only `runAsyncWithDeps()`; that is, you do not need to handle the case where a `run()` call needs to wait for all proceeding calls to `runAsyncWithDeps()` to finish. Note that this assumption means you can implement `run()` using appropriate calls to `runAsyncWithDeps()` and `sync()`.
+* 你可以假设所有程序要么只调用 `run()`，要么只调用 `runAsyncWithDeps()`；也就是说，你不需要处理 `run()` 调用需要等待所有之前的 `runAsyncWithDeps()` 调用完成的情况。注意，这一假设意味着你可以使用对 `runAsyncWithDeps()` 和 `sync()` 的适当调用来实现 `run()`。
 
-* You can assume the only multithreading going on is the multiple threads created by/used by your implementation. That is, we won't be spawning additional threads and calling your implementation from those threads.
+* 你可以假设唯一的多线程是你实现创建/使用的多个线程。也就是说，我们不会创建额外的线程并从这些线程调用你的实现。
 
-__Implement your part B implementation in the `part_b/` sub-directory to compare to the correct reference implementation (`part_b/runtasks_ref_*`).__
+**在 `part_b/` 子目录中实现你的 Part B 部分，以便与正确的参考实现（`part_b/runtasks_ref_*`）进行比较。**
 
-## Grading ##
+## 评分
 
-Points in this assignment will be assigned as follows,
+本作业的分数分配如下：
 
-**Part A (50 points)**
-- 5 points for correctness of `TaskSystemParallelSpawn::run()` + 5 points for its performance.  (10 points total)
-- 10 points each for correctness `TaskSystemParallelThreadPoolSpinning::run()` and `TaskSystemParallelThreadPoolSleeping::run()` + 10 points each for the performance of these methods. (40 points total)
+**Part A（50分）**
+- `TaskSystemParallelSpawn::run()` 的正确性 5分 + 性能 5分。（共10分）
+- `TaskSystemParallelThreadPoolSpinning::run()` 和 `TaskSystemParallelThreadPoolSleeping::run()` 的正确性各 10分 + 这些方法的性能各 10分。（共40分）
 
-**Part B (40 points)**
-- 30 points for correctness of `TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps()`, `TaskSystemParallelThreadPoolSleeping::run()`, and `TaskSystemParallelThreadPoolSleeping::sync()`
-- 10 points for performance of `TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps()`, `TaskSystemParallelThreadPoolSleeping::run()`, and `TaskSystemParallelThreadPoolSleeping::sync()`. For part B, you can ignore results for `Parallel + Always Spawn` and `Parallel + Thread Pool + Spin`. That is, you only need to pass `Parallel + Thread Pool + Sleep` for each test case. 
+**Part B（40分）**
+- `TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps()`、`TaskSystemParallelThreadPoolSleeping::run()` 和 `TaskSystemParallelThreadPoolSleeping::sync()` 的正确性 30分
+- `TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps()`、`TaskSystemParallelThreadPoolSleeping::run()` 和 `TaskSystemParallelThreadPoolSleeping::sync()` 的性能 10分。对于 Part B，你可以忽略 `Parallel + Always Spawn` 和 `Parallel + Thread Pool + Spin` 的结果。也就是说，你只需要每个测试用例的 `Parallel + Thread Pool + Sleep` 通过。
 
-**Writeup (10 points)**
-- Please refer to the "Handin" section for more details.
+**报告（10分）**
+- 详情请参见"提交"部分。
 
-For each test, full performance points will be awarded for implementations within 20% (part A) and 50% (part B) of the provided reference implementation. Performance points are only awarded for implementations that return correct answers. As stated before, we may also test the _correctness_ of your implementation using a wider set of workloads that we are not providing in the starter code.
+对于每个测试，在提供的参考实现的 20%（Part A）和 50%（Part B）范围内的实现将获得满分性能分。性能分仅授予返回正确答案的实现。如前所述，我们还可能使用初始代码中未提供的更广泛的工作负载集来测试你实现的**正确性**。
 
-## Handin ##
+## 提交
 
-Please submit your work using [Gradescope](https://www.gradescope.com/).  Your submission should include both your task system code, and a writeup describing your implementation.  We are expecting the following five files in the handin:
+请使用 [Gradescope](https://www.gradescope.com/) 提交你的作业。你的提交应包括你的任务系统代码和一份描述你实现的报告。我们期望提交中包含以下五个文件：
 
  * part_a/tasksys.cpp
  * part_a/tasksys.h
  * part_b/tasksys.cpp
  * part_b/tasksys.h
- * Your write-up PDF (submit to gradescope write-up assignment)
+ * 你的报告 PDF（提交到 Gradescope 的报告作业）
 
-#### Code Handin ####
+#### 代码提交
 
-We ask you to submit source files `part_a/tasksys.cpp|.h` and `part_b/tasksys.cpp|.h` in a compressed file. You can create a directory (e.g named `asst2_submission`) with sub-directories `part_a` and `part_b`, drop the relevant files in, compress the directory by running `tar -czvf asst2.tar.gz asst2_submission`, and upload it. Please submit the **compressed file** `asst2.tar.gz` to assignment *Assignment 2 (Code)* on Gradescope.
+我们要求你将源文件 `part_a/tasksys.cpp|.h` 和 `part_b/tasksys.cpp|.h` 以压缩文件形式提交。你可以创建一个目录（例如命名为 `asst2_submission`），其中包含子目录 `part_a` 和 `part_b`，将相关文件放入，通过运行 `tar -czvf asst2.tar.gz asst2_submission` 压缩该目录，然后上传。请将**压缩文件** `asst2.tar.gz` 提交到 Gradescope 上的作业 *Assignment 2 (Code)*。
 
-Before submitting the source files, make sure that all code is compilable and runnable! We should be able to drop these files into a clean starter code tree, type `make`, and then execute your program without manual intervention.
+在提交源文件之前，请确保所有代码都可以编译和运行！我们应该能够将这些文件放入干净的初始代码树中，输入 `make`，然后无需手动干预即可执行你的程序。
 
-Our grading scripts will run the checker code provided to you in the starter code to determine performance points.  _We will also run your code on other applications that are not provided in the starter code to further test its correctness!_ The grading script will be run *after* the assignment is due.
+我们的评分脚本将运行初始代码中提供给你的检查器代码来确定性能分数。_我们还将使用初始代码中未提供的其他应用程序来运行你的代码以进一步测试其正确性！_评分脚本将在作业截止**之后**运行。
 
-#### Writeup Handin ####
+#### 报告提交
 
-Please submit a brief writeup to the assignment *Assignment 2 (Write-up)* on Gradescope, addressing the following:
+请将一份简短的报告提交到 Gradescope 上的作业 *Assignment 2 (Write-up)*，涵盖以下内容：
 
- 1. Describe your task system implementation (1 page is fine).  In additional to a general description of how it works, please make sure you address the following questions:
-  * How did you decide to manage threads? (e.g., did you implement a thread pool?)
-  * How does your system assign tasks to worker threads? Did you use static or dynamic assignment?
-  * How did you track dependencies in Part B to ensure correct execution of task graphs?
+ 1. 描述你的任务系统实现（1页即可）。除了一般性地描述其工作原理外，请确保回答以下问题：
+   * 你是如何决定管理线程的？（例如，你是否实现了线程池？）
+   * 你的系统如何将任务分配给工作线程？你使用了静态分配还是动态分配？
+   * 在 Part B 中，你是如何跟踪依赖关系以确保任务图的正确执行的？
 
- 2. In Part A, you may have noticed that simpler task system implementations (e.g., a completely serial implementation, or the spawn threads every launch implementation), perform as well as or sometimes better than the more advanced implementations.  Please explain why this is the case, citing certain tests as examples.  For example, in what situations did the sequential task system implementation perform best? Why?  In what situations did the spawn-every-launch implementation perform as well as the more advanced parallel implementations that use a thread pool?  When does it not?
- 3. Describe one test that you implemented for this assignment. What does the test do, what is it meant to check, and how did you verify that your solution to the assignment did well on your test? Did the result of the test you added cause you to change your assignment implementation?
+ 2. 在 Part A 中，你可能已经注意到，更简单的任务系统实现（例如，完全串行的实现，或每次启动都创建线程的实现）表现得与更高级的实现一样好，有时甚至更好。请解释为什么会出现这种情况，并以某些测试为例。例如，在什么情况下串行任务系统实现表现最佳？为什么？在什么情况下每次启动都创建线程的实现表现得与使用线程池的更高级并行实现一样好？什么时候不是？
+
+ 3. 描述你为本作业实现的一个测试。该测试做什么，旨在检查什么，你是如何验证你的作业解决方案在你的测试上表现良好的？你添加的测试结果是否导致你更改了作业实现？
