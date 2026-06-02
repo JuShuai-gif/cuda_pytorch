@@ -53,3 +53,4 @@ dist
 *.md5
 *.aux*
 *.dpth
+*.pdf
