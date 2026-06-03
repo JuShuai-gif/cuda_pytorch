@@ -189,6 +189,12 @@ void read_y_then_x() {
 
 它的设计目标是比 acquire 更轻量——仅约束**数据依赖链**上的操作顺序。但编译器几乎从不正确实现它，普遍直接退化为 acquire。C++17 标准已将其标记为"不鼓励使用"。**实际项目请用 acquire。**
 
+> 源码演示: `src/chapter-05/08_memory_order_consume.cpp` — 包含 consume 行为验证和退化为 acquire 的测试。
+
+### 5.3.5 六种内存序速查
+
+> 源码演示: `src/chapter-05/09_memory_order_cheatsheet.cpp` — 统一框架对比所有内存序，包含可视化屏障图和记忆口诀。
+
 ---
 
 ## 5.4 工业场景

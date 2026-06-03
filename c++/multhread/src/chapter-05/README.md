@@ -13,6 +13,8 @@ C++ Concurrency in Action 第5章示例代码。
 | `05_memory_order_seq_cst.cpp` | 顺序一致性 | 全局全序, seq_cst vs relaxed 对比 |
 | `06_spinlock.cpp` | 自旋锁实现 | Plain/Yield/TTAS/ExponentialBackoff, 与 mutex 性能对比 |
 | `07_lockfree_counter.cpp` | 无锁计数器 | CAS 版本、拆分计数器（减少竞争）、缓存行对齐 |
+| `08_memory_order_consume.cpp` ★ | consume 内存序 | 为什么 consume 被废弃、退化为 acquire 的验证 |
+| `09_memory_order_cheatsheet.cpp` ★ | 六种内存序速查 | 统一框架对比 relaxed/acquire/release/acq_rel/seq_cst/consume |
 
 ## 编译运行
 

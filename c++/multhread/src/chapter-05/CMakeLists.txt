@@ -15,6 +15,8 @@ set(SOURCES
     05_memory_order_seq_cst.cpp
     06_spinlock.cpp
     07_lockfree_counter.cpp
+    08_memory_order_consume.cpp
+    09_memory_order_cheatsheet.cpp
 )
 
 foreach(src ${SOURCES})
