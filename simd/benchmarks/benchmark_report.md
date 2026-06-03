@@ -1,211 +1,609 @@
 # SIMD Benchmark Report
 
+This report documents how to collect, interpret, and act on performance measurements
+from the SIMD tutorial project. Every benchmark name referenced below corresponds
+to an actual binary produced by the build system -- no fictional kernels.
+
+---
+
 ## 1. System Information
 
-### How to collect system info
+### Collecting system info
+
+Run these commands and paste the output into your report:
 
 ```bash
-lscpu                          # CPU model, cores, cache sizes, ISA flags
-cat /proc/cpuinfo | head -40   # Detailed feature flags
-uname -a                       # Kernel version
-cat /proc/meminfo | head -5    # Memory info
-lscpu | grep -E "MHz|cache"    # Clock speed and cache hierarchy
+lscpu
+cat /proc/cpuinfo | head -50
+uname -a
+cat /proc/meminfo | head -5
+lscpu | grep -E "MHz|cache"
 ```
 
-### Example System (Modern x86-64 Desktop)
+### Template -- fill in your own numbers
 
-| Property            | Value                          |
-|---------------------|--------------------------------|
-| CPU Model           | Intel Core i7-13700K           |
-| Architecture        | x86_64                         |
-| Base Frequency      | 3.40 GHz                       |
-| Max Turbo           | 5.40 GHz                       |
-| Cores / Threads     | 16 (8P+8E) / 24T               |
-| L1d Cache           | 48 KiB per P-core              |
-| L2 Cache            | 2 MiB per P-core               |
-| L3 Cache            | 30 MiB (shared)                |
-| SIMD ISAs           | MMX, SSE, SSE2, SSE3, SSSE3, SSE4.1, SSE4.2, AVX, AVX2, FMA, AVX-512F, AVX-512DQ, AVX-512BW, AVX-512VL |
-| Memory              | 32 GB DDR5-5600                |
+| Property              | Value                                           |
+|-----------------------|-------------------------------------------------|
+| Hostname              | `hostname`                                      |
+| CPU Model             | *(from `lscpu` "Model name")*                  |
+| Architecture          | `uname -m` (expect: `x86_64` or `aarch64`)     |
+| Base / Max Frequency  | *(from `lscpu` "CPU MHz" / "CPU max MHz")*      |
+| Cores / Threads       | *(from `lscpu` "CPU(s)")*                       |
+| Sockets               | *(from `lscpu` "Socket(s)")*                    |
+| L1d Cache             | *(from `lscpu` "L1d cache")*                    |
+| L2 Cache              | *(from `lscpu` "L2 cache")*                     |
+| L3 Cache              | *(from `lscpu` "L3 cache")*                     |
+| SIMD ISA Flags        | *(from `lscpu` "Flags" -- grep for: sse, avx, avx2, avx512, fma, neon, sve)* |
+| Memory                | *(from `cat /proc/meminfo` / `sudo dmidecode -t memory`)* |
+| Kernel                | `uname -r`                                      |
+| Compiler              | `gcc --version \| head -1` or `clang --version` |
 
-### Example System (Modern ARM Server)
+### Interpreting ISA flags
 
-| Property            | Value                                   |
-|---------------------|-----------------------------------------|
-| CPU Model           | AWS Graviton3 (Neoverse V1)             |
-| Architecture        | aarch64                                  |
-| Frequency           | 2.60 GHz                                 |
-| Cores               | 64                                       |
-| L1d Cache           | 64 KiB per core                          |
-| L2 Cache            | 1 MiB per core                           |
-| L3 Cache            | 32 MiB (shared)                          |
-| SIMD ISAs           | NEON (ASIMD), SVE (256-bit implementation)|
-| Memory              | DDR5                                     |
+| Flag           | Meaning                                       |
+|----------------|-----------------------------------------------|
+| `sse`, `sse2`  | SSE / SSE2 -- baseline on all x86-64          |
+| `sse4_1/4_2`   | SSE4.1 / SSE4.2 -- adds dot products, blends  |
+| `avx`          | AVX -- 256-bit floats, 3-operand encoding     |
+| `avx2`         | AVX2 -- 256-bit integer, gather, FMA          |
+| `fma`          | Fused multiply-add (often alongside AVX2)     |
+| `avx512f`      | AVX-512 Foundation -- 512-bit vectors         |
+| `avx512dq`     | AVX-512 double/quadword                       |
+| `avx512bw`     | AVX-512 byte/word                             |
+| `avx512vl`     | AVX-512 vector length (128/256-bit with AVX-512 encoding) |
+| `asimd`        | ARM NEON (aarch64)                            |
+| `sve`          | ARM Scalable Vector Extension                 |
 
 ---
 
-## 2. Benchmark Results
+## 2. How to Run Benchmarks
 
-### How to run
+### Build
+
+There are two ways to build. Choose one.
+
+**Option A: auto-detect script (recommended)**
 
 ```bash
+cd /home/ghr/code/cuda_pytorch/simd
 ./scripts/build.sh
+```
+
+The script auto-detects your CPU architecture, selects the appropriate ISA flags
+(-mavx2 -mfma for x86, NEON for ARM), and enables AVX-512 targets if your CPU
+supports `avx512f`.
+
+**Option B: cmake preset (for specific configs)**
+
+```bash
+cd /home/ghr/code/cuda_pytorch/simd
+
+# Release build, AVX2 + AVX-512 (auto-detects -march=native)
+cmake --preset x86-release -B build
+cmake --build build -j$(nproc)
+
+# AVX2 only (no AVX-512, suitable for CPUs without AVX-512)
+cmake --preset x86-release-no512 -B build_no512
+cmake --build build_no512 -j$(nproc)
+
+# RelWithDebInfo (for perf annotate / profiling)
+cmake --preset x86-relwithdebinfo -B build_profile
+cmake --build build_profile -j$(nproc)
+```
+
+All binaries land in `build/x86/` (or `build/arm/` on ARM).
+
+### List built benchmarks
+
+```bash
+find build/x86 -type f -executable | sort
+```
+
+### Run all benchmarks
+
+```bash
 ./scripts/run_all_benchmarks.sh
-cat benchmarks/latest_results.txt
 ```
 
-### Results Table
+Results are written to `benchmarks/latest_results.txt`. The script runs every
+binary matching `avx2_*` or `avx512_*` (on x86) and collects their output.
 
-| Benchmark               | Scalar ns/el | SIMD ns/el | Speedup | GB/s Scalar | GB/s SIMD | Platform | ISA        | Notes                          |
-|-------------------------|-------------|-----------|---------|------------|----------|----------|------------|--------------------------------|
-| saxpy (f32, 256M)       | 3.20        | 0.41      | 7.81x   | 1.25       | 9.76     | x86_64   | AVX2       | Compute-bound, near-theoretical |
-| saxpy (f32, 256M)       | 3.20        | 0.21      | 15.24x  | 1.25       | 19.05    | x86_64   | AVX-512    | 2x over AVX2, as expected      |
-| saxpy (f32, 256M)       | 3.18        | 0.82      | 3.88x   | 1.26       | 4.88     | aarch64  | NEON       | Near 4x theoretical for f32    |
-| saxpy (f32, 256M)       | 3.18        | 0.42      | 7.57x   | 1.26       | 9.52     | aarch64  | SVE (256b) | Near 8x theoretical for f32    |
-| dgemm (f64, 1024x1024)  | 95.00       | 16.20     | 5.86x   | 0.69       | 4.02     | x86_64   | AVX2       | FMA helps a lot                |
-| dgemm (f64, 1024x1024)  | 96.50       | 8.60      | 11.22x  | 0.68       | 7.62     | x86_64   | AVX-512    | AVX-512 FMA, near theoretical  |
-| dgemm (f64, 1024x1024)  | 98.00       | 24.80     | 3.95x   | 0.65       | 2.58     | aarch64  | NEON       | f64 NEON is 128-bit only       |
-| dgemm (f64, 1024x1024)  | 98.00       | 12.50     | 7.84x   | 0.65       | 5.12     | aarch64  | SVE (256b) | Double throughput with SVE     |
-| memcpy (1 GB stream)    | 6.80        | 4.20      | 1.62x   | 17.60      | 28.57    | x86_64   | AVX2       | Memory-bound, streaming store  |
-| memcpy (1 GB stream)    | 6.90        | 4.18      | 1.65x   | 17.40      | 28.71    | x86_64   | AVX-512    | Memory-bound, large vectors    |
-| memcpy (1 GB stream)    | 7.00        | 5.10      | 1.37x   | 17.14      | 23.53    | aarch64  | NEON       | Memory bandwidth limited       |
-| sum reduction (f32, 8M) | 1.82        | 0.25      | 7.28x   | 8.79       | 64.00    | x86_64   | AVX2       | Horizontal add optimization    |
-| sum reduction (f32, 8M) | 1.84        | 0.13      | 14.15x  | 8.70       | 123.08   | x86_64   | AVX-512    | Near 16x theoretical           |
-| sum reduction (f32, 8M) | 1.82        | 0.48      | 3.79x   | 8.79       | 33.33    | aarch64  | NEON       | Near 4x for f32                |
-| convolution (f32, 3x3)  | 28.50       | 4.20      | 6.79x   | 0.56       | 3.81     | x86_64   | AVX2       | Mixed compute/memory           |
+### Run a single benchmark
 
-**Notes:**
-- `ns/el` = nanoseconds per element; lower is better.
-- `GB/s` = gigabytes per second of effective throughput.
-- Speedup = scalar_ns_per_el / simd_ns_per_el.
-- All benchmarks run with warm-up iterations; reported numbers are median of 11 runs.
-
----
-
-## 3. Interpretation
-
-### Why Certain Ops Get Near-Theoretical Speedup
-
-The theoretical maximum speedup from SIMD is determined by the number of data elements a single SIMD instruction can process simultaneously:
-
-| ISA             | Width | f32 elements per instr | f64 elements per instr | Max theoretical speedup (f32) |
-|-----------------|-------|------------------------|------------------------|-------------------------------|
-| NEON (ASIMD)    | 128   | 4                      | 2                      | 4.0x                          |
-| AVX2            | 256   | 8                      | 4                      | 8.0x                          |
-| AVX-512         | 512   | 16                     | 8                      | 16.0x                         |
-| SVE 256-bit     | 256   | 8                      | 4                      | 8.0x                          |
-| SVE 512-bit     | 512   | 16                     | 8                      | 16.0x                         |
-
-**Compute-bound operations** (like SAXPY, matrix multiply, element-wise math) approach these theoretical limits when:
-1. Data fits in L1/L2 cache, minimizing memory latency.
-2. The algorithm has no data dependencies that prevent instruction-level parallelism.
-3. The compiler generates optimal code (aligned loads, no spills).
-4. FMA instructions are used where applicable (multiply-accumulate in one instruction).
-
-### Why Memory-Bound Ops Get Less Speedup
-
-**Memory-bound operations** (like memcpy, large vector reductions, streaming data) are limited by DRAM bandwidth, not compute throughput. Key facts:
-
-- DDR5-5600 dual-channel: ~44.8 GB/s theoretical peak bandwidth.
-- DDR4-3200 dual-channel: ~51.2 GB/s theoretical peak bandwidth.
-- L3 cache bandwidth: ~200-400 GB/s (order of magnitude faster).
-- L1 cache bandwidth: ~1000+ GB/s.
-
-When the working set exceeds cache capacity, the CPU spends most of its time waiting for data from main memory. SIMD can still help by:
-- Loading/storing wider chunks (fewer instructions, fewer cache line requests).
-- Using non-temporal (streaming) stores that bypass cache on writes.
-- Prefetching patterns that hide latency.
-
-But the speedup is bounded by the memory bandwidth ratio, typically **1.1x - 2x** for pure memory-bound workloads.
-
-### The Roofline Model
-
-The **roofline model** is a visual way to understand performance limits:
-
-```
-Performance (GFLOP/s)
-  ^
-  |     Compute-bound region
-  |     (flat ceiling: peak FLOP/s)
-  |         ~~~~~~~~~~~~~~
-  |        /
-  |       /
-  |      /  Memory-bound region
-  |     /   (sloped ceiling: peak GB/s * OI)
-  |    /
-  |   /
-  +------------------------------>  Operational Intensity (FLOP/Byte)
+```bash
+./build/x86/avx2_dot_product
+./build/x86/avx2_layernorm
+./build/x86/avx2_softmax_partial
 ```
 
-- **X-axis**: Operational Intensity = FLOPs divided by bytes of memory traffic. (Higher = more compute per byte loaded.)
-- **Y-axis**: Attainable performance in GFLOP/s.
-- **Sloped line**: Memory bandwidth ceiling (peak GB/s * OI = GFLOP/s).
-- **Flat line**: Peak compute ceiling (clock * cores * SIMD width * FMA).
+Each binary runs both scalar and SIMD paths internally, measures both, and
+prints a speedup table.  Example output from `avx2_vector_add`:
 
-To optimize:
-1. Compute the OI of your kernel. OI = total_float_ops / total_bytes_transferred.
-2. Find where your kernel sits on the x-axis.
-3. If you're on the sloped part (memory-bound), improve memory access: blocking, prefetching, layout.
-4. If you're on the flat part (compute-bound), improve computation: SIMD, instruction scheduling, FMA.
+```
+--- avx2_vector_add: float (N=1000003) ---
+name                     elapsed_ns   ns/el      GB/s       speedup
+scalar_add_f32             823456    0.8235      14.57      1.00x
+scalar_add_i32             810234    0.8103      14.81      1.00x
+avx2_add_f32_unaligned     105678    0.1057     113.55      7.79x
+avx2_add_f32_aligned       103211    0.1032     116.27      7.98x
+avx2_add_i32               101893    0.1019     117.77      7.95x
+```
 
----
+### Profile an individual kernel
 
-## 4. What Good Speedup Looks Like
+```bash
+# Hardware counters: IPC, cache misses, SIMD ratio
+./scripts/perf_stat.sh build/x86/avx2_dot_product
 
-### Compute-Bound Kernels
+# Sampling profile (perf record + report)
+./scripts/profile.sh record   build/x86/avx2_layernorm
 
-For purely compute-bound kernels (math on small arrays in cache):
+# Instruction-level hotspot (perf annotate)
+./scripts/profile.sh annotate build/x86/avx2_layernorm
 
-| ISA            | f32 expected speedup | f64 expected speedup |
-|----------------|----------------------|----------------------|
-| NEON (128-bit) | 3.5x - 4.0x          | 1.8x - 2.0x          |
-| AVX2 (256-bit) | 7.0x - 8.0x          | 3.5x - 4.0x          |
-| AVX-512        | 14.0x - 16.0x        | 7.0x - 8.0x          |
-| SVE 256-bit    | 7.0x - 8.0x          | 3.5x - 4.0x          |
-| SVE 512-bit    | 14.0x - 16.0x        | 7.0x - 8.0x          |
+# Cache simulation (cachegrind)
+./scripts/profile.sh cache    build/x86/avx2_layernorm
 
-**Expect <100% of theoretical** due to:
-- Loop overhead (prologue/epilogue for misaligned data).
-- Reduction operations (horizontal adds are more expensive).
-- Divisions and sqrt (not pipelined the same way as add/mul).
-- Compiler missed optimizations (always inspect assembly!).
+# Intel Top-Down microarchitecture analysis
+./scripts/profile.sh topdown  build/x86/avx2_layernorm
 
-### Memory-Bound Kernels
+# Flame graph
+./scripts/profile.sh flame    build/x86/avx2_layernorm
 
-| Category           | Typical speedup | Rationale                                  |
-|--------------------|-----------------|--------------------------------------------|
-| Pure memcpy        | 1.0x - 1.2x     | Bandwidth is the bottleneck, not SIMD width|
-| Streaming stores   | 1.3x - 1.8x     | NT stores + wider writes help              |
-| Large reduction    | 1.2x - 1.5x     | Loading is the dominant cost               |
-| In-place transform | 1.1x - 1.4x     | Read-modify-write pattern                  |
+# Full pipeline: record + annotate + cache
+./scripts/profile.sh all      build/x86/avx2_layernorm
+```
 
-**Why so little?** Because memory bandwidth is ~50 GB/s, and a single scalar loop can already achieve 8+ GB/s. Doubling the vector width doesn't double the memory channels. The CPU spends most cycles waiting on the memory controller (visible as low IPC in `perf stat`).
+### Inspect generated assembly
 
-### Mixed Kernels
+```bash
+# Disassemble and highlight SIMD instructions
+./scripts/inspect_asm.sh build/x86/avx2_dot_product
 
-| Example                         | Typical speedup | Notes                                           |
-|---------------------------------|-----------------|--------------------------------------------------|
-| Image convolution (3x3, 5x5)    | 3x - 6x         | Good locality, moderate reuse                    |
-| Matrix-vector multiply          | 2x - 4x         | Loads the vector each dot product (memory-heavy)  |
-| Stencil codes (Jacobi, heat eq) | 3x - 5x         | Streaming through memory with spatial reuse       |
-| Sorting (small N, in cache)     | 2x - 4x         | SIMD helps comparisons and permutes              |
-| Sorting (large N)               | 1.2x - 1.8x     | Memory bandwidth dominates                       |
-
-**Key insight:** SIMD provides 2x - theoretical_width speedup for mixed workloads. The exact value depends on the ratio of computation to memory access (Operational Intensity) as described by the roofline model.
+# Static throughput prediction (no hardware needed)
+./scripts/llvm_mca.sh build/x86/avx2_dot_product avx2_dot_product_f32
+./scripts/llvm_mca.sh --demo
+```
 
 ---
 
-## 5. Validation Checklist
+## 3. Benchmark Catalog
 
-Use this checklist when evaluating any new SIMD implementation:
+Every benchmark listed below is an actual binary produced by the build system.
+Each binary compares at least one scalar path against at least one SIMD path
+and reports speedup.
 
-- [ ] **Correctness**: Run `./scripts/run_all_tests.sh` — all must PASS.
-- [ ] **Performance**: Run `./scripts/run_all_benchmarks.sh` — compare speedup to expected range.
-- [ ] **Assembly inspection**: Run `./scripts/inspect_asm.sh build/x86/avx2_<kernel>` — verify SIMD instructions are generated.
-- [ ] **Hardware counters**: Run `./scripts/perf_stat.sh build/x86/avx2_<kernel>` — check IPC, cache misses, SIMD ratio.
-- [ ] **Cache behavior**: Does the working set fit in L2/L3? If not, expect memory-bound speedup.
-- [ ] **Alignment**: Are loads/stores aligned? Misaligned access can cost 2x+ on older hardware.
-- [ ] **Compiler optimizations**: Build with `-O3 -march=native` (or appropriate target flags).
+### Compute-bound kernels (expect high speedup)
+
+| Benchmark Binary              | Kernel                          | Data Type | Key SIMD Instructions              | Expected Speedup (AVX2) |
+|-------------------------------|---------------------------------|-----------|------------------------------------|--------------------------|
+| `avx2_vector_add`             | Vector addition C[i]=A[i]+B[i]  | f32, i32  | `vaddps` / `vaddps` (aligned+un)   | 7.0x - 8.0x             |
+| `avx2_relu_clamp`             | ReLU activation + clamp         | f32       | `vmaxps` / `vminps`               | 7.0x - 8.0x             |
+| `avx2_dot_product`            | Dot product sum(A[i]*B[i])      | f32       | `vfmadd231ps` + horizontal sum    | 6.5x - 7.5x             |
+| `avx2_reduce_sum`             | Sum reduction sum(A[i])         | f32       | `vaddps` + horizontal reduction   | 6.0x - 7.5x             |
+| `avx2_layernorm`              | Layer normalization             | f32       | `vsubps`, `vmulps`, `vaddps`, `vsqrtps` | 5.0x - 7.0x      |
+| `avx2_softmax_partial`        | Softmax (exp + sum + div)       | f32       | exp approx, `vaddps`, `vdivps`    | 4.0x - 6.5x             |
+| `avx2_int8_dot`               | Integer dot product             | int8      | `vpmaddubsw`, `vpmaddwd`          | 7.0x - 8.0x             |
+| `avx2_gemm_micro`             | GEMM micro-kernel               | f32       | `vfmadd231ps` (multi-accumulator)  | 6.0x - 7.5x             |
+
+### Memory-bound kernels (expect modest speedup)
+
+| Benchmark Binary              | Kernel                          | Data Type | Key SIMD Instructions              | Expected Speedup (AVX2) |
+|-------------------------------|---------------------------------|-----------|------------------------------------|--------------------------|
+| `avx2_memcpy_like`            | Memcpy-like streaming copy      | f32       | `vmovaps` / `vmovntps` (NT store)  | 1.1x - 1.8x             |
+| `avx2_rgb_to_gray`            | RGB to grayscale conversion     | uint8     | `vpmaddubsw`, blending             | 2.0x - 4.0x             |
+
+### Layout / data-reorganization kernels
+
+| Benchmark Binary              | Kernel                          | Data Type | Key SIMD Instructions              | Expected Speedup (AVX2) |
+|-------------------------------|---------------------------------|-----------|------------------------------------|--------------------------|
+| `avx2_aos_to_soa`             | AoS -> SoA transposition        | f32       | gather / shuffle / interleave      | 2.5x - 4.5x             |
+
+### Mixed compute + memory kernels
+
+| Benchmark Binary              | Kernel                          | Data Type | Key SIMD Instructions              | Expected Speedup (AVX2) |
+|-------------------------------|---------------------------------|-----------|------------------------------------|--------------------------|
+| `avx2_conv1d`                 | 1D convolution                  | f32       | `vfmadd231ps`, sliding window      | 3.0x - 6.0x             |
+
+### Educational / diagnostic binaries
+
+| Benchmark Binary              | Purpose                                                        |
+|-------------------------------|----------------------------------------------------------------|
+| `avx2_autovec_vs_intrinsics`  | Compares auto-vectorization (compiler) vs hand-written AVX2    |
+| `dispatch_demo`               | Demonstrates runtime ISA dispatch (SSE -> AVX2 -> AVX-512)     |
+| `portable_sse`                | Same source compiled with `-msse4.2` (128-bit SIMD)            |
+| `portable_avx2`               | Same source compiled with `-mavx2 -mfma` (256-bit SIMD)        |
+| `portable_avx512`             | Same source compiled with AVX-512 flags (512-bit, if enabled)   |
+| `edge_cases_demo`             | Validates NaN, Inf, denormals, zero-length, alignment edge cases|
+
+### AVX-512 kernels (optional -- requires `BUILD_X86_AVX512=ON`)
+
+| Benchmark Binary              | Kernel                          | Key AVX-512 Feature                |
+|-------------------------------|---------------------------------|------------------------------------|
+| `avx512_vector_add`           | Vector addition f32             | 512-bit vectors (16x f32)          |
+| `avx512_reduce_sum`           | Sum reduction f32               | Horizontal reduction with AVX-512  |
+| `avx512_dot_product`          | Dot product f32                 | FMA + 512-bit accumulators         |
+| `avx512_masked_tail`          | Masked tail handling            | `k` mask registers                 |
+| `avx512_gather_scatter`       | Gather/scatter operations       | `vgatherdps` / `vscatterdps`       |
+| `avx512_byte_scan`            | Byte-level scanning             | `vpcmpb` + `kmov` on byte data    |
 
 ---
 
-*Generated by SIMD tutorial benchmarking framework. Update with your own results.*
+## 4. Interpreting Results -- The Roofline Model
+
+The **roofline model** explains why some kernels get near-theoretical SIMD speedup
+and others barely improve.
+
+### The formula
+
+```
+Attainable GFLOP/s = min( Peak_Compute_GFLOP/s ,  Peak_Memory_GB/s * OI )
+```
+
+Where **OI (Operational Intensity)** = total FLOPs / total bytes transferred.
+
+### Computing OI for your kernel
+
+For the `avx2_vector_add` kernel: C[i] = A[i] + B[i]
+
+- **FLOPs per element**: 1 addition = 1 FLOP
+- **Bytes per element** (f32): 2 reads (A, B) + 1 write (C) = 12 bytes
+- **OI** = 1 FLOP / 12 bytes = **0.083 FLOP/byte**
+
+That is extremely low OI -- the kernel is overwhelmingly memory-bound, which is
+why `avx2_vector_add` speedup is typically capped by DRAM bandwidth.
+
+For `avx2_dot_product`: result = sum(A[i] * B[i])
+
+- **FLOPs per element**: 1 multiply + 1 accumulate = 2 FLOP
+- **Bytes per element** (f32): 2 reads (A, B) = 8 bytes
+- **OI** = 2 FLOP / 8 bytes = **0.25 FLOP/byte**
+
+Higher OI means it leans more compute-bound, and speedup approaches the SIMD
+width ratio more closely.
+
+For `avx2_gemm_micro` (tiled matrix multiply, working set in L1 cache):
+
+- **FLOPs per element**: 2 * K (for K inner dimension)
+- **Bytes from L1**: negligible reused data
+- **OI** >> 1 (compute-bound on L1 data)
+
+This is where SIMD shines -- speedup near the theoretical maximum.
+
+### Finding your machine's roofline
+
+```
+Peak_Compute = cores * frequency * SIMD_width_in_floats * 2 (for FMA)
+
+Example -- Intel Core i7-13700K (8 P-cores, 5.4 GHz turbo):
+  Peak_Compute = 8 * 5.4e9 * 16 (AVX-512 f32) * 2 (FMA) = 1382 GFLOP/s (theoretical)
+
+Peak_Memory = memory_channels * frequency * bytes_per_transfer
+
+Example -- DDR5-5600 dual-channel:
+  Peak_Memory = 2 * 5600e6 * 8 bytes = 89.6 GB/s (theoretical STREAM triad)
+```
+
+### Decision from roofline
+
+1. Compute your kernel's OI.
+2. If `Peak_Memory * OI < Peak_Compute` -> **memory-bound**. Better SIMD won't
+   help. Instead: cache-block, prefetch, use non-temporal stores, or reorder loops.
+3. If `Peak_Memory * OI >= Peak_Compute` -> **compute-bound**. SIMD gives the
+   full theoretical speedup. Verify with `perf_stat.sh` that IPC is high (>1.5).
+
+---
+
+## 5. Expected Speedup per ISA
+
+### Theoretical maximum speedup for f32
+
+| ISA                 | Vector Width | f32 per Instr | Theoretical Speedup (f32) |
+|---------------------|-------------|---------------|----------------------------|
+| SSE4.2 (baseline)   | 128-bit     | 4             | 4.0x                       |
+| NEON (ASIMD)        | 128-bit     | 4             | 4.0x                       |
+| AVX2                | 256-bit     | 8             | 8.0x                       |
+| AVX2 + FMA          | 256-bit     | 8 (2x throughput with FMA)| 8.0x - 10.0x     |
+| AVX-512             | 512-bit     | 16            | 16.0x                      |
+| SVE (256-bit impl)  | 256-bit     | 8             | 8.0x                       |
+| SVE (512-bit impl)  | 512-bit     | 16            | 16.0x                      |
+
+### Practical speedup ranges (what to actually expect)
+
+The theoretical maximum assumes: all data in L1 cache, perfect instruction
+scheduling, no reduction overhead, and no unrolling needed for ILP. In practice:
+
+| ISA                 | Compute-Bound Kernels    | Memory-Bound Kernels     | Mixed Kernels         |
+|---------------------|--------------------------|--------------------------|------------------------|
+| SSE4.2              | 3.0x - 3.8x              | 1.0x - 1.3x              | 1.5x - 2.5x           |
+| NEON (128-bit)      | 3.0x - 3.8x              | 1.0x - 1.3x              | 1.5x - 2.5x           |
+| AVX2                | 6.0x - 7.8x              | 1.1x - 1.8x              | 2.0x - 5.0x           |
+| AVX2 + FMA          | 6.5x - 8.5x              | 1.1x - 1.8x              | 2.5x - 6.0x           |
+| AVX-512             | 12.0x - 15.5x            | 1.1x - 1.8x              | 3.0x - 8.0x           |
+| SVE 256-bit         | 6.0x - 7.5x              | 1.1x - 1.6x              | 2.0x - 4.5x           |
+
+### Why you never get exactly theoretical
+
+- **Reduction overhead**: `avx2_dot_product` and `avx2_reduce_sum` need
+  horizontal add at the end. `vhaddps` only executes on port 5 (Skylake) or
+  port 0/1 (Zen 3), creating a bottleneck.
+- **Tail handling**: if `n % 8 != 0`, the loop has a scalar epilogue that
+  dilutes speedup.
+- **Load alignment**: `_mm256_loadu_ps` vs `_mm256_load_ps`. Unaligned loads
+  crossing cache-line boundaries add 1-2 cycles.
+- **Pipeline depth**: FMA has 4-cycle latency on Skylake. Without
+  multi-accumulator unrolling, the dependency chain limits throughput.
+- **Frequency scaling**: AVX-512 can cause clock throttling on some CPUs
+  (especially older Intel). `avx2` kernels may actually run at higher frequency
+  than `avx512` kernels on the same machine.
+- **Compiler differences**: GCC vs Clang can produce different instruction
+  schedules. The `avx2_autovec_vs_intrinsics` benchmark directly compares
+  compiler auto-vectorization against hand-written intrinsics.
+
+---
+
+## 6. What Good Speedup Looks Like
+
+### Compute-bound kernels (high OI)
+
+These kernels do many FLOPs per byte loaded. The working set fits in L1 or L2
+cache. Expect speedup **close to the SIMD width ratio**:
+
+| Benchmark           | AVX2 Speedup | Rationale                                    |
+|---------------------|-------------|-----------------------------------------------|
+| `avx2_vector_add`   | 7.0x - 7.9x | Pure element-wise, no reduction               |
+| `avx2_relu_clamp`   | 7.0x - 7.9x | Min/max is same throughput as add             |
+| `avx2_int8_dot`     | 7.0x - 8.0x | 32 int8 per 256-bit register -> huge speedup  |
+| `avx2_dot_product`  | 6.0x - 7.5x | Reduction step costs 5-8% of total time       |
+| `avx2_gemm_micro`   | 6.5x - 7.8x | Multi-accumulator unrolling hides FMA latency  |
+| `avx2_layernorm`    | 5.5x - 7.0x | sqrt + division lower the ceiling             |
+| `avx2_softmax_partial`| 4.0x - 6.5x | exp() approximation is the bottleneck        |
+
+**Red flag**: if `avx2_vector_add` speedup is below 5.0x, check:
+- Are you running a debug build? Use `cmake --preset x86-release`.
+- Is the compiler auto-vectorizing the scalar loop? Inspect assembly with
+  `./scripts/inspect_asm.sh`.
+- Are you on a virtual machine with throttled SIMD? Check `lscpu | grep Flags`.
+
+### Memory-bound kernels (low OI)
+
+These kernels stream through large arrays that don't fit in cache. The CPU
+spends most cycles waiting on DRAM. SIMD helps only marginally:
+
+| Benchmark           | AVX2 Speedup | Rationale                                    |
+|---------------------|-------------|-----------------------------------------------|
+| `avx2_memcpy_like`  | 1.1x - 1.8x | DRAM bandwidth is the ceiling                |
+| `avx2_rgb_to_gray`  | 2.0x - 4.0x | Moderate reuse, some compute per pixel       |
+
+**Red flag**: if `avx2_memcpy_like` shows 0% speedup or even slowdown:
+- Non-temporal stores (`_mm256_stream_ps`) may not be beneficial on your CPU.
+- The scalar `memcpy` in glibc is already highly optimized (rep movsb on recent
+  glibc with ERMS).
+- Run `./scripts/profile.sh cache build/x86/avx2_memcpy_like` and check if
+  the cache miss rate is >20%.
+
+### Layout-transformation kernels
+
+| Benchmark           | AVX2 Speedup | Rationale                                    |
+|---------------------|-------------|-----------------------------------------------|
+| `avx2_aos_to_soa`   | 2.5x - 4.5x | Shuffle/permute overhead limits speedup      |
+
+### Mixed kernels
+
+| Benchmark           | AVX2 Speedup | Rationale                                    |
+|---------------------|-------------|-----------------------------------------------|
+| `avx2_conv1d`       | 3.0x - 6.0x | Depends on filter size and stride            |
+
+### Using perf stat to confirm the bottleneck
+
+```bash
+./scripts/perf_stat.sh build/x86/avx2_dot_product
+```
+
+Interpretation from the `perf_stat.sh` output:
+
+| IPC Range   | Cache Miss Rate | Classification        | Action                                  |
+|------------|-----------------|-----------------------|-----------------------------------------|
+| > 1.5      | < 3%            | Compute-bound         | SIMD is working well; keep scaling.     |
+| 0.5 - 1.5  | 3% - 10%        | Mixed                 | Try cache blocking, prefetch.           |
+| < 0.5      | > 10%           | Memory-bound          | Fix data layout; SIMD won't help much.  |
+
+---
+
+## 7. Regression Detection
+
+### How to detect performance regressions
+
+**Method 1: diff two runs**
+
+```bash
+# Baseline run
+./scripts/run_all_benchmarks.sh
+cp benchmarks/latest_results.txt benchmarks/baseline.txt
+
+# ... make changes, rebuild ...
+
+# Changed run
+./scripts/run_all_benchmarks.sh
+cp benchmarks/latest_results.txt benchmarks/current.txt
+
+# Compare
+diff -u benchmarks/baseline.txt benchmarks/current.txt
+```
+
+**Method 2: automated comparison script**
+
+Create `benchmarks/compare.sh`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+BASE="${1:?Usage: $0 <baseline.txt> <current.txt>}"
+CURR="${2:?}"
+
+echo "=== Regression Check ==="
+echo "Comparing $BASE vs $CURR"
+echo ""
+
+# Extract ns/el and speedup lines and compare
+comm -3 <(grep -E '^\s*(scalar|avx2|avx512|neon|portable|sve)_' "$BASE" | sort) \
+        <(grep -E '^\s*(scalar|avx2|avx512|neon|portable|sve)_' "$CURR" | sort)
+```
+
+**Method 3: track speedup over time (CSV)**
+
+Append each run to `benchmarks/results.csv` with a timestamp column. Use any
+CSV tool (Python pandas, Google Sheets, LibreOffice Calc) to plot speedup
+trends.
+
+### What to check after code changes
+
+- [ ] **Correctness first**: `./scripts/run_all_tests.sh` -- all must pass.
+- [ ] **No scalar regression**: the scalar baseline ns/el should be unchanged.
+- [ ] **SIMD speedup stable**: speedup should not drop more than 5% from baseline.
+- [ ] **No compiler de-optimization**: `./scripts/inspect_asm.sh build/x86/avx2_<kernel>`
+      and verify SIMD instructions are still generated. Sometimes refactoring
+      accidentally breaks the compiler's ability to see vectorizable loops.
+- [ ] **Cache behavior**: `./scripts/profile.sh cache` and verify L1 miss rate
+      hasn't increased.
+- [ ] **Port pressure**: `./scripts/llvm_mca.sh` on the kernel to check that
+      the bottleneck port hasn't shifted.
+
+### Common causes of regressions
+
+| Symptom                          | Likely Cause                                      |
+|----------------------------------|---------------------------------------------------|
+| Speedup drops from 7.8x to 3.5x  | Compiler auto-vectorized the scalar baseline      |
+| Speedup drops from 7.8x to 2.0x  | SIMD path not used; scalar fallback active        |
+| Scalar ns/el increased by 2x     | Extra copies, alignment change, or debug build    |
+| IPC dropped significantly        | New data dependency introduced in the hot loop    |
+| Cache miss rate spiked           | Working set grew beyond L2/L3 capacity            |
+| `avx2_dot_product` speedup < 4x  | Horizontal sum not vectorized; check assembly     |
+| `avx2_gemm_micro` speedup < 3x  | Accumulator unrolling removed or insufficient     |
+
+---
+
+## 8. Export to CSV
+
+### CSV format
+
+Each benchmark binary prints a table.  To convert all results to CSV, pipe
+output through a parser or use the project-provided CSV script:
+
+The project already has `benchmarks/results.csv` with columns:
+
+```
+benchmark,scalar_ns_per_el,simd_ns_per_el,speedup,scalar_gb_s,simd_gb_s,platform,isa,num_elements,notes
+```
+
+### How to generate CSV from a run
+
+```bash
+# Run all benchmarks
+./scripts/run_all_benchmarks.sh
+
+# Parse latest_results.txt into CSV format (Python quick script)
+python3 << 'PYEOF'
+import re, sys, csv
+
+benchmarks = [
+    "avx2_vector_add", "avx2_relu_clamp", "avx2_dot_product",
+    "avx2_reduce_sum", "avx2_layernorm", "avx2_softmax_partial",
+    "avx2_conv1d", "avx2_memcpy_like", "avx2_rgb_to_gray",
+    "avx2_int8_dot", "avx2_gemm_micro", "avx2_aos_to_soa",
+]
+
+with open("benchmarks/latest_results.txt") as f:
+    text = f.read()
+
+rows = []
+for bn in benchmarks:
+    section_start = text.find(f"--- {bn} ---")
+    if section_start == -1:
+        continue
+    section_end = text.find("---", section_start + len(bn) + 10)
+    section = text[section_start:section_end] if section_end != -1 else text[section_start:]
+
+    scalar_ns = None
+    simd_ns = None
+    for line in section.split("\n"):
+        if "scalar" in line.lower():
+            parts = line.split()
+            for i, p in enumerate(parts):
+                try:
+                    float(p)
+                    scalar_ns = float(p)
+                    break
+                except ValueError:
+                    pass
+        elif any(x in line.lower() for x in ["avx2", "neon", "simd"]):
+            parts = line.split()
+            nums = []
+            for p in parts:
+                try: nums.append(float(p))
+                except ValueError: pass
+            if len(nums) >= 4:
+                simd_ns = nums[0]
+    if scalar_ns and simd_ns:
+        rows.append([bn, scalar_ns, simd_ns, scalar_ns/simd_ns])
+
+with open("benchmarks/parsed_results.csv", "w", newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["benchmark", "scalar_ns_per_el", "simd_ns_per_el", "speedup"])
+    w.writerows(rows)
+
+print(f"Exported {len(rows)} benchmark rows to benchmarks/parsed_results.csv")
+PYEOF
+```
+
+### Using CSV in spreadsheets
+
+1. Open `benchmarks/parsed_results.csv` in Google Sheets or LibreOffice Calc
+2. Create a bar chart: X-axis = benchmark name, Y-axis = speedup
+3. Add a horizontal reference line at 8.0x (theoretical AVX2 f32 max)
+4. Add a second horizontal line at 1.0x (no speedup)
+
+This gives you a visual "SIMD efficiency report" at a glance.
+
+### Example CSV output
+
+```csv
+benchmark,scalar_ns_per_el,simd_ns_per_el,speedup
+avx2_vector_add,0.8235,0.1057,7.79
+avx2_relu_clamp,0.7120,0.0918,7.76
+avx2_dot_product,1.2340,0.1780,6.93
+avx2_reduce_sum,0.9800,0.1420,6.90
+avx2_layernorm,2.1000,0.3500,6.00
+avx2_softmax_partial,5.6000,1.1200,5.00
+avx2_int8_dot,0.4500,0.0580,7.76
+avx2_gemm_micro,3.2000,0.4700,6.81
+avx2_memcpy_like,0.6200,0.3900,1.59
+avx2_rgb_to_gray,1.8000,0.5600,3.21
+avx2_aos_to_soa,2.4000,0.6500,3.69
+avx2_conv1d,4.5000,0.9800,4.59
+```
+
+---
+
+## Quick Reference -- Common Workflows
+
+```bash
+# Full fresh-build + benchmark + profile cycle
+cd /home/ghr/code/cuda_pytorch/simd
+
+./scripts/build.sh                         # 1. Build everything
+./scripts/run_all_tests.sh                 # 2. Verify correctness
+./scripts/run_all_benchmarks.sh            # 3. Collect all benchmark data
+cat benchmarks/latest_results.txt          # 4. Read results
+
+# Deep-dive into one kernel
+./scripts/perf_stat.sh build/x86/avx2_dot_product    # Hardware counters
+./scripts/profile.sh annotate build/x86/avx2_dot_product  # Hot instructions
+./scripts/llvm_mca.sh build/x86/avx2_dot_product avx2_dot_product_f32  # Static analysis
+```
+
+---
+
+*Generated by the SIMD tutorial benchmarking framework.  Update this report
+with your own system information and measured results after running the
+benchmarks.*

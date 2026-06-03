@@ -1,595 +1,1786 @@
-# SVE 基础：向量长度无关的编程范式
+# SVE Programming Guide: Vector-Length Agnostic SIMD for Production
 
-## 0. 为什么需要 SVE
+## 1. SVE Concepts (Deep Dive)
 
-NEON 有一个根本限制：**向量宽度是固定的 128-bit**。这意味着：
+### 1.1 The Problem SVE Solves
 
-1. **代码不可移植**：为 Cortex-A76（128-bit NEON）写的代码在 Graviton3（256-bit SVE）上只能利用一半宽度
-2. **必须维护多个版本**：不同向量宽度需要不同的展开因子和尾部循环
-3. **尾部循环是 bug 温床**：标量尾部处理是 SIMD 代码最常见的事故源
+NEON (ARM's original SIMD) has a fundamental limitation: **the vector width is fixed at 128 bits**. This creates three severe problems for production software:
 
-SVE 通过**向量长度无关**（Vector-Length Agnostic, VLA）解决所有三个问题。
+1. **Code is not future-proof**: Code optimized for 128-bit NEON leaves half the throughput unused on 256-bit hardware (Graviton3) and 75% unused on 512-bit hardware (A64FX).
+2. **Multiple code paths required**: Each vector width demands its own unroll factor, tail loop, and tuning parameters.
+3. **Tail loops are bug-prone**: The scalar tail loop is the single most common source of SIMD bugs -- off-by-one errors, uninitialized reads, and buffer overflows.
+
+SVE eliminates all three problems via **Vector Length Agnosticism (VLA)**.
+
+### 1.2 What VLA Means in Practice
+
+A single SVE binary runs identically -- without recompilation -- on implementations ranging from 128 bits (minimum) to 2048 bits (maximum). The same loop handles all vector widths and all iteration counts:
 
 ```
-NEON 方式（固定 128-bit）:
-  for (i = 0; i < n - 4; i += 4) { ... }  // 主循环: 4 floats
-  for (; i < n; i++) { ... }              // 尾部: scalar
+NEON (fixed 128-bit):
+  for (i = 0; i <= n - 4; i += 4) { ... }   // main loop: 4 floats
+  for (; i < n; i++) { ... }                  // tail: scalar (bug-prone)
 
-SVE 方式（VLA）:
-  while (svwhilelt_b32(i, n)) {            // 主循环 + 尾部 = 一个循环!
-      自动处理任意向量长度
+SVE (VLA):
+  uint64_t i = 0;
+  while (i < n) {
+      svbool_t pg = svwhilelt_b32(i, n);     // which lanes are valid?
+      ...                                      // main loop + tail = ONE loop
+      i += svcntw();                           // actual lane count on this CPU
   }
 ```
 
+### 1.3 How SVE Achieves VLA: Predicate Registers
+
+The key insight: **predicate registers control per-lane execution**. A predicate register holds 1 bit per vector lane. When a lane's bit is 1, the operation executes on that lane; when 0, it is skipped (with behavior depending on the `_m`, `_z`, or `_x` suffix).
+
+For a 256-bit SVE implementation working on `float32` data:
+
+```
+Z0 (256-bit):  [ lane7 | lane6 | lane5 | lane4 | lane3 | lane2 | lane1 | lane0 ]
+P0 (predicate, 1 bit per byte of Z0):  each float lane consumes 1 predicate bit
+   bit:          [   0   |   1   |   1   |   0   |   1   |   1   |   1   |   1   ]
+                    ↑       ↑       ↑       ↑       ↑       ↑       ↑       ↑
+                  skip    keep    keep    skip    keep    keep    keep    keep
+```
+
+The predicate logic means:
+- The loop counter `i` can be any value; `svwhilelt_b32(i, n)` generates exactly the right predicate for the remaining elements.
+- No scalar tail loop is ever needed.
+- The same binary automatically takes advantage of wider vectors on newer hardware.
+
+### 1.4 Current SVE Hardware Landscape
+
+| Implementation | Vector Length | Device Type | SVE2? | Notes |
+|---------------|--------------|-------------|-------|-------|
+| **AWS Graviton3** | 256-bit (SVE 256) | Cloud server (Neoverse V1) | No (SVE1) | Widest deployment for SVE cloud workloads |
+| **Fujitsu A64FX** | 512-bit | HPC (Fugaku supercomputer) | No (SVE1) | Largest vector width; strong HBM2 bandwidth |
+| **NVIDIA Grace** | 256-bit | Cloud/HPC (Neoverse V2) | SVE2 | ARMv9, inside Grace-Hopper and Grace-Blackwell |
+| **Apple M4** | 128-bit (SME) | Mobile/laptop | No | Apple implements SME (Streaming SVE), not standard SVE |
+| **AWS Graviton4** | 256-bit | Cloud server (Neoverse V2) | SVE2 | ARMv9 with SVE2 + NEON |
+| **QEMU user-mode** | Configurable (128-2048) | Emulation | Optional | Export `SVE_VECTOR_LENGTH=n` to test different VLs |
+| **Android flagships** | N/A (NEON only) | Mobile | No | A76/A78/A715/X3: NEON only; SVE expected in Cortex-X5+ |
+
+Key takeaway: as of 2024-2025, SVE is primarily a **server-side technology**. Mobile adoption will come with SVE2-mandatory ARMv9 cores.
+
+### 1.5 SVE vs Fixed-Width SIMD: Fundamental Tradeoffs
+
+| Aspect | NEON (fixed 128-bit) | SVE (VLA) |
+|--------|---------------------|-----------|
+| **Code portability** | Requires per-width variants | Single binary, all widths |
+| **Performance predictability** | Exact (known unroll factor) | Approximate (unknown VL at compile time) |
+| **Tail handling** | Manual scalar tail loop | Automatic via predicates |
+| **Unroll tuning** | Deterministic | Requires runtime VL detection |
+| **Debugging** | Mature tools | Fewer tools, but improving |
+| **Compiler auto-vec** | Mature in GCC/Clang | Improving but not yet equal |
+| **Gather/Scatter** | Limited (`LD1` + `TBL`) | First-class via `svld1_gather` |
+| **Fault tolerance** | None | Fault-suppressing loads (`svld1`) |
+
 ---
 
-## 1. SVE 寄存器
+## 2. Predicate Programming (The Core of SVE)
 
-### 向量寄存器
+Predicates are the fundamental abstraction that makes VLA possible. This section covers every aspect of predicate programming with complete, compilable examples.
 
-```
-Z0-Z31: 可伸缩向量寄存器（32 个）
-  宽度: VL bits (128, 256, 512, 1024, 2048...)
-  
-  Z0 的 128-bit 低部分 = V0 (NEON 的 Q0 寄存器)
-  Z0 的 64-bit  低部分 = D0 (NEON 的 D0 寄存器)
-
-  这意味着 SVE 和 NEON 共用寄存器文件
-  你可以在一个函数中混用 NEON 和 SVE（但不推荐）
-```
-
-### 谓词寄存器
-
-```
-P0-P15: 谓词寄存器（16 个）
-  宽度: VL/8 bits (每个 lane 1 bit)
-  
-  功能: 控制每个 lane 的启用/禁用
-  - P0: 通常用于 ALU 操作（ptrue）
-  - P1-P3: 用于数据操作
-  - P4-P7: 通用谓词
-  - P8-P15: 用于循环控制
-```
-
-### 与 NEON 的寄存器映射
-
-```
-SVE                 NEON
-───────────────────────────
-Z0  [VL-1:0]  ←→   V0  [127:0]  (低128位)
-Z1  [VL-1:0]  ←→   V1  [127:0]
-...
-P0  [VL/8-1:0]       无对应
-
-注意: Z0 的高位（VL-1 到 128）在 NEON 中没有对应
-在混用 NEON 和 SVE 时必须谨慎
-```
-
----
-
-## 2. 谓词的概念
-
-### 什么是谓词
-
-谓词是一个位掩码，每个 bit 控制向量中对应 lane 的操作：
-
-```
-Z0 (256-bit, VL=256, float32x?):
-  [ lane7 | lane6 | lane5 | lane4 | lane3 | lane2 | lane1 | lane0 ]
-
-P0 (256/8 = 32-bit 谓词, 每个 float lane 用 1 bit):
-  [   0   |   1   |   1   |   0   |   1   |   1   |   1   |   1   ]
-      ↑       ↑       ↑       ↑       ↑       ↑       ↑       ↑
-     禁用    启用    启用    禁用    启用    启用    启用    启用
-```
-
-### 谓词创建
+### 2.1 The `svbool_t` Type
 
 ```c
 #include <arm_sve.h>
 
-// 方式 1: 循环计数器模式（最常用）
-svbool_t pg = svwhilelt_b32(uint64_t i, uint64_t n);
-// 含义: 对 lane j, 如果 (i + j) < n 则启用, 否则禁用
-// 这是构建无尾部循环的关键
+// svbool_t is an opaque type representing VL/8 bits of predicate information.
+// Each byte of the vector register has one corresponding predicate bit.
+// For 256-bit SVE: svbool_t contains 32 bits (one per byte of Z0).
 
-// 方式 2: 全真谓词
-svbool_t pg_all = svptrue_b32();   // 所有 lane 启用
-// 等价于:
+svbool_t pg;  // an opaque predicate -- never access its bits directly
+```
+
+### 2.2 Predicate Creation Patterns
+
+```c
+#include <arm_sve.h>
+
+// --- Pattern 1: Loop counter predicate (MOST IMPORTANT) ---
+// svwhilelt_b32(i, n): For lane k, pg[k] = 1 if (i + k) < n, else 0.
+// This is the canonical SVE loop predicate. It handles the main body AND
+// the tail in one expression -- no separate scalar tail loop.
+uint64_t i = 0;
+uint64_t n = 100;
+svbool_t pg = svwhilelt_b32(i, n);  // generates: [1,1,1,...,0,0] depending on VL
+
+// --- Pattern 2: All-true predicate ---
+svbool_t pg_all = svptrue_b32();           // all lanes enabled
+// Equivalent to:
 svbool_t pg_all = svptrue_pat_b32(SV_ALL);
 
-// 方式 3: 模式谓词
-svbool_t pg_vl1  = svptrue_pat_b32(SV_VL1);  // 只有 lane0 启用
-svbool_t pg_vl2  = svptrue_pat_b32(SV_VL2);  // lane0-1 启用
-svbool_t pg_vl3  = svptrue_pat_b32(SV_VL3);  // lane0-2 启用
-svbool_t pg_vl4  = svptrue_pat_b32(SV_VL4);  // lane0-3 启用
+// --- Pattern 3: Pattern-based predicates (known multiples) ---
+// When you KNOW n is a multiple of the vector width, avoid whilelt overhead:
+svbool_t pg_vl1  = svptrue_pat_b32(SV_VL1);   // only lane 0 enabled
+svbool_t pg_vl2  = svptrue_pat_b32(SV_VL2);   // lanes 0-1
+svbool_t pg_vl3  = svptrue_pat_b32(SV_VL3);   // lanes 0-2
+svbool_t pg_vl4  = svptrue_pat_b32(SV_VL4);   // lanes 0-3  (== 128-bit for float32)
 svbool_t pg_vl5  = svptrue_pat_b32(SV_VL5);
 svbool_t pg_vl6  = svptrue_pat_b32(SV_VL6);
 svbool_t pg_vl7  = svptrue_pat_b32(SV_VL7);
-svbool_t pg_vl8  = svptrue_pat_b32(SV_VL8);  // lane0-7 启用
-svbool_t pg_vl16 = svptrue_pat_b32(SV_VL16);
-svbool_t pg_odd  = svptrue_pat_b32(SV_VL256);  // 等等
+svbool_t pg_vl8  = svptrue_pat_b32(SV_VL8);   // lanes 0-7  (== 256-bit for float32)
 
-// 方式 4: 比较谓词（从数据生成）
-svbool_t pg_gt = svcmpgt_f32(pg_all, a, b);   // a > b 的 lane 为 true
-svbool_t pg_eq = svcmpeq_f32(pg_all, a, b);   // a == b 的 lane 为 true
+// --- Pattern 4: Element-type specific ptrue ---
+svbool_t pg_b8  = svptrue_b8();   // all lanes for byte elements
+svbool_t pg_b16 = svptrue_b16();  // all lanes for halfword elements
+svbool_t pg_b32 = svptrue_b32();  // all lanes for word elements
+svbool_t pg_b64 = svptrue_b64();  // all lanes for doubleword elements
 ```
 
-### 谓词逻辑运算
+### 2.3 The `_m`, `_z`, `_x` Suffixes: Controlling Inactive Lanes
+
+This is the most critical design decision in every SVE instruction. Choosing the wrong suffix silently introduces bugs:
 
 ```c
-// SVE2 提供位级谓词运算
-svbool_t pg_and = svand_b_z(pg1, pg2, pg3);    // pg1 & pg2
-svbool_t pg_or  = svorr_b_z(pg1, pg2, pg3);    // pg1 | pg2
-svbool_t pg_not = svnot_b_z(pg1, pg2);          // ~pg2
+#include <arm_sve.h>
+
+// Consider: svfloat32_t result = svadd_f32_?(pg, op1, op2);
+//
+// For active lanes   (pg[k] == 1): result[k] = op1[k] + op2[k]    (always)
+// For inactive lanes (pg[k] == 0): behavior depends on the suffix
+
+// _m (merge): inactive lanes get op1's value -- SAFE for accumulators
+svfloat32_t result_m = svadd_f32_m(pg, op1, op2);
+// Lane 0 (active):   result[0] = op1[0] + op2[0]
+// Lane 1 (inactive): result[1] = op1[1]            <-- preserves op1
+
+// _z (zero): inactive lanes get zero -- SAFE for fresh results
+svfloat32_t result_z = svadd_f32_z(pg, op1, op2);
+// Lane 0 (active):   result[0] = op1[0] + op2[0]
+// Lane 1 (inactive): result[1] = 0.0f               <-- zeroed
+
+// _x (don't care): inactive lanes are undefined -- FASTEST, but risky
+svfloat32_t result_x = svadd_f32_x(pg, op1, op2);
+// Lane 0 (active):   result[0] = op1[0] + op2[0]
+// Lane 1 (inactive): result[1] = ???                <-- ANY value, including NaN
 ```
 
----
+**Rule of thumb:**
+- Use `_m` when the first operand is an accumulator you must preserve (e.g., `acc = svmla_f32_m(pg, acc, a, b)`).
+- Use `_z` when creating a new masked result for storage.
+- Use `_x` only when inactive lane values are immediately overwritten by a subsequent predicated operation.
 
-## 3. 向量类型
-
-```c
-// SVE 向量类型（VLA，宽度在编译时未知）
-svfloat32_t   f32_vec;   // VL/32 个 float
-svfloat64_t   f64_vec;   // VL/64 个 double
-svint32_t     i32_vec;   // VL/32 个 int32
-svuint32_t    u32_vec;   // VL/32 个 uint32
-svint16_t     i16_vec;   // VL/16 个 int16
-svint8_t      i8_vec;    // VL/8 个 int8
-svuint8_t     u8_vec;
-
-// 谓词类型
-svbool_t  pg;            // VL/8 位的谓词
-
-// 获取向量长度（运行时值，不是常量）
-uint64_t vl = svcntb();  // 向量中的字节数 (VL/8)
-uint64_t vl = svcnth();  // 向量中的半字数 (VL/16)
-uint64_t vl = svcntw();  // 向量中的字数 (VL/32)
-uint64_t vl = svcntd();  // 向量中的双字数 (VL/64)
-```
-
----
-
-## 4. 谓词控制的加载/存储
-
-这是 SVE 最强大的特性。谓词控制的 load/store **消除了对标量尾部循环的需求**。
-
-### 基本谓词 Load/Store
+### 2.4 Loop Predicate: `svwhilelt_b32` in Depth
 
 ```c
-// 谓词 load: 只加载 pg 掩码启用的 lane
-svfloat32_t svld1_f32(svbool_t pg, const float32_t *base);
-svint32_t   svld1_s32(svbool_t pg, const int32_t *base);
+#include <arm_sve.h>
+#include <stdint.h>
+#include <stdio.h>
 
-// 谓词 store: 只存储 pg 掩码启用的 lane（不会越界写入！）
-void svst1_f32(svbool_t pg, float32_t *base, svfloat32_t data);
-void svst1_s32(svbool_t pg, int32_t *base, svint32_t data);
-
-// 获取第一个 faulting 地址（用于内存故障处理）
-// svldff1_f32: first-faulting load，在越界时不触发段错误
-// 适用于处理未被完全映射的页面的尾部
-```
-
-### 无尾部循环的向量加法
-
-```c
-// SVE 版向量加法：无标量尾部，自然适应任意 n 和任意 VL
-void vector_add_sve(const float* a, const float* b, float* c, uint64_t n) {
+// The canonical SVE loop pattern: ONE loop, no scalar tail.
+// This works correctly for ANY n (including n=0, n=1, n < VL/32).
+void saxpy_sve(const float *x, const float *y, float *out,
+               uint64_t n, float alpha) {
     uint64_t i = 0;
+    svfloat32_t valpha = svdup_f32(alpha);
 
-    // 主循环：自动处理主处理和尾部
     while (i < n) {
-        svbool_t pg = svwhilelt_b32(i, n);   // 哪些 lane 有效？
-        svfloat32_t va = svld1_f32(pg, &a[i]);  // 只加载有效 lane
-        svfloat32_t vb = svld1_f32(pg, &b[i]);
-        svfloat32_t vc = svadd_f32_m(pg, va, vb);  // additive merge
-        svst1_f32(pg, &c[i], vc);                 // 只存储有效 lane
+        // whilelt generates a predicate: for lane k, pg[k] = (i + k) < n
+        // On the last iteration with n=10 and VL=8:
+        //   pg = [1,1,0,0,0,0,0,0]  (only lanes 0-1 active)
+        svbool_t pg = svwhilelt_b32(i, n);
 
-        i += svcntw();   // i += VL/32（当前硬件上的实际 lane 数）
+        svfloat32_t vx = svld1_f32(pg, &x[i]);
+        svfloat32_t vy = svld1_f32(pg, &y[i]);
+
+        // mul uses _z: inactive lanes produce 0, since they'll be added to vy
+        // add uses _m: inactive lanes preserve vy (the first operand)
+        svfloat32_t vtmp = svmul_f32_z(pg, vx, valpha);
+        svfloat32_t vout = svadd_f32_m(pg, vy, vtmp);
+
+        svst1_f32(pg, &out[i], vout);
+
+        i += svcntw();  // advance by the actual number of float lanes
     }
 }
 ```
 
-**和 NEON 对比**：
-```c
-// NEON: 需要主循环 + 尾部循环
-for (i = 0; i <= n - 4; i += 4) { ... }  // 主循环
-for (; i < n; i++) c[i] = a[i] + b[i];   // 尾部
-
-// SVE: 一个循环处理一切
-// 不仅代码更简单，而且避免了尾部处理的标量开销
-```
-
----
-
-## 5. 算术指令的三种变体
-
-SVE 谓词操作的三种后缀：
+### 2.5 Comparison Predicates
 
 ```c
-// _m (merge): 对禁用 lane，保留第一个操作数的值
-svfloat32_t svadd_f32_m(svbool_t pg, svfloat32_t op1, svfloat32_t op2);
-// pg=1 的 lane: result = op1 + op2
-// pg=0 的 lane: result = op1       ← 保留第一个操作数
+#include <arm_sve.h>
 
-// _z (zero): 对禁用 lane，结果为零
-svfloat32_t svadd_f32_z(svbool_t pg, svfloat32_t op1, svfloat32_t op2);
-// pg=1 的 lane: result = op1 + op2
-// pg=0 的 lane: result = 0         ← 置零
+// All comparison intrinsics follow the pattern:
+//   svbool_t svcmpXX_f32(svbool_t pg, svfloat32_t a, svfloat32_t b);
+//
+// The first argument (pg) is the governing predicate:
+//   - If pg[k] == 0, the comparison result for lane k is forced to 0.
+//   - If pg[k] == 1, the comparison is performed normally.
 
-// _x (don't care): 对禁用 lane，结果不确定（通常最快）
-svfloat32_t svadd_f32_x(svbool_t pg, svfloat32_t op1, svfloat32_t op2);
-// pg=1 的 lane: result = op1 + op2
-// pg=0 的 lane: result = undefined  ← 可能保留旧值，可能为任意值
-```
-
-### 使用场景
-
-```c
-// _m: 累加模式（保持累加器值不变）
-svfloat32_t acc = svdup_f32(0);
-for (...) {
-    svbool_t pg = svwhilelt_b32(i, N);
-    svfloat32_t data = svld1_f32(pg, ptr + i);
-    acc = svadd_f32_m(pg, acc, data);  // 只更新有效 lane 的累加
-    i += svcntw();
+void compare_examples(svbool_t pg, svfloat32_t a, svfloat32_t b) {
+    svbool_t gt  = svcmpgt_f32(pg, a, b);   // a > b
+    svbool_t ge  = svcmpge_f32(pg, a, b);   // a >= b
+    svbool_t eq  = svcmpeq_f32(pg, a, b);   // a == b
+    svbool_t lt  = svcmplt_f32(pg, a, b);   // a < b
+    svbool_t le  = svcmple_f32(pg, a, b);   // a <= b
+    svbool_t ne  = svcmpne_f32(pg, a, b);   // a != b
+    (void)gt; (void)ge; (void)eq; (void)lt; (void)le; (void)ne;
 }
 
-// _z: 初始化或清零模式
-svfloat32_t masked_result = svadd_f32_z(pg, a, b);
-// 不活跃 lane 的结果为零，可以直接存储
+// Using comparison predicates for conditional selection (svsel):
+svfloat32_t relu_sve(svbool_t pg, svfloat32_t x) {
+    svfloat32_t zero = svdup_f32(0.0f);
+    svbool_t positive = svcmpge_f32(pg, x, zero);   // x >= 0 ?
+    return svsel_f32(positive, x, zero);              // if true: x, else: 0
+}
 
-// _x: 速度优先模式（不需要关心不活跃 lane 的值）
-svfloat32_t tmp = svadd_f32_x(pg, a, b);
-// 随后会再次被谓词覆盖时使用
+// Clipping values to a range [lo, hi]:
+void clip_sve(const float *src, float *dst, uint64_t n,
+              float lo, float hi) {
+    uint64_t i = 0;
+    svfloat32_t vlo = svdup_f32(lo);
+    svfloat32_t vhi = svdup_f32(hi);
+
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        svfloat32_t v = svld1_f32(pg, &src[i]);
+
+        svbool_t too_low  = svcmplt_f32(pg, v, vlo);
+        svbool_t too_high = svcmpgt_f32(pg, v, vhi);
+
+        v = svsel_f32(too_low,  vlo, v);    // clamp low
+        v = svsel_f32(too_high, vhi, v);    // clamp high
+
+        svst1_f32(pg, &dst[i], v);
+        i += svcntw();
+    }
+}
+```
+
+### 2.6 Predicate Logical Operations
+
+```c
+#include <arm_sve.h>
+
+// SVE provides bitwise logical operations on predicates.
+// These operate at byte-granularity (hence the _b_z suffix).
+
+void predicate_logic_example(svbool_t p1, svbool_t p2, svbool_t p3) {
+    // AND: result = p1 & p2, with p3 as governing predicate
+    svbool_t p_and = svand_b_z(p3, p1, p2);
+    // For each bit: if p3[bit] == 1 → p_and[bit] = p1[bit] & p2[bit]
+    //               if p3[bit] == 0 → p_and[bit] = 0
+
+    // OR: result = p1 | p2
+    svbool_t p_or  = svorr_b_z(p3, p1, p2);
+
+    // XOR: result = p1 ^ p2
+    svbool_t p_xor = sveor_b_z(p3, p1, p2);
+
+    // NOT: result = ~p2
+    svbool_t p_not = svnot_b_z(p3, p2);
+
+    // NAND: result = ~(p1 & p2)
+    svbool_t p_nand = svnand_b_z(p3, p1, p2);
+
+    // NOR: result = ~(p1 | p2)
+    svbool_t p_nor = svnor_b_z(p3, p1, p2);
+
+    // ORN: result = p1 | ~p2
+    svbool_t p_orn = svorn_b_z(p3, p1, p2);
+
+    (void)p_and; (void)p_or; (void)p_xor; (void)p_not;
+    (void)p_nand; (void)p_nor; (void)p_orn;
+}
+
+// Practical example: combining two conditions to select elements
+// Select elements where (x > 0) AND (y < 100)
+void select_combined_sve(const float *x, const float *y, float *dst,
+                         uint64_t n) {
+    uint64_t i = 0;
+    svfloat32_t zero = svdup_f32(0.0f);
+    svfloat32_t hundred = svdup_f32(100.0f);
+
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        svfloat32_t vx = svld1_f32(pg, &x[i]);
+        svfloat32_t vy = svld1_f32(pg, &y[i]);
+
+        svbool_t gt_zero = svcmpgt_f32(pg, vx, zero);
+        svbool_t lt_hundred = svcmplt_f32(pg, vy, hundred);
+
+        // Combine: both conditions must be true
+        svbool_t combined = svand_b_z(pg, gt_zero, lt_hundred);
+
+        svst1_f32(combined, &dst[i], vx);   // store x[i] where condition holds
+        i += svcntw();
+    }
+}
 ```
 
 ---
 
-## 6. FMA（融合乘加）
+## 3. Vector-Length Agnostic Programming Patterns
+
+### 3.1 Count-Up Loop (Standard Pattern)
 
 ```c
-// SVE FMA: result = acc + a × b
-svfloat32_t svmla_f32_m(svbool_t pg, svfloat32_t acc,
-                         svfloat32_t a, svfloat32_t b);
-svfloat32_t svmla_f32_z(svbool_t pg, svfloat32_t acc,
-                         svfloat32_t a, svfloat32_t b);
+#include <arm_sve.h>
 
-// 点积加速（SVE，类似 NEON 的 vdotq_s32）
-svint32_t svdot_s32(svint32_t acc, svint8_t a, svint8_t b);
-// int8 × int8 → int32 累加
+// Standard count-up with whilelt: simple, readable, works for all n and VL.
+void vec_add_countup(const float *a, const float *b, float *c, uint64_t n) {
+    uint64_t i = 0;
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        svfloat32_t va = svld1_f32(pg, &a[i]);
+        svfloat32_t vb = svld1_f32(pg, &b[i]);
+        svfloat32_t vc = svadd_f32_m(pg, va, vb);
+        svst1_f32(pg, &c[i], vc);
+        i += svcntw();
+    }
+}
+```
+
+### 3.2 Count-Down Loop (Often Faster)
+
+```c
+#include <arm_sve.h>
+
+// Count-down loop pattern:
+// Advantages:
+//   1. Loop termination uses `subs + b.ne` (single instruction, zero flag)
+//      vs. count-up's `cmp + b.lt` (two instructions).
+//   2. Better for out-of-order CPUs: the decrement is on the critical path
+//      of address calculation, reducing register pressure.
+//   3. No need for an extra induction variable comparison per iteration.
+
+void vec_add_countdown(const float *a, const float *b, float *c, int64_t n) {
+    int64_t i = n;  // start at n, count down to 0
+
+    do {
+        svbool_t pg = svwhilelt_b32(0, i);   // pg[k] = 1 if k < i
+        i -= svcntw();                         // decrement first for correct indexing
+
+        svfloat32_t va = svld1_f32(pg, &a[i]);
+        svfloat32_t vb = svld1_f32(pg, &b[i]);
+        svfloat32_t vc = svadd_f32_m(pg, va, vb);
+        svst1_f32(pg, &c[i], vc);
+    } while (i > 0);
+}
+```
+
+### 3.3 Runtime Vector Length Detection
+
+```c
+#include <arm_sve.h>
+#include <stdio.h>
+
+// svcntb(), svcnth(), svcntw(), svcntd() return the number of
+// elements per vector at runtime for each element width.
+
+void report_vector_length(void) {
+    uint64_t bytes      = svcntb();   // VL / 8
+    uint64_t halfwords  = svcnth();   // VL / 16
+    uint64_t words      = svcntw();   // VL / 32
+    uint64_t doublewords = svcntd();  // VL / 64
+
+    printf("SVE vector length: %lu bits\n", bytes * 8);
+    printf("  %lu bytes per vector\n", bytes);
+    printf("  %lu int32 per vector\n", words);
+    printf("  %lu double per vector\n", doublewords);
+}
+
+// svlen() returns the total vector length in bits.
+// Equivalent to svcntb() * 8 but available as a single intrinsic.
+uint64_t vl_bits(void) {
+    return svlen();  // returns VL in bits (128, 256, 512, etc.)
+}
+
+// The inline assembly equivalent of svcntb():
+//   rdvl x0, #1   -- read vector length in bytes, multiplied by the immediate
+static inline uint64_t rdvl_bytes(void) {
+    uint64_t vl;
+    __asm__ volatile("rdvl %0, #1" : "=r"(vl));
+    return vl;
+}
+```
+
+### 3.4 Writing Code Optimal Across All SVE Widths
+
+```c
+#include <arm_sve.h>
+#include <stdlib.h>
+
+// Problem: the optimal unroll factor depends on VL.
+// Solution: detect VL at runtime and select an unroll strategy.
+
+// Strategy 1: Use svcntw() to naturally adapt to any VL.
+// The loop body naturally processes VL/32 elements per iteration.
+void adaptive_vec_add(const float *a, const float *b, float *c, uint64_t n) {
+    uint64_t i = 0;
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        svfloat32_t va = svld1_f32(pg, &a[i]);
+        svfloat32_t vb = svld1_f32(pg, &b[i]);
+        svst1_f32(pg, &c[i], svadd_f32_m(pg, va, vb));
+        i += svcntw();
+    }
+}
+
+// Strategy 2: Manual unrolling tuned to the VL.
+// After runtime detection, pick a specialization.
+void vec_add_tuned(const float *a, const float *b, float *c, uint64_t n) {
+    uint64_t words = svcntw();  // VL / 32
+
+    if (words == 4) {
+        // VL=128: NEON-equivalent, unroll by 2 or 4
+        uint64_t i = 0;
+        for (; i + 7 < n; i += 8) {
+            svbool_t pg0 = svwhilelt_b32(i,     n);
+            svbool_t pg1 = svwhilelt_b32(i + 4, n);
+            svfloat32_t va0 = svld1_f32(pg0, &a[i]);
+            svfloat32_t va1 = svld1_f32(pg1, &a[i + 4]);
+            svfloat32_t vb0 = svld1_f32(pg0, &b[i]);
+            svfloat32_t vb1 = svld1_f32(pg1, &b[i + 4]);
+            svst1_f32(pg0, &c[i],     svadd_f32_m(pg0, va0, vb0));
+            svst1_f32(pg1, &c[i + 4], svadd_f32_m(pg1, va1, vb1));
+        }
+        for (; i < n; i++) {
+            c[i] = a[i] + b[i];
+        }
+        return;
+    }
+
+    if (words == 8) {
+        // VL=256: Graviton3, unroll by 2
+        uint64_t i = 0;
+        for (; i + 15 < n; i += 16) {
+            svbool_t pg0 = svwhilelt_b32(i,     n);
+            svbool_t pg1 = svwhilelt_b32(i + 8, n);
+            svfloat32_t va0 = svld1_f32(pg0, &a[i]);
+            svfloat32_t va1 = svld1_f32(pg1, &a[i + 8]);
+            svfloat32_t vb0 = svld1_f32(pg0, &b[i]);
+            svfloat32_t vb1 = svld1_f32(pg1, &b[i + 8]);
+            svst1_f32(pg0, &c[i],     svadd_f32_m(pg0, va0, vb0));
+            svst1_f32(pg1, &c[i + 8], svadd_f32_m(pg1, va1, vb1));
+        }
+        for (; i < n; i++) {
+            c[i] = a[i] + b[i];
+        }
+        return;
+    }
+
+    // VL=512 or larger, or unknown: use generic VLA loop
+    uint64_t i = 0;
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        svfloat32_t va = svld1_f32(pg, &a[i]);
+        svfloat32_t vb = svld1_f32(pg, &b[i]);
+        svst1_f32(pg, &c[i], svadd_f32_m(pg, va, vb));
+        i += svcntw();
+    }
+}
+```
+
+### 3.5 Element Count vs Indexing Gotchas
+
+```c
+#include <arm_sve.h>
+
+// CRITICAL: svcntw() returns an element count (number of float32 lanes).
+// When using it to advance a pointer of type float*, no scaling needed.
+// When using it to advance a pointer of type uint8_t*, you must scale manually.
+
+void element_scaling_example(const float *src, float *dst, uint64_t n) {
+    uint64_t i = 0;
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        // For float*: i increments by svcntw() (elements of float32)
+        // ptr + i is automatically scaled by sizeof(float) by the compiler
+        svfloat32_t v = svld1_f32(pg, &src[i]);
+        svst1_f32(pg, &dst[i], v);
+        i += svcntw();  // correct: i counts float32 elements
+    }
+}
+
+// When working with bytes, you need svcntb() and byte-wide whilelt:
+void memset_like_sve(uint8_t *dst, uint8_t value, uint64_t n) {
+    uint64_t i = 0;
+    svuint8_t fill = svdup_u8(value);
+    while (i < n) {
+        svbool_t pg = svwhilelt_b8(i, n);  // b8 variant for byte counting
+        svst1_u8(pg, &dst[i], fill);
+        i += svcntb();  // bytes per vector, matches uint8_t* indexing
+    }
+}
 ```
 
 ---
 
-## 7. 归约
+## 4. Predicated Load/Store
+
+### 4.1 Basic Predicated Load (`svld1`)
 
 ```c
-// 求和
-svfloat32_t svaddv_f32(svbool_t pg, svfloat32_t op);
-// 返回标量: 所有活动 lane 的和
+#include <arm_sve.h>
 
-// 最大值/最小值
-svfloat32_t svmaxv_f32(svbool_t pg, svfloat32_t op);
-svfloat32_t svminv_f32(svbool_t pg, svfloat32_t op);
+// svld1(pg, ptr): loads from memory using a predicate.
+//   Active lanes (pg[k]==1): loaded from *(&ptr[k]).
+//   Inactive lanes (pg[k]==0): UNSPECIFIED behavior -- may load, may not.
+//
+// CRITICAL SAFETY FEATURE: svld1 is FAULT-SUPPRESSING.
+// The CPU guarantees it will NOT raise a segmentation fault for
+// addresses in inactive lanes. This is what makes the tail loop
+// pattern work: inactive lanes can point beyond the buffer boundary.
 
-// 跨 lane 求和实例
-float sum_sve(const float* data, uint64_t n) {
+void load_store_basics(const float *src, float *dst, uint64_t n) {
+    uint64_t i = 0;
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+
+        // Safe: inactive lanes may point past the buffer without faulting
+        svfloat32_t v = svld1_f32(pg, &src[i]);
+
+        // Only active lanes are stored; inactive lane stores are suppressed
+        svst1_f32(pg, &dst[i], v);
+
+        i += svcntw();
+    }
+}
+```
+
+### 4.2 First-Fault Load (`svldff1`) for String Processing
+
+```c
+#include <arm_sve.h>
+#include <stddef.h>
+
+// svldff1: First-Faulting Load.
+// Loads elements sequentially. If any element would cause a page fault,
+// the load STOPS at that element. The predicate is updated to show which
+// lanes were successfully loaded.
+//
+// This is perfect for:
+//   - strlen() / strcpy() (null-terminated strings)
+//   - Reading from mmap'd regions that might be partially mapped
+//   - Speculative loads ahead of a processing loop
+
+// SVE strlen: find the terminating null byte
+size_t sve_strlen(const char *str) {
+    const char *ptr = str;
+    svbool_t pg = svptrue_b8();   // start with all lanes active
+
+    while (1) {
+        // First-fault load: loads VL bytes, updating predicate on fault
+        svuint8_t v = svldff1_u8(pg, (const uint8_t *)ptr);
+
+        // Find the first zero byte (null terminator)
+        svbool_t nulls = svcmpeq_u8(pg, v, svdup_u8(0));
+
+        // Check if any lane had a match
+        if (svptest_any(pg, nulls)) {
+            // Found: report the position using svbrkb (bit reversal)
+            // svbrkb finds the first true bit from LSB
+            svbool_t first_zero = svbrkb_b_z(pg, pg, nulls);
+            // Count the number of bytes before the first zero
+            uint64_t len = svcntp_b8(pg, svnot_b_z(pg, first_zero));
+            return ptr - str + len;
+        }
+
+        ptr += svcntb();
+    }
+}
+
+// SVE memchr: find first occurrence of byte c in the first n bytes
+const void *sve_memchr(const void *s, int c, size_t n) {
+    const uint8_t *ptr = (const uint8_t *)s;
+    svuint8_t target = svdup_u8((uint8_t)c);
+    uint64_t i = 0;
+
+    while (i < n) {
+        svbool_t pg = svwhilelt_b8(i, n);
+        svuint8_t v = svld1_u8(pg, &ptr[i]);  // fault-suppressing for tail
+
+        svbool_t matches = svcmpeq_u8(pg, v, target);
+        if (svptest_any(pg, matches)) {
+            svbool_t first_hit = svbrkb_b_z(pg, pg, matches);
+            uint64_t offset = svcntp_b8(pg, svnot_b_z(pg, first_hit));
+            return &ptr[i + offset];
+        }
+        i += svcntb();
+    }
+    return NULL;
+}
+```
+
+### 4.3 Non-Temporal Store Hints
+
+```c
+#include <arm_sve.h>
+
+// Non-temporal stores bypass the cache hierarchy for write-once data.
+// Use when: dst[] is large and will NOT be read again soon.
+// Example: memset-like initialization, output buffers in streaming pipelines.
+
+void nt_memcpy(const float *src, float *dst, uint64_t n) {
+    uint64_t i = 0;
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        svfloat32_t v = svld1_f32(pg, &src[i]);
+
+        // Non-temporal store: does not pollute cache
+        svstnt1_f32(pg, &dst[i], v);
+
+        i += svcntw();
+    }
+}
+
+// Gather with non-temporal store: useful for scatter patterns
+void nt_scatter(const float *src, const int32_t *indices, float *dst,
+                uint64_t n) {
+    uint64_t i = 0;
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        svint32_t vidx = svld1_s32(pg, &indices[i]);
+        svfloat32_t v = svld1_gather_s32index_f32(pg, src, vidx);
+
+        // Non-temporal scatter store
+        svstnt1_scatter_s32index_f32(pg, dst, vidx, v);
+
+        i += svcntw();
+    }
+}
+```
+
+### 4.4 Contiguous vs Gather/Scatter Loads
+
+```c
+#include <arm_sve.h>
+
+// svld1: contiguous load -- fastest, best cache behavior
+void contiguous_load(float *dst, const float *src, uint64_t n) {
+    uint64_t i = 0;
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        svfloat32_t v = svld1_f32(pg, &src[i]);   // simple, fast
+        svst1_f32(pg, &dst[i], v);
+        i += svcntw();
+    }
+}
+
+// svld1_gather: indexed gather -- flexible, but slower
+// Useful for: sparse matrix operations, permutation, table lookups
+void gather_load_example(float *dst, const float *table,
+                         const int32_t *indices, uint64_t n) {
+    uint64_t i = 0;
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        svint32_t vidx = svld1_s32(pg, &indices[i]);
+
+        // Gather from table[*indices] -- non-contiguous access
+        svfloat32_t v = svld1_gather_s32index_f32(pg, table, vidx);
+
+        svst1_f32(pg, &dst[i], v);
+        i += svcntw();
+    }
+}
+```
+
+---
+
+## 5. Reduction with SVE
+
+### 5.1 Horizontal Reduction Primitives
+
+```c
+#include <arm_sve.h>
+
+// svaddv, svmaxv, svminv: horizontal reductions across all active lanes.
+// These reduce a vector to a single scalar value.
+
+float sve_sum_reduce(svfloat32_t vec) {
+    svbool_t pg = svptrue_b32();
+    return svaddv_f32(pg, vec);  // sum of all lanes in vec
+}
+
+float sve_max_reduce(svfloat32_t vec) {
+    svbool_t pg = svptrue_b32();
+    return svmaxv_f32(pg, vec);  // maximum of all lanes in vec
+}
+
+float sve_min_reduce(svfloat32_t vec) {
+    svbool_t pg = svptrue_b32();
+    return svminv_f32(pg, vec);  // minimum of all lanes in vec
+}
+```
+
+### 5.2 Complete Vector Sum (Single Accumulator)
+
+```c
+#include <arm_sve.h>
+
+// Simple SVE sum reduction with scalar tail handling via predicates.
+// Works for any n and any VL.
+float sve_sum(const float *data, uint64_t n) {
     svfloat32_t acc = svdup_f32(0.0f);
     uint64_t i = 0;
 
     while (i < n) {
         svbool_t pg = svwhilelt_b32(i, n);
-        svfloat32_t vec = svld1_f32(pg, &data[i]);
-        // 用 _m 模式累加，保护不活跃 lane 的累加器值
-        acc = svadd_f32_m(pg, acc, vec);
+        svfloat32_t v = svld1_f32(pg, &data[i]);
+
+        // _m preserves accumulator for inactive lanes
+        acc = svadd_f32_m(pg, acc, v);
+
         i += svcntw();
     }
 
-    // 归约：对所有 lane 求和（谓词控制的归约）
-    svbool_t pg_all = svptrue_b32();
-    return svaddv_f32(pg_all, acc);
+    // Horizontal reduction: sum all lanes of acc
+    return svaddv_f32(svptrue_b32(), acc);
 }
 ```
 
----
-
-## 8. 比较和选择
+### 5.3 Tree Reduction for Better ILP
 
 ```c
-// 比较
-svbool_t svcmpgt_f32(svbool_t pg, svfloat32_t a, svfloat32_t b);  // a > b
-svbool_t svcmpge_f32(svbool_t pg, svfloat32_t a, svfloat32_t b);  // a >= b
-svbool_t svcmpeq_f32(svbool_t pg, svfloat32_t a, svfloat32_t b);  // a == b
-svbool_t svcmplt_f32(svbool_t pg, svfloat32_t a, svfloat32_t b);  // a < b
-svbool_t svcmple_f32(svbool_t pg, svfloat32_t a, svfloat32_t b);  // a <= b
-svbool_t svcmpne_f32(svbool_t pg, svfloat32_t a, svfloat32_t b);  // a != b
+#include <arm_sve.h>
 
-// 条件选择 → 类似于 NEON 的位选择
-svfloat32_t svsel_f32(svbool_t pg, svfloat32_t a, svfloat32_t b);
-// pg=1: result = a,  pg=0: result = b
+// Problem with single-accumulator sum: it's a dependency chain.
+//   acc = acc + v[0]; acc = acc + v[1]; ... (sequential)
+//
+// Tree reduction uses multiple accumulators and reduces them
+// at the end, breaking the dependency chain for better ILP.
+// Typically 2x to 4x accumulators provide good results.
 
-// 实现 ReLU: max(0, x)
-svfloat32_t relu_sve(svfloat32_t x, svbool_t pg) {
-    const svfloat32_t zero = svdup_f32(0.0f);
-    svbool_t gt_mask = svcmpge_f32(pg, x, zero);
-    return svsel_f32(gt_mask, x, zero);
-}
-```
+float sve_sum_tree4(const float *data, uint64_t n) {
+    // 4 accumulators for instruction-level parallelism
+    svfloat32_t acc0 = svdup_f32(0.0f);
+    svfloat32_t acc1 = svdup_f32(0.0f);
+    svfloat32_t acc2 = svdup_f32(0.0f);
+    svfloat32_t acc3 = svdup_f32(0.0f);
 
----
-
-## 9. 循环控制模式
-
-### 经典模式：svwhilelt 升序循环
-
-```c
-// 处理 [0, n) 中的元素
-void process_sve(const float* src, float* dst, uint64_t n) {
     uint64_t i = 0;
+    uint64_t step = svcntw();
+
+    // Process 4 vectors per iteration
+    for (; i + 4 * step <= n; i += 4 * step) {
+        svbool_t pg = svptrue_b32();  // known multiple: all lanes active
+        acc0 = svadd_f32_m(pg, acc0, svld1_f32(pg, &data[i]));
+        acc1 = svadd_f32_m(pg, acc1, svld1_f32(pg, &data[i + step]));
+        acc2 = svadd_f32_m(pg, acc2, svld1_f32(pg, &data[i + 2 * step]));
+        acc3 = svadd_f32_m(pg, acc3, svld1_f32(pg, &data[i + 3 * step]));
+    }
+
+    // Handle remaining full vectors
+    for (; i + step <= n; i += step) {
+        svbool_t pg = svptrue_b32();
+        acc0 = svadd_f32_m(pg, acc0, svld1_f32(pg, &data[i]));
+    }
+
+    // Tail elements
+    if (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        acc0 = svadd_f32_m(pg, acc0, svld1_f32(pg, &data[i]));
+    }
+
+    // Merge accumulators
+    svbool_t pg = svptrue_b32();
+    acc0 = svadd_f32_m(pg, acc0, acc1);
+    acc0 = svadd_f32_m(pg, acc0, acc2);
+    acc0 = svadd_f32_m(pg, acc0, acc3);
+
+    return svaddv_f32(pg, acc0);
+}
+```
+
+### 5.4 Folding Reduction: `svadda`
+
+```c
+#include <arm_sve.h>
+
+// svadda: stream-based folding reduction.
+// Reduces the source vector into a scalar, and returns a predicate
+// indicating which lanes still need to be processed.
+//
+// This is useful for "early exit" reductions and combining
+// partial results across loop iterations.
+
+void folding_reduce_example(void) {
+    float scalar = 0.0f;
+    svfloat32_t data = svdup_f32(1.0f);
+    svbool_t pg = svptrue_b32();
+
+    // svadda_f32: accumulate into scalar, return remaining predicate
+    // On VL=256 (8 floats): first call reduces some lanes,
+    // remaining predicate shows which lanes are left to process.
+    svbool_t remaining = svadda_f32(pg, &scalar, data);
+
+    // scalar now contains partial sum; remaining shows unprocessed lanes
+    if (svptest_any(svptrue_b32(), remaining)) {
+        // more work to do -- call svadda again with the remaining predicate
+        svadda_f32(remaining, &scalar, data);
+    }
+
+    (void)scalar;
+}
+```
+
+### 5.5 Complete Dot Product Example
+
+```c
+#include <arm_sve.h>
+
+// Dot product: sum(a[i] * b[i]) for i in [0, n)
+// Uses tree reduction for ILP. Handles any n and any VL.
+
+float sve_dot_product(const float *a, const float *b, uint64_t n) {
+    svfloat32_t acc0 = svdup_f32(0.0f);
+    svfloat32_t acc1 = svdup_f32(0.0f);
+    svfloat32_t acc2 = svdup_f32(0.0f);
+    svfloat32_t acc3 = svdup_f32(0.0f);
+
+    uint64_t i = 0;
+    uint64_t step = svcntw();
+
+    // 4-way unrolled main body
+    for (; i + 4 * step <= n; i += 4 * step) {
+        svbool_t pg = svptrue_b32();
+
+        svfloat32_t va0 = svld1_f32(pg, &a[i]);
+        svfloat32_t vb0 = svld1_f32(pg, &b[i]);
+        svfloat32_t va1 = svld1_f32(pg, &a[i + step]);
+        svfloat32_t vb1 = svld1_f32(pg, &b[i + step]);
+        svfloat32_t va2 = svld1_f32(pg, &a[i + 2 * step]);
+        svfloat32_t vb2 = svld1_f32(pg, &b[i + 2 * step]);
+        svfloat32_t va3 = svld1_f32(pg, &a[i + 3 * step]);
+        svfloat32_t vb3 = svld1_f32(pg, &b[i + 3 * step]);
+
+        // FMA: acc = acc + va * vb
+        acc0 = svmla_f32_m(pg, acc0, va0, vb0);
+        acc1 = svmla_f32_m(pg, acc1, va1, vb1);
+        acc2 = svmla_f32_m(pg, acc2, va2, vb2);
+        acc3 = svmla_f32_m(pg, acc3, va3, vb3);
+    }
+
+    // Remaining full vectors
+    for (; i + step <= n; i += step) {
+        svbool_t pg = svptrue_b32();
+        svfloat32_t va = svld1_f32(pg, &a[i]);
+        svfloat32_t vb = svld1_f32(pg, &b[i]);
+        acc0 = svmla_f32_m(pg, acc0, va, vb);
+    }
+
+    // Tail
+    if (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        svfloat32_t va = svld1_f32(pg, &a[i]);
+        svfloat32_t vb = svld1_f32(pg, &b[i]);
+        acc0 = svmla_f32_m(pg, acc0, va, vb);
+    }
+
+    // Merge accumulators
+    svbool_t pg = svptrue_b32();
+    acc0 = svadd_f32_m(pg, acc0, acc1);
+    acc0 = svadd_f32_m(pg, acc0, acc2);
+    acc0 = svadd_f32_m(pg, acc0, acc3);
+
+    return svaddv_f32(pg, acc0);
+}
+
+// Integer dot product using SVE's native svdot instruction.
+// Computes int8 * int8 -> int32 accumulation, 4x throughput vs float.
+// This is the SVE equivalent of NEON's vdotq_s32.
+int32_t sve_dot_product_i8(const int8_t *a, const int8_t *b, uint64_t n) {
+    svint32_t acc = svdup_s32(0);
+    uint64_t i = 0;
+
+    while (i < n) {
+        svbool_t pg = svwhilelt_b8(i, n);
+        svint8_t va = svld1_s8(pg, &a[i]);
+        svint8_t vb = svld1_s8(pg, &b[i]);
+
+        // svdot: int8*int8 + int32 -> int32
+        // Works on groups of 4 bytes per 32-bit lane
+        acc = svdot_s32(acc, va, vb);
+
+        i += svcntb();
+    }
+
+    return svaddv_s32(svptrue_b32(), acc);
+}
+```
+
+---
+
+## 6. SVE2 Enhancements
+
+SVE2 (ARMv9 mandatory) significantly expands the instruction set, adding support for DSP workloads, cryptography, and complex integer arithmetic.
+
+### 6.1 Complex Integer Multiply (DSP)
+
+```c
+#include <arm_sve.h>
+
+// SVE2 introduces complex integer multiply instructions.
+// These are essential for software-defined radio (SDR), radar signal
+// processing, and any workload involving complex arithmetic.
+
+// Complex multiply: (a_re + j*a_im) * (b_re + j*b_im)
+//   = (a_re*b_re - a_im*b_im) + j*(a_re*b_im + a_im*b_re)
+// SVE2's svcmla computes this in one instruction per component.
+
+void complex_multiply_sve2(const int16_t *a_re, const int16_t *a_im,
+                            const int16_t *b_re, const int16_t *b_im,
+                            int16_t *c_re, int16_t *c_im, uint64_t n) {
+    svint16_t acc_re = svdup_s16(0);
+    svint16_t acc_im = svdup_s16(0);
+    uint64_t i = 0;
+
+    while (i < n) {
+        svbool_t pg = svwhilelt_b16(i, n);
+        svint16_t va_re = svld1_s16(pg, &a_re[i]);
+        svint16_t va_im = svld1_s16(pg, &a_im[i]);
+        svint16_t vb_re = svld1_s16(pg, &b_re[i]);
+        svint16_t vb_im = svld1_s16(pg, &b_im[i]);
+
+        // svcmla: complex multiply-add
+        // Rotation = 0: real part of result
+        // Rotation = 90: imaginary part of result
+        acc_re = svcmla_s16(acc_re, va_re, vb_re, 0);   // real
+        acc_re = svcmla_s16(acc_re, va_im, vb_im, 90);  // subtract im*im
+        acc_im = svcmla_s16(acc_im, va_re, vb_im, 0);   // im = re*im
+        acc_im = svcmla_s16(acc_im, va_im, vb_re, 90);  //     + im*re
+
+        svst1_s16(pg, &c_re[i], acc_re);
+        svst1_s16(pg, &c_im[i], acc_im);
+        i += svcnth();
+    }
+}
+```
+
+### 6.2 Multi-Vector Operations
+
+```c
+#include <arm_sve.h>
+
+// SVE2 adds multi-vector loads, which load 2, 3, or 4 vectors
+// in a single instruction. This is the primary way to increase
+// memory throughput in SVE2.
+
+// svld2: load 2 interleaved vectors (deinterleave on load)
+void deinterleave_complex_sve2(const float *interleaved,
+                                float *re, float *im, uint64_t n) {
+    uint64_t i = 0;
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+
+        // Load 2 interleaved vectors: {re0, im0, re1, im1, ...}
+        svfloat32x2_t pair = svld2_f32(pg, &interleaved[2 * i]);
+
+        // Extract the two vectors
+        svfloat32_t vre = svget2_f32(pair, 0);
+        svfloat32_t vim = svget2_f32(pair, 1);
+
+        svst1_f32(pg, &re[i], vre);
+        svst1_f32(pg, &im[i], vim);
+
+        i += svcntw();
+    }
+}
+
+// svmul_lane: multiply by a specific lane of another vector
+// Useful for applying scalar factors from a vector of coefficients.
+void apply_channel_gains_sve2(const float *src, float *dst,
+                               const float *gains, uint64_t n,
+                               uint64_t num_channels) {
+    // Load channel gains into a vector
+    svbool_t pg_gain = svwhilelt_b32(0, num_channels);
+    svfloat32_t vgains = svld1_f32(pg_gain, gains);
+
+    uint64_t i = 0;
+    uint64_t channel = 0;
     while (i < n) {
         svbool_t pg = svwhilelt_b32(i, n);
         svfloat32_t v = svld1_f32(pg, &src[i]);
 
-        // ... 处理 ...
+        // Multiply by the gain for this channel (lane 'channel' of vgains)
+        svfloat32_t result = svmul_lane_f32(v, vgains, channel);
 
-        svst1_f32(pg, &dst[i], v);
-        i += svcntw();  // 按实际 lane 数推进
+        svst1_f32(pg, &dst[i], result);
+        i += svcntw();
+        channel = (channel + 1) % num_channels;
     }
 }
 ```
 
-### 倒序循环（某些场景更优）
+### 6.3 Character Match and String Operations
 
 ```c
-void process_sve_countdown(const float* src, float* dst, int64_t n) {
-    int64_t i = n;
-    do {
-        svbool_t pg = svwhilelt_b32(0, i);    // while 0 < i
-        i -= svcntw();                          // 递减（带符号）
+#include <arm_sve.h>
 
-        svfloat32_t v = svld1_f32(pg, &src[i]);
-        // ... 处理 ...
-        svst1_f32(pg, &dst[i], v);
-    } while (i > 0);
+// svmatch: find characters in a set (like strspn/strcspn).
+// Compares each byte in the source against a set of characters.
+
+// Check if all characters in str[0:n] are in the allowed set.
+bool sve_strspn_check(const uint8_t *str, const uint8_t *charset,
+                      size_t str_len, size_t set_len) {
+    // Load the character set into a vector (up to VL bytes)
+    svbool_t pg_set = svwhilelt_b8(0, set_len);
+    svuint8_t vset = svld1_u8(pg_set, charset);
+
+    size_t i = 0;
+    while (i < str_len) {
+        svbool_t pg = svwhilelt_b8(i, str_len);
+        svuint8_t vstr = svld1_u8(pg, &str[i]);
+
+        // svmatch: for each byte in vstr, returns true if it matches
+        // any byte in vset. Returns false if any byte does NOT match.
+        svbool_t matched = svmatch_u8(pg, vstr, vset);
+
+        // If not all bytes matched, return false
+        if (!svptest_any(pg, svnot_b_z(pg, matched))) {
+            // svptest_any returns false: meaning NOT(any unmatched) => all matched
+            // This is a double negative; let's check more directly:
+        }
+        if (svptest_any(pg, svnot_b_z(pg, matched))) {
+            return false;  // at least one character not in the set
+        }
+
+        i += svcntb();
+    }
+    return true;
 }
 ```
 
-倒序循环的优势：
-1. `svwhilelt_b32(0, i)` 的谓词生成和指针偏移更简单
-2. 递减到零的判断指令比递增比较更快（`subs` + `b.ne` vs `cmp` + `b.lt`）
-3. 适合编译器做更激进的优化
-
----
-
-## 10. SVE2 附加指令
-
-SVE2（ARMv9）提供的额外能力：
+### 6.4 Histogram Instructions
 
 ```c
-// 复数乘法（信号处理核心）
-// 将复数数组分为实部和虚部做乘法
+#include <arm_sve.h>
 
-// 加宽的整数乘加
-svint32_t svmlalb_s32(svint32_t acc, svint16_t a, svint16_t b);
-// int16×int16 → int32 累加
+// SVE2 introduces svhistcnt and svhistseg for building histograms.
+// These are critical for image processing (histogram equalization),
+// color correction, and any bucketing-based algorithm.
 
-// 位操作谓词
-svbool_t svand_b_z(svbool_t pg, svbool_t pn, svbool_t pm);   // pn & pm
-svbool_t svorr_b_z(svbool_t pg, svbool_t pn, svbool_t pm);   // pn | pm
+// Build a 256-bin histogram of uint8_t values.
+// Returns the count of elements in each bin.
+void sve_histogram(const uint8_t *data, uint64_t n,
+                   uint32_t *histogram /* 256 entries */) {
+    // Initialize histogram to zero
+    for (int i = 0; i < 256; i++) histogram[i] = 0;
 
-// 增强的 scatter/gather
-svint32_t svld1_gather_s32index_s32(svbool_t pg, const int32_t* base,
-                                     svint32_t indices);
-// 按 int32 索引从 base 采集数据
+    uint64_t i = 0;
+    while (i < n) {
+        svbool_t pg = svwhilelt_b8(i, n);
+        svuint8_t v = svld1_u8(pg, &data[i]);
+
+        // svhistcnt: count occurrences of each value in v.
+        // Each call increments histogram[value] for all active lanes.
+        // On some implementations, this uses a 4x loop over the bins.
+        for (int bin = 0; bin < 256; bin += 32) {
+            // Process bins in chunks: the exact API depends on the
+            // compiler's intrinsic definition.
+            // svhistcnt_u8(pg, &histogram[bin], v);
+        }
+
+        i += svcntb();
+    }
+}
+```
+
+### 6.5 Bitwise Predicate Operations (SVE2)
+
+```c
+#include <arm_sve.h>
+
+// SVE2 adds predicate-as-data operations:
+//   - Treat a predicate register as a bitmask
+//   - Perform bit-level AND/OR/XOR between predicates
+//   - Convert predicate to/from integer registers
+
+// Count population (number of 1 bits) in a predicate:
+uint64_t popcount_predicate(svbool_t pg) {
+    // svcntp_b8 counts the number of active elements (bits set to 1)
+    // in the predicate pg. Each byte-sized lane has one predicate bit.
+    return svcntp_b8(svptrue_b8(), pg);
+}
+
+// Extract the first set bit position from a predicate:
+uint64_t first_set_bit(svbool_t pg) {
+    svbool_t all_true = svptrue_b8();
+
+    // svbrkb: break before first true, from the left (LSB)
+    // Returns a predicate with 1s before the first 1 in pg, 0s after.
+    svbool_t before_first = svbrkb_b_z(all_true, all_true, pg);
+
+    // Count the number of 1s before the first set bit = position
+    return svcntp_b8(all_true, before_first);
+}
+
+// Practical: use predicate bit counting for sparse array processing
+void compact_nonzero(const float *src, float *dst, uint64_t n,
+                     uint64_t *out_count) {
+    uint64_t i = 0, written = 0;
+
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        svfloat32_t v = svld1_f32(pg, &src[i]);
+
+        // Which lanes are non-zero?
+        svfloat32_t zero = svdup_f32(0.0f);
+        svbool_t nonzero = svcmpne_f32(pg, v, zero);
+
+        // Extract non-zero elements to contiguous output
+        svfloat32_t compacted = svcompact_f32(nonzero, v);
+
+        // How many elements were compacted?
+        uint64_t count = svcntp_b32(pg, nonzero);
+
+        // Store only the compacted elements
+        svbool_t pg_out = svwhilelt_b32(0, count);
+        svst1_f32(pg_out, &dst[written], compacted);
+
+        written += count;
+        i += svcntw();
+    }
+
+    *out_count = written;
+}
 ```
 
 ---
 
-## 11. SVE 与 NEON 共存
+## 7. SVE + NEON Interoperability
 
-### 运行时检测
+### 7.1 Register Overlap
+
+```
+SVE and NEON share the same physical register file:
+
+  Z0 [VL-1:0]    ←→   V0 [127:0]   (NEON Q0 register)
+  Z0 [63:0]      ←→   D0 [63:0]    (NEON D0 register)
+
+  Z1 [VL-1:0]    ←→   V1 [127:0]
+  ...
+
+  P0-P15          →   No NEON equivalent (new predicate registers)
+  Z0[VL-1:128]   →   No NEON equivalent (bits beyond 128)
+
+Key consequence: writing to Z0 modifies V0, and vice versa.
+The high bits of Z0 (above 128) are invisible to NEON code.
+```
+
+### 7.2 Calling Conventions When Mixing SVE and NEON
+
+```c
+#include <arm_sve.h>
+#include <arm_neon.h>
+
+// AArch64 Procedure Call Standard (AAPCS) for SVE:
+//
+//   SVE registers: Z0-Z7, P0-P3 are caller-saved
+//                  Z8-Z23, P4-P15 are callee-saved
+//   NEON registers: V0-V7 are caller-saved
+//                   V8-V15 are callee-saved
+//
+// Since Z0-Z7 share the low 128 bits with V0-V7:
+//   - A function that uses V0 corrupts Z0 (and vice versa)
+//   - Save/restore is needed when mixing in the same function
+
+// SAFE: separate functions, each uses one ISA exclusively
+float32x4_t neon_add(float32x4_t a, float32x4_t b) {
+    return vaddq_f32(a, b);   // pure NEON, no SVE interference
+}
+
+svfloat32_t sve_add(svfloat32_t a, svfloat32_t b, svbool_t pg) {
+    return svadd_f32_m(pg, a, b);  // pure SVE, no NEON interference
+}
+
+// DON'T DO THIS: mixing NEON and SVE in the same function
+// is fragile and often incorrect without explicit save/restore.
+//
+// void bad_mixed(svfloat32_t sve_vec, float32x4_t neon_vec) {
+//     // neon_vec is in V0, sve_vec is in Z0 -- these OVERLAP!
+//     // Writing to one corrupts the other.
+// }
+```
+
+### 7.3 When to Use SVE vs NEON in the Same Codebase
+
+```c
+#include <arm_sve.h>
+
+// Rule of thumb: NEVER mix SVE and NEON in a single function.
+// Instead, provide separate code paths and dispatch at runtime.
+
+// Decision matrix:
+//
+// | Scenario                           | Use    | Reason                     |
+// |------------------------------------|--------|----------------------------|
+// | Server-side (Graviton3, Grace)     | SVE    | 2x width vs NEON           |
+// | Mobile (A76, A78, X1)              | NEON   | No SVE hardware             |
+// | Unknown hardware, need portability | Both   | Dispatch at runtime         |
+// | Fixed-width performance critical   | NEON   | Predictable unroll factor   |
+// | Scatter/gather heavy               | SVE    | First-class gather support  |
+// | String processing                  | SVE    | First-fault load (svldff1)  |
+// | Broad library code                 | Both   | Feature detection + fallback|
+
+// Runtime dispatch example: selects SVE or NEON path at startup
+typedef void (*saxpy_fn)(const float *x, const float *y, float *out,
+                         uint64_t n, float alpha);
+
+#ifdef __ARM_FEATURE_SVE
+void saxpy_sve_impl(const float *x, const float *y, float *out,
+                    uint64_t n, float alpha) {
+    uint64_t i = 0;
+    svfloat32_t valpha = svdup_f32(alpha);
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        svfloat32_t vx = svld1_f32(pg, &x[i]);
+        svfloat32_t vy = svld1_f32(pg, &y[i]);
+        svfloat32_t vout = svmla_f32_m(pg, vy, vx, valpha);
+        svst1_f32(pg, &out[i], vout);
+        i += svcntw();
+    }
+}
+#endif
+
+#include <arm_neon.h>
+void saxpy_neon_impl(const float *x, const float *y, float *out,
+                     uint64_t n, float alpha) {
+    float32x4_t valpha = vdupq_n_f32(alpha);
+    uint64_t i = 0;
+    for (; i + 3 < n; i += 4) {
+        float32x4_t vx = vld1q_f32(&x[i]);
+        float32x4_t vy = vld1q_f32(&y[i]);
+        float32x4_t vout = vmlaq_f32(vy, vx, valpha);
+        vst1q_f32(&out[i], vout);
+    }
+    for (; i < n; i++) {
+        out[i] = y[i] + x[i] * alpha;
+    }
+}
+
+// Dispatch function: called once to select the best implementation
+#include <sys/auxv.h>
+#include <asm/hwcap.h>
+
+saxpy_fn select_saxpy(void) {
+#ifdef __ARM_FEATURE_SVE
+    unsigned long hwcap2 = getauxval(AT_HWCAP2);
+    if (hwcap2 & HWCAP2_SVE) {
+        return saxpy_sve_impl;
+    }
+#endif
+    return saxpy_neon_impl;
+}
+
+// Usage:
+//   saxpy_fn saxpy = select_saxpy();
+//   saxpy(x, y, out, n, alpha);
+```
+
+---
+
+## 8. Runtime Detection and Deployment
+
+### 8.1 Detecting SVE Support at Runtime
 
 ```c
 #include <sys/auxv.h>
 #include <asm/hwcap.h>
+#include <stdio.h>
+#include <stdint.h>
 
-enum SIMDLevel {
-    SIMD_NONE      = 0,
-    SIMD_NEON      = 1,
-    SIMD_NEON_DOT  = 2,   // ARMv8.2 int8 dot product
-    SIMD_SVE       = 3,   // ARMv8.2+
-    SIMD_SVE2      = 4    // ARMv9
-};
+// Use getauxval(AT_HWCAP) and getauxval(AT_HWCAP2) to query CPU features.
+// These are available on Linux. For other OSes, use platform-specific APIs.
 
-SIMDLevel detect_simd_level() {
+typedef enum {
+    SIMD_NONE         = 0,
+    SIMD_NEON         = 1,   // ARMv8 baseline
+    SIMD_NEON_DOTPROD = 2,   // ARMv8.2: int8 dot product (vdotq_s32)
+    SIMD_NEON_FP16    = 3,   // ARMv8.2: float16 support
+    SIMD_NEON_I8MM    = 4,   // ARMv8.6: int8 matrix multiply
+    SIMD_SVE          = 5,   // ARMv8.2+: Scalable Vector Extension
+    SIMD_SVE2         = 6,   // ARMv9: SVE version 2
+    SIMD_SVE_AES      = 7,   // SVE + AES crypto
+    SIMD_SVE_BITPERM  = 8,   // SVE bit permutation
+} simd_level_t;
+
+// Comprehensive SIMD capability detection
+simd_level_t detect_simd_capabilities(void) {
     unsigned long hwcap  = getauxval(AT_HWCAP);
     unsigned long hwcap2 = getauxval(AT_HWCAP2);
 
-    if (hwcap2 & HWCAP2_SVE2)    return SIMD_SVE2;
-    if (hwcap2 & HWCAP2_SVE)     return SIMD_SVE;
-    if (hwcap  & HWCAP_ASIMDDP)  return SIMD_NEON_DOT;
-    if (hwcap  & HWCAP_ASIMD)    return SIMD_NEON;
-    return SIMD_NONE;
+    // SVE2 (ARMv9) implies all prior capabilities
+    if (hwcap2 & HWCAP2_SVE2)      return SIMD_SVE2;
+    if (hwcap2 & HWCAP2_SVE_AES)   return SIMD_SVE_AES;
+    if (hwcap2 & HWCAP2_SVE_BITPERM) return SIMD_SVE_BITPERM;
+
+    // SVE (ARMv8.2+)
+    if (hwcap2 & HWCAP2_SVE)       return SIMD_SVE;
+
+    // NEON with optional extensions
+    if (hwcap & HWCAP2_I8MM)       return SIMD_NEON_I8MM;
+    if (hwcap & HWCAP_ASIMDHP)     return SIMD_NEON_FP16;  // float16
+    if (hwcap & HWCAP_ASIMDDP)     return SIMD_NEON_DOTPROD;
+
+    // Baseline NEON (guaranteed on ARMv8-A)
+    if (hwcap & HWCAP_ASIMD)       return SIMD_NEON;
+
+    return SIMD_NONE;  // should never happen on ARMv8+
+}
+
+// Print the detected SIMD level for diagnostics
+void report_simd_capabilities(void) {
+    const char *names[] = {
+        [SIMD_NONE]         = "None",
+        [SIMD_NEON]         = "NEON (ARMv8)",
+        [SIMD_NEON_DOTPROD] = "NEON + DotProd (ARMv8.2)",
+        [SIMD_NEON_FP16]    = "NEON + FP16 (ARMv8.2)",
+        [SIMD_NEON_I8MM]    = "NEON + I8MM (ARMv8.6)",
+        [SIMD_SVE]          = "SVE (ARMv8.2+)",
+        [SIMD_SVE2]         = "SVE2 (ARMv9)",
+        [SIMD_SVE_AES]      = "SVE + AES",
+        [SIMD_SVE_BITPERM]  = "SVE + BitPerm",
+    };
+    simd_level_t level = detect_simd_capabilities();
+    printf("Detected SIMD level: %s\n", names[level]);
 }
 ```
 
-### 函数多版本（Function Multi-Versioning）
+### 8.2 Detecting Vector Length at Runtime
 
 ```c
-// 根据 CPU 特性选择不同实现
-// GCC 的 target_clones 属性会自动生成多版本
-// 但这只在目标架构正确时才有效
+#include <arm_sve.h>
+#include <stdio.h>
+#include <stdint.h>
 
-#if defined(__ARM_FEATURE_SVE)
-// SVE 版本
-void my_kernel_sve(const float* A, const float* B, float* C, int N) {
-    // ... SVE 实现 ...
+// Three ways to detect the vector length:
+
+// Method 1: svcntb() intrinsic (recommended)
+uint64_t get_vl_bytes(void) {
+    return svcntb();  // VL/8
 }
-#else
-// NEON 回退版本
-void my_kernel_neon(const float* A, const float* B, float* C, int N) {
-    // ... NEON 实现 ...
+
+// Method 2: svlen() intrinsic
+uint64_t get_vl_bits(void) {
+    return svlen();  // VL in bits
+}
+
+// Method 3: rdvl instruction (inline assembly)
+// rdvl Xd, #imm: Xd = VL_in_bytes * imm
+static inline uint64_t rdvl(uint64_t multiplier) {
+    uint64_t result;
+    __asm__ volatile("rdvl %0, %1" : "=r"(result) : "I"(multiplier));
+    return result;
+}
+
+// Report detailed SVE configuration
+void report_sve_config(void) {
+    if (!(getauxval(AT_HWCAP2) & HWCAP2_SVE)) {
+        printf("SVE not supported on this CPU\n");
+        return;
+    }
+
+    uint64_t vl_bytes = get_vl_bytes();
+    printf("SVE vector length: %lu bits (%lu bytes)\n",
+           vl_bytes * 8, vl_bytes);
+    printf("  int8  per vector: %lu\n", (uint64_t)svcntb());
+    printf("  int16 per vector: %lu\n", (uint64_t)svcnth());
+    printf("  int32 per vector: %lu\n", (uint64_t)svcntw());
+    printf("  int64 per vector: %lu\n", (uint64_t)svcntd());
+    printf("  float32 per vector: %lu\n", (uint64_t)svcntw());
+    printf("  float64 per vector: %lu\n", (uint64_t)svcntd());
+}
+```
+
+### 8.3 Shipping SVE Binaries
+
+```c
+// Strategy 1: Compile-time feature selection (single binary)
+//
+// Compile with: gcc -march=armv8.2-a+sve -O3 -o prog prog.c
+// This produces a binary that requires SVE at runtime.
+// On non-SVE CPUs, the binary will crash with SIGILL.
+//
+// PRO: Simple, no runtime dispatch overhead.
+// CON: Requires SVE hardware.
+
+// Strategy 2: Runtime dispatch with SVE+NEON fallback (single binary)
+//
+// Compile with: gcc -march=armv8-a+simd -O3 -o prog prog.c
+// The SVE path must be in a separate translation unit compiled with -march=armv8.2-a+sve.
+//
+// Or use function multi-versioning (FMV) with GCC/Clang attributes:
+
+#if defined(__GNUC__) && __GNUC__ >= 10
+// GCC 10+ supports target_clones for ARM
+__attribute__((target_clones("default", "sve")))
+void my_kernel(const float *a, const float *b, float *c, uint64_t n) {
+    // Default (NEON) implementation -- compiled for baseline ARMv8
+    uint64_t i = 0;
+#ifdef __ARM_NEON
+    for (; i + 3 < n; i += 4) {
+        float32x4_t va = vld1q_f32(&a[i]);
+        float32x4_t vb = vld1q_f32(&b[i]);
+        vst1q_f32(&c[i], vaddq_f32(va, vb));
+    }
+#endif
+    for (; i < n; i++) {
+        c[i] = a[i] + b[i];
+    }
+}
+// GCC generates two versions: my_kernel.default and my_kernel.sve
+// and automatically dispatches based on CPU features.
+#endif
+
+// Strategy 3: Separate shared libraries
+//
+// Build two .so files:
+//   libkernel_neon.so  (compiled for ARMv8-A)
+//   libkernel_sve.so   (compiled for ARMv8.2-A+SVE)
+//
+// At startup, dlopen the appropriate one based on AT_HWCAP.
+
+// Strategy 4: ifunc (GNU indirect function)
+// The dynamic linker calls a resolver at load time to select the implementation.
+
+#ifdef __ARM_FEATURE_SVE
+static void kernel_sve_impl(const float *a, const float *b, float *c, uint64_t n) {
+    uint64_t i = 0;
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        svfloat32_t va = svld1_f32(pg, &a[i]);
+        svfloat32_t vb = svld1_f32(pg, &b[i]);
+        svst1_f32(pg, &c[i], svadd_f32_m(pg, va, vb));
+        i += svcntw();
+    }
 }
 #endif
 
-// 运行时调度
-typedef void (*kernel_fn)(const float*, const float*, float*, int);
-
-kernel_fn select_kernel() {
-    unsigned long hwcap2 = getauxval(AT_HWCAP2);
-    if (hwcap2 & HWCAP2_SVE) {
-        return my_kernel_sve;
+static void kernel_neon_impl(const float *a, const float *b, float *c, uint64_t n) {
+    uint64_t i = 0;
+    for (; i + 3 < n; i += 4) {
+        float32x4_t va = vld1q_f32(&a[i]);
+        float32x4_t vb = vld1q_f32(&b[i]);
+        vst1q_f32(&c[i], vaddq_f32(va, vb));
     }
-    return my_kernel_neon;
+    for (; i < n; i++) c[i] = a[i] + b[i];
 }
+
+// ifunc resolver: called by ld.so at load time
+typedef void (*kernel_func)(const float *, const float *, float *, uint64_t);
+kernel_func resolve_kernel(void) {
+#ifdef __ARM_FEATURE_SVE
+    if (getauxval(AT_HWCAP2) & HWCAP2_SVE) {
+        return kernel_sve_impl;
+    }
+#endif
+    return kernel_neon_impl;
+}
+
+// Tell the linker that `kernel` is resolved via `resolve_kernel`
+// (Syntax depends on compiler; this is the GCC/clang form)
+void kernel(const float *a, const float *b, float *c, uint64_t n)
+    __attribute__((ifunc("resolve_kernel")));
 ```
 
-### 混用 NEON 和 SVE 的注意事项
+### 8.4 Testing SVE Code Without SVE Hardware
 
-```c
-// ⚠ SVE 和 NEON 共用寄存器文件
-// Z0 的低 128 位 = V0
-//
-// 如果在一个函数中混用，需要遵守 ABI 规则：
-//   1. NEON 代码只修改 V0-V7（调用者保存）
-//   2. SVE 代码可能修改 Z0-Z31
-//   3. 从 SVE 切换到 NEON 前，保存所有 SVE 状态
-//
-// 推荐：一个函数只用一种 SIMD，避免混用
+```bash
+# QEMU user-mode emulation: simulate any SVE vector length.
+# This is ESSENTIAL for testing VLA correctness across VLs.
+
+# Test at 128-bit VL (minimum):
+qemu-aarch64 -cpu max,sve=on,sve128=on \
+  -E SVE_VECTOR_LENGTH=128 ./sve_program
+
+# Test at 256-bit VL (Graviton3 equivalent):
+qemu-aarch64 -cpu max,sve=on,sve256=on \
+  -E SVE_VECTOR_LENGTH=256 ./sve_program
+
+# Test at 512-bit VL (A64FX equivalent):
+qemu-aarch64 -cpu max,sve=on,sve512=on \
+  -E SVE_VECTOR_LENGTH=512 ./sve_program
+
+# Test at 1024-bit VL (future hardware):
+qemu-aarch64 -cpu max,sve=on,sve1024=on \
+  -E SVE_VECTOR_LENGTH=1024 ./sve_program
+
+# Run your test suite across all VLs in a script:
+# for vl in 128 256 512 1024; do
+#     echo "Testing VL=$vl..."
+#     qemu-aarch64 -cpu max,sve=on,sve${vl}=on \
+#       -E SVE_VECTOR_LENGTH=$vl ./sve_tests || exit 1
+# done
+
+# Check the actual VL the hardware reports:
+cat /sys/devices/system/cpu/sve/vl  # real hardware (e.g., Graviton3)
+```
+
+### 8.5 Compilation Flags Reference
+
+```bash
+# Compile SVE code (ARMv8.2-A + SVE):
+gcc -march=armv8.2-a+sve    -O3 -moutline-atomics -o prog prog.c
+
+# Compile SVE2 code (ARMv9-A):
+gcc -march=armv9-a          -O3 -o prog prog.c
+
+# Compile NEON-only code (compatible with everything ARMv8+):
+gcc -march=armv8-a+simd     -O3 -o prog prog.c
+
+# Compile with SVE auto-vectorization hints:
+gcc -march=armv8.2-a+sve -O3 -ftree-vectorize \
+    -fopt-info-vec-missed -fopt-info-vec  -o prog prog.c
+
+# Enable SVE-specific compiler checks:
+gcc -march=armv8.2-a+sve -O3 -Wall -Wextra \
+    -Wvector-operation-performance -o prog prog.c
+
+# Clang (same flags, better SVE auto-vec in some cases):
+clang -march=armv8.2-a+sve -O3 -o prog prog.c
+```
+
+### 8.6 Future Outlook: ARMv9 and SVE2
+
+ARMv9-A mandates SVE2 as part of the baseline architecture. This means:
+
+- **Every ARMv9 CPU** (Cortex-X4, Cortex-A720, Neoverse V2, etc.) supports SVE2.
+- The question shifts from "does this CPU have SVE?" to "what vector length does this CPU support?"
+- Mobile chips will gradually gain SVE2 as ARMv9 cores replace ARMv8 cores.
+- Libraries should prepare SVE2 code paths now for when SVE2 becomes ubiquitous.
+
+```
+Timeline (approximate):
+  2020: A64FX (SVE), Graviton3 (SVE)        -- server only
+  2022: Neoverse V2 (SVE2)                   -- ARMv9 server
+  2023: Cortex-X4 (SVE2, 128-bit VL)         -- first mobile SVE2
+  2024: Cortex-X925 (SVE2)                   -- flagship mobile
+  2025: Mid-range ARMv9 (SVE2)               -- broader mobile adoption
+  2026+: ARMv9 everywhere                     -- SVE2 baseline for new designs
 ```
 
 ---
 
-## 12. 编译器标志和限制
+## Appendix A: Complete Working Examples
+
+### A.1 SAXPY (Scalar Alpha X Plus Y)
+
+```c
+#include <arm_sve.h>
+#include <stdint.h>
+
+// y[i] = alpha * x[i] + y[i]
+void saxpy_sve(const float *x, float *y, uint64_t n, float alpha) {
+    uint64_t i = 0;
+    svfloat32_t valpha = svdup_f32(alpha);
+
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        svfloat32_t vx = svld1_f32(pg, &x[i]);
+        svfloat32_t vy = svld1_f32(pg, &y[i]);
+
+        // FMA with merge: inactive lanes preserve vy
+        svfloat32_t result = svmla_f32_m(pg, vy, vx, valpha);
+        svst1_f32(pg, &y[i], result);
+
+        i += svcntw();
+    }
+}
+```
+
+### A.2 Matrix-Vector Multiply (y = A * x)
+
+```c
+#include <arm_sve.h>
+#include <stdint.h>
+
+// y = A * x, where A is MxN (row-major), x is Nx1, y is Mx1
+void sve_gemv(const float *A, const float *x, float *y,
+              uint64_t M, uint64_t N) {
+    for (uint64_t row = 0; row < M; row++) {
+        svfloat32_t acc = svdup_f32(0.0f);
+        uint64_t j = 0;
+
+        while (j < N) {
+            svbool_t pg = svwhilelt_b32(j, N);
+            svfloat32_t va = svld1_f32(pg, &A[row * N + j]);
+            svfloat32_t vx = svld1_f32(pg, &x[j]);
+
+            // Dot product accumulation
+            acc = svmla_f32_m(pg, acc, va, vx);
+
+            j += svcntw();
+        }
+
+        y[row] = svaddv_f32(svptrue_b32(), acc);
+    }
+}
+```
+
+### A.3 Find Index of Maximum Element (argmax)
+
+```c
+#include <arm_sve.h>
+#include <stdint.h>
+#include <float.h>
+
+// Returns the index of the maximum element in data[0..n-1]
+uint64_t sve_argmax(const float *data, uint64_t n) {
+    if (n == 0) return 0;
+
+    svfloat32_t best_val = svdup_f32(-FLT_MAX);
+    svuint32_t  best_idx = svindex_u32(0, 1);  // {0, 1, 2, ..., VL/32-1}
+    svuint32_t  vidx_inc = svdup_u32((uint32_t)svcntw());
+    svuint32_t  indices  = svindex_u32(0, 1);
+
+    uint64_t i = 0;
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        svfloat32_t v = svld1_f32(pg, &data[i]);
+
+        // Compare: is v > current best?
+        svbool_t better = svcmpgt_f32(pg, v, best_val);
+
+        // Update best values and indices where condition is true
+        best_val = svsel_f32(better, v,       best_val);
+        best_idx = svsel_u32(better, indices, best_idx);
+
+        indices  = svadd_u32_m(pg, indices, vidx_inc);
+        i += svcntw();
+    }
+
+    // Find the maximum across all lanes of best_val
+    svfloat32_t global_max = svmaxv_f32(svptrue_b32(), best_val);
+
+    // Find which lane holds the global maximum
+    svbool_t max_lanes = svcmpeq_f32(svptrue_b32(), best_val,
+                                     svdup_f32(global_max));
+
+    // Get the index of the first lane with the maximum value
+    uint64_t lane = first_set_bit(max_lanes);
+    uint64_t result;
+    // Read index from lane 'lane' of best_idx
+    result = best_idx[lane];  // compiler-dependent lane access
+
+    return result;
+}
+```
+
+### A.4 Softmax (Numerically Stable)
+
+```c
+#include <arm_sve.h>
+#include <stdint.h>
+#include <math.h>
+
+// Numerically stable softmax using SVE:
+//   softmax(x[i]) = exp(x[i] - max(x)) / sum(exp(x - max(x)))
+void sve_softmax(float *x, uint64_t n) {
+    if (n == 0) return;
+
+    // Pass 1: find max(x) for numerical stability
+    float max_val = -INFINITY;
+    uint64_t i = 0;
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        svfloat32_t v = svld1_f32(pg, &x[i]);
+        float lane_max = svmaxv_f32(pg, v);
+        if (lane_max > max_val) max_val = lane_max;
+        i += svcntw();
+    }
+
+    // Pass 2: compute exp(x[i] - max) and accumulate sum
+    svfloat32_t sum_vec = svdup_f32(0.0f);
+    i = 0;
+    svfloat32_t vmax = svdup_f32(max_val);
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        svfloat32_t v = svld1_f32(pg, &x[i]);
+        v = svsub_f32_m(pg, v, vmax);   // x - max
+
+        // Compute exp using a polynomial approximation or library call
+        // For production, use sv_expf32 or a tuned polynomial.
+        // Here we use scalar exp; in practice you'd use a vectorized exp.
+        float tmp[svcntw()];
+        svst1_f32(pg, tmp, v);
+        for (uint64_t k = 0; k < svcntw() && (i + k) < n; k++) {
+            tmp[k] = expf(tmp[k]);
+        }
+        v = svld1_f32(pg, tmp);
+
+        svst1_f32(pg, &x[i], v);        // store exp(x - max)
+        sum_vec = svadd_f32_m(pg, sum_vec, v);  // accumulate sum
+        i += svcntw();
+    }
+
+    // Reduce sum
+    float sum = svaddv_f32(svptrue_b32(), sum_vec);
+    svfloat32_t vsum = svdup_f32(sum);
+
+    // Pass 3: normalize by sum
+    i = 0;
+    while (i < n) {
+        svbool_t pg = svwhilelt_b32(i, n);
+        svfloat32_t v = svld1_f32(pg, &x[i]);
+        v = svdiv_f32_m(pg, v, vsum);
+        svst1_f32(pg, &x[i], v);
+        i += svcntw();
+    }
+}
+```
+
+---
+
+## Appendix B: Quick Reference Card
+
+### B.1 Predicate Operations
+
+| Operation | Intrinsic | Description |
+|-----------|-----------|-------------|
+| Loop predicate | `svwhilelt_b32(i, n)` | Lane k active if i+k < n |
+| All true | `svptrue_b32()` | All lanes enabled |
+| Pattern VL1 | `svptrue_pat_b32(SV_VL1)` | Only lane 0 enabled |
+| Comparisons | `svcmpgt_f32(pg, a, b)` | a > b on active lanes |
+| Selection | `svsel_f32(pg, a, b)` | pg=1: a, pg=0: b |
+| Predicate AND | `svand_b_z(pg, p1, p2)` | p1 & p2 |
+| Predicate OR | `svorr_b_z(pg, p1, p2)` | p1 \| p2 |
+| Predicate NOT | `svnot_b_z(pg, p1)` | ~p1 |
+| First true | `svbrkb_b_z(pg, pg, p)` | Lanes before first 1 in p |
+| Popcount | `svcntp_b32(pg, p)` | Count of 1 bits in p |
+| Test any | `svptest_any(pg, p)` | True if any lane is set |
+| Compact | `svcompact_f32(p, v)` | Pack active lanes to LSB |
+
+### B.2 Operation Suffixes
+
+| Suffix | Inactive Lane Behavior | Use Case |
+|--------|----------------------|----------|
+| `_m` (merge) | Preserve first operand | Accumulators (acc = acc + x) |
+| `_z` (zero) | Zero | Fresh results for storage |
+| `_x` (don't care) | Undefined | Temporary values, overwritten immediately |
+
+### B.3 Runtime Information
+
+| Intrinsic / API | Returns |
+|----------------|---------|
+| `svcntb()` | Number of bytes per vector (VL/8) |
+| `svcnth()` | Number of halfwords per vector (VL/16) |
+| `svcntw()` | Number of words per vector (VL/32) |
+| `svcntd()` | Number of doublewords per vector (VL/64) |
+| `svlen()` | Vector length in bits |
+| `getauxval(AT_HWCAP2)` | CPU feature flags |
+| `rdvl x0, #1` | VL in bytes (assembly) |
+
+### B.4 Compilation Flags
 
 ```bash
-# SVE 编译
-gcc -march=armv8.2-a+sve   -O3 -o prog prog.c
-gcc -march=armv8.2-a+sve   -O3 -mbig-endian ...  # 大端模式
-gcc -march=armv9-a         -O3 ...               # SVE2
+# SVE (ARMv8.2+)
+gcc -march=armv8.2-a+sve    -O3 prog.c
 
-# 在运行时指定 SVE 向量长度（用于 QEMU 模拟或模拟不同 VL）
-# 环境变量:
-export SVE_VECTOR_LENGTH=256   # 模拟 256-bit VL
-# 或
-/sys/devices/system/cpu/sve/vl  # 查看硬件 VL
+# SVE2 (ARMv9)
+gcc -march=armv9-a          -O3 prog.c
 
-# QEMU 模拟
+# SVE2 with specific features
+gcc -march=armv9-a+sve2+sve2-bitperm -O3 prog.c
+
+# QEMU testing
 qemu-aarch64 -cpu max,sve=on,sve256=on ./prog
 ```
 
 ---
 
-## 13. SVE 在实际中的局限性
-
-### 为什么 SVE 还不是主流
-
-1. **硬件部署有限**
-   - 目前只有 Apple M4、Fujitsu A64FX、AWS Graviton3、Neoverse V1 支持 SVE
-   - 绝大多数手机（A76, A78, X1）仍是 NEON only
-
-2. **生态不成熟**
-   - 开源库大多只有 NEON 优化路径
-   - SVE 的调试和性能分析工具有限
-
-3. **编译器优化**
-   - GCC 和 Clang 的 SVE 自动向量化逐渐改善但仍不如 NEON 成熟
-   - 手写 SVE intrinsics 需要比较深入的理解
-
-4. **无法确定最优展开因子**
-   - NEON 可以硬编码展开 4x（因为 128-bit 固定）
-   - SVE 在 VL=256 与 VL=512 上最优展开不同
-   - 需要在不同 VL 上基准测试
-
-### 何时用 SVE
-
-- **云端 ARM 服务器**：Graviton3 的 256-bit SVE 比 NEON 高 2x 吞吐
-- **HPC**：Fujitsu A64FX 的 512-bit SVE 提供巨大向量宽度
-- **需要可移植二进制**：同一份二进制在 128-2048 bit 上都最优
-
-### 何时坚持用 NEON
-
-- **移动端应用**：几乎所有手机都是 NEON only
-- **需要确定性性能**：128-bit 固定宽度，展开深度已知
-- **生态更成熟**：更多示例、库、调试工具
-
----
-
-## 14. 完整示例：SVE 矩阵乘法微核心
-
-```c
-// SVE GEMM 微核心 (256-bit VL 示例)
-// C += A × B, 其中 C 是 4×4, A 是 4×K, B 是 K×4
-void sve_gemm_4x4_vl256(const float* A, const float* B, float* C,
-                         int K, int lda, int ldb, int ldc) {
-    // 为 4 行 C 分配累加器（行优先，需要 4 个 svfloat32_t）
-    svfloat32_t c0 = svdup_f32(0.0f);
-    svfloat32_t c1 = svdup_f32(0.0f);
-    svfloat32_t c2 = svdup_f32(0.0f);
-    svfloat32_t c3 = svdup_f32(0.0f);
-
-    int k = 0;
-    svbool_t pg = svptrue_b32();  // 全量谓词
-
-    while (k < K) {
-        // 加载 A 的第 k 列（广播到所有 lane）
-        svfloat32_t a0 = svld1rq_f32(pg, &A[0 * lda + k]);  // 注意: 需要broadcast
-        svfloat32_t a1 = svld1rq_f32(pg, &A[1 * lda + k]);
-        svfloat32_t a2 = svld1rq_f32(pg, &A[2 * lda + k]);
-        svfloat32_t a3 = svld1rq_f32(pg, &A[3 * lda + k]);
-
-        // 加载 B 的一行
-        svfloat32_t bk = svld1_f32(pg, &B[k * ldb]);
-
-        // FMA
-        c0 = svmla_f32_m(pg, c0, a0, bk);
-        c1 = svmla_f32_m(pg, c1, a1, bk);
-        c2 = svmla_f32_m(pg, c2, a2, bk);
-        c3 = svmla_f32_m(pg, c3, a3, bk);
-
-        k++;
-    }
-
-    // 存储 C（如果 C 小于 8 个 float，需要用谓词存储）
-    svst1_f32(pg, &C[0 * ldc], c0);
-    svst1_f32(pg, &C[1 * ldc], c1);
-    svst1_f32(pg, &C[2 * ldc], c2);
-    svst1_f32(pg, &C[3 * ldc], c3);
-}
-```
-
-**注意**：SVE 的 GEMM 优化比 NEON 复杂得多，因为：
-1. 最优分块大小依赖于 VL
-2. 在 VL=128（最小）和 VL=512（较大）上需要不同的展开策略
-3. 通常需要一个运行时初始化的分块策略
-
----
-
-## 15. SVE 学习路线图
-
-```
-第 1 步: 理解谓词概念
-  - svwhilelt 是理解 SVE 的钥匙
-  - 研究无尾部循环的等价物: NEON 主循环 + 标量尾部
-
-第 2 步: 改写简单的 NEON 程序为 SVE
-  - 向量加法、SAXPY、点积
-  - 观察代码从 "主循环+尾部" 简化为 "一个 while 循环"
-
-第 3 步: 理解 _m/_z/_x 后缀
-  - 这对高性能 SVE 代码至关重要
-  - 错误地使用 _z 会导致不活跃 lane 的累加器被清零
-
-第 4 步: 跨不同 VL 的基准测试
-  - QEMU 支持模拟 VL=128/256/512
-  - 验证代码在不同 VL 下的正确性和性能
-
-第 5 步: 深入 SVE2
-  - 复数乘法、位谓词操作、更强的 scatter/gather
-  - 只在 ARMv9 (Neoverse V2, Cortex-X4) 上可用
-```
-
----
-
-**下一节**：将 NEON 和 SVE 的知识应用到 7 个真实工业场景中：图像/音频处理、ML 推理、数据压缩、网络包处理。
+**Next: Applying SVE and NEON to 7 real-world industrial scenarios: image/audio processing, ML inference, data compression, and network packet processing.**
