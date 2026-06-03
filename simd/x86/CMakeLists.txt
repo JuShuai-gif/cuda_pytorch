@@ -1,5 +1,10 @@
+cmake_minimum_required(VERSION 3.18)
+
 # x86 SIMD targets (AVX2 / AVX-512)
 # Requires BUILD_X86=ON (auto-detected on x86_64/amd64 hosts)
+
+# Enable ASM language for assembly source files (.s)
+enable_language(ASM)
 
 # Sanity check: warn if building x86 targets on a non-x86 machine
 if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|i686")
@@ -41,6 +46,16 @@ set(AVX2_SOURCES
     src/dispatch_demo.cpp
     src/edge_cases_demo.cpp
     src/avx2_gemm_micro.cpp
+    src/complete_softmax_avx2.cpp
+    src/avx2_string_search.cpp
+    src/avx2_image_conv2d.cpp
+    src/cpuid_full_demo.cpp
+    src/avx2_gemm_production.cpp
+    src/avx2_scaled_attention.cpp
+    src/avx2_batchnorm.cpp
+    src/avx2_winograd_f23.cpp
+    src/avx2_int8_gemm_requantize.cpp
+    src/avx2_math_functions.cpp
 )
 
 foreach(src ${AVX2_SOURCES})
@@ -65,12 +80,39 @@ endforeach()
 
 # ---- portable_simd_demo: compile same source for multiple ISAs ----
 
+# SSE target (128-bit) - demonstrate SSE basics
+add_executable(sse_basics_demo src/sse_basics_demo.cpp)
+target_compile_options(sse_basics_demo PRIVATE ${X86_COMMON_OPTIONS} -msse4.1)
+target_link_options(sse_basics_demo PRIVATE -msse4.1)
+target_include_directories(sse_basics_demo PRIVATE ${COMMON_HEADERS_DIR})
+set_target_properties(sse_basics_demo PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/x86")
+
+# CRC32C demo (SSE4.2)
+add_executable(crc32c_demo src/crc32c_demo.cpp)
+target_compile_options(crc32c_demo PRIVATE ${X86_COMMON_OPTIONS} -msse4.2)
+target_link_options(crc32c_demo PRIVATE -msse4.2)
+target_include_directories(crc32c_demo PRIVATE ${COMMON_HEADERS_DIR})
+set_target_properties(crc32c_demo PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/x86")
+
+# ASM/Intrinsics bridge demo (C++ + assembly)
+add_executable(asm_intrinsics_bridge
+    src/asm_intrinsics_bridge.cpp
+    src/x86_64_calling_convention.s
+)
+target_compile_options(asm_intrinsics_bridge PRIVATE ${X86_COMMON_OPTIONS} -mavx2 -mfma)
+target_link_options(asm_intrinsics_bridge PRIVATE -mavx2 -mfma)
+target_include_directories(asm_intrinsics_bridge PRIVATE ${COMMON_HEADERS_DIR})
+set_target_properties(asm_intrinsics_bridge PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/x86")
+
+# ---- portable_simd_demo: compile same source for multiple ISAs ----
+
 # AVX-512 arch flags (define early, used by portable_avx512 below)
 set(AVX512_ARCH_FLAGS
     -mavx512f
     -mavx512bw
     -mavx512vl
     -mavx512dq
+    -mavx512cd
     -mfma
 )
 
@@ -108,6 +150,9 @@ if(BUILD_X86_AVX512)
         src/avx512_masked_tail.cpp
         src/avx512_gather_scatter.cpp
         src/avx512_byte_scan.cpp
+        src/avx512_conflict_demo.cpp
+        src/avx512_compress_expand_demo.cpp
+        src/avx512_rounding_demo.cpp
     )
 
     foreach(src ${AVX512_SOURCES})

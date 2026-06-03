@@ -1,0 +1,51 @@
+# Build directories
+build*/
+cmake-build-*/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Compiled binaries
+*.o
+*.obj
+*.exe
+*.out
+*.app
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Core dumps
+core
+core.*
+
+# Dep files
+*.d
+*.dSYM/
+
+# Compiler cache
+.ccache/
+.cache/
+
+# Sanitizer output
+*.tsan
+*.asan
+
+# Perf data
+perf.data
+perf.data.old
+*.perf
+*.svg
+
+# Valgrind logs
+vgcore.*
