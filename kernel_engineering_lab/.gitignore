@@ -1,0 +1,125 @@
+# ============================================================================
+# kernel_engineering_lab .gitignore
+# GPU kernel engineering project — CUDA / Triton / PyTorch
+# ============================================================================
+
+# ----------------------------------------
+# Python
+# ----------------------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.coverage
+htmlcov/
+*.prof
+pip-wheel-metadata/
+
+# ----------------------------------------
+# C++ / CUDA Build Artifacts
+# ----------------------------------------
+build/
+dist/
+*.so
+*.o
+*.obj
+*.a
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.dll
+*.dylib
+
+# CUDA compilation intermediates
+*.ptx
+*.cubin
+*.fatbin
+*.nvcc_cache
+*.nvcc_deps
+
+# ----------------------------------------
+# Profiling Outputs
+# ----------------------------------------
+# Nsight Systems
+*.nsys-rep
+*.qdrep
+*.qdstrm
+report_*.nsys-rep
+profile_*.nsys-rep
+
+# Nsight Compute
+*.ncu-rep
+profile_*.ncu-rep
+
+# perf
+perf.data*
+perf_report/
+
+# Benchmark outputs
+benchmark_*.csv
+benchmark_*.json
+benchmark_*.log
+
+# ----------------------------------------
+# IDE / Editor
+# ----------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+\#*\#
+*.sublime-*
+
+# ----------------------------------------
+# OS
+# ----------------------------------------
+.DS_Store
+.DS_Store?
+Thumbs.db
+._*
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+
+# ----------------------------------------
+# Conda / Virtualenv
+# ----------------------------------------
+*.env/
+venv/
+.venv/
+env/
+
+# ----------------------------------------
+# Jupyter
+# ----------------------------------------
+.ipynb_checkpoints/
+*.ipynb
+
+# ----------------------------------------
+# Logs
+# ----------------------------------------
+*.log
+logs/
+
+# ----------------------------------------
+# Temp
+# ----------------------------------------
+/tmp/
+*.tmp
+*.temp
+
+# ----------------------------------------
+# Package lock files (keep requirements.txt)
+# ----------------------------------------
+poetry.lock
+Pipfile.lock

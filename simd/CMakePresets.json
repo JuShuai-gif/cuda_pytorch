@@ -1,0 +1,153 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "x86-release",
+      "description": "x86 release build with AVX2 + AVX-512",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_X86": "ON",
+        "BUILD_X86_AVX512": "ON",
+        "BUILD_ARM": "OFF",
+        "CMAKE_C_FLAGS": "-O3 -march=native -DNDEBUG",
+        "CMAKE_CXX_FLAGS": "-O3 -march=native -DNDEBUG"
+      }
+    },
+    {
+      "name": "x86-debug",
+      "description": "x86 debug build with sanitizers",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_X86": "ON",
+        "BUILD_X86_AVX512": "ON",
+        "BUILD_ARM": "OFF",
+        "CMAKE_C_FLAGS": "-g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer",
+        "CMAKE_CXX_FLAGS": "-g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer"
+      }
+    },
+    {
+      "name": "x86-release-native",
+      "description": "x86 release with -march=native for auto-ISA",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_X86": "ON",
+        "BUILD_X86_AVX512": "OFF",
+        "BUILD_ARM": "OFF",
+        "CMAKE_C_FLAGS": "-O3 -march=native -DNDEBUG -flto",
+        "CMAKE_CXX_FLAGS": "-O3 -march=native -DNDEBUG -flto"
+      }
+    },
+    {
+      "name": "x86-release-no512",
+      "description": "x86 release AVX2 only, no AVX-512 (suitable for CPUs without AVX-512)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_X86": "ON",
+        "BUILD_X86_AVX512": "OFF",
+        "BUILD_ARM": "OFF",
+        "CMAKE_C_FLAGS": "-O3 -mavx2 -mfma -DNDEBUG",
+        "CMAKE_CXX_FLAGS": "-O3 -mavx2 -mfma -DNDEBUG"
+      }
+    },
+    {
+      "name": "x86-relwithdebinfo",
+      "description": "x86 optimized with debug symbols (for perf annotate)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "BUILD_X86": "ON",
+        "BUILD_X86_AVX512": "ON",
+        "BUILD_ARM": "OFF",
+        "CMAKE_C_FLAGS": "-O3 -march=native -g -fno-omit-frame-pointer",
+        "CMAKE_CXX_FLAGS": "-O3 -march=native -g -fno-omit-frame-pointer"
+      }
+    },
+    {
+      "name": "x86-clang",
+      "description": "x86 release build using Clang compiler",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "BUILD_X86": "ON",
+        "BUILD_X86_AVX512": "ON",
+        "BUILD_ARM": "OFF",
+        "CMAKE_C_FLAGS": "-O3 -march=native -DNDEBUG",
+        "CMAKE_CXX_FLAGS": "-O3 -march=native -DNDEBUG"
+      }
+    },
+    {
+      "name": "x86-profile-gen",
+      "description": "PGO: generate profile",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_X86": "ON",
+        "BUILD_X86_AVX512": "ON",
+        "BUILD_ARM": "OFF",
+        "CMAKE_C_FLAGS": "-O3 -march=native -fprofile-generate",
+        "CMAKE_CXX_FLAGS": "-O3 -march=native -fprofile-generate"
+      }
+    },
+    {
+      "name": "x86-profile-use",
+      "description": "PGO: use profile",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_X86": "ON",
+        "BUILD_X86_AVX512": "ON",
+        "BUILD_ARM": "OFF",
+        "CMAKE_C_FLAGS": "-O3 -march=native -fprofile-use",
+        "CMAKE_CXX_FLAGS": "-O3 -march=native -fprofile-use"
+      }
+    },
+    {
+      "name": "arm-release",
+      "description": "ARM release build with NEON + SVE",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_ARM": "ON",
+        "BUILD_ARM_SVE": "OFF",
+        "BUILD_X86": "OFF",
+        "CMAKE_C_FLAGS": "-O3 -DNDEBUG",
+        "CMAKE_CXX_FLAGS": "-O3 -DNDEBUG"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "x86-release",
+      "configurePreset": "x86-release"
+    },
+    {
+      "name": "x86-debug",
+      "configurePreset": "x86-debug"
+    },
+    {
+      "name": "x86-release-native",
+      "configurePreset": "x86-release-native"
+    },
+    {
+      "name": "x86-release-no512",
+      "configurePreset": "x86-release-no512"
+    },
+    {
+      "name": "x86-relwithdebinfo",
+      "configurePreset": "x86-relwithdebinfo"
+    },
+    {
+      "name": "x86-clang",
+      "configurePreset": "x86-clang"
+    },
+    {
+      "name": "x86-profile-gen",
+      "configurePreset": "x86-profile-gen"
+    },
+    {
+      "name": "x86-profile-use",
+      "configurePreset": "x86-profile-use"
+    },
+    {
+      "name": "arm-release",
+      "configurePreset": "arm-release"
+    }
+  ]
+}

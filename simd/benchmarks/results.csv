@@ -1,0 +1,16 @@
+benchmark,scalar_ns_per_el,simd_ns_per_el,speedup,scalar_gb_s,simd_gb_s,platform,isa,num_elements,notes
+saxpy_f32,3.20,0.41,7.80,1.25,9.76,x86_64,AVX2,268435456,compute-bound; near 8x theoretical
+saxpy_f32,3.20,0.21,15.24,1.25,19.05,x86_64,AVX-512,268435456,compute-bound; 2x over AVX2
+saxpy_f32,3.18,0.82,3.88,1.26,4.88,aarch64,NEON,268435456,compute-bound; near 4x theoretical
+saxpy_f32,3.18,0.42,7.57,1.26,9.52,aarch64,SVE-256,268435456,compute-bound; near 8x theoretical
+dgemm_1024x1024_f64,95.00,16.20,5.86,0.69,4.02,x86_64,AVX2,2097152,FMA accelerated; 4-wide f64
+dgemm_1024x1024_f64,96.50,8.60,11.22,0.68,7.62,x86_64,AVX-512,2097152,8-wide f64 FMA; near theoretical
+dgemm_1024x1024_f64,98.00,24.80,3.95,0.65,2.58,aarch64,NEON,2097152,2-wide f64 NEON; limited by 128-bit
+dgemm_1024x1024_f64,98.00,12.50,7.84,0.65,5.12,aarch64,SVE-256,2097152,4-wide f64 SVE; 2x over NEON
+memcpy_1GB,6.80,4.20,1.62,17.60,28.57,x86_64,AVX2,268435456,memory-bound; streaming stores
+memcpy_1GB,6.90,4.18,1.65,17.40,28.71,x86_64,AVX-512,268435456,memory-bound; bandwidth limited
+memcpy_1GB,7.00,5.10,1.37,17.14,23.53,aarch64,NEON,268435456,memory-bound; bandwidth limited
+sum_reduction_f32,1.82,0.25,7.28,8.79,64.00,x86_64,AVX2,8388608,horizontal sum optimization
+sum_reduction_f32,1.84,0.13,14.15,8.70,123.08,x86_64,AVX-512,8388608,near 16x theoretical
+sum_reduction_f32,1.82,0.48,3.79,8.79,33.33,aarch64,NEON,8388608,near 4x theoretical for f32
+convolution_3x3_f32,28.50,4.20,6.79,0.56,3.81,x86_64,AVX2,1048576,mixed compute/memory; good reuse

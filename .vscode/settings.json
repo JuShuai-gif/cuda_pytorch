@@ -70,7 +70,6 @@
     },
     "python-envs.defaultEnvManager": "ms-python.python:conda",
     "python-envs.defaultPackageManager": "ms-python.python:conda",
-    "python-envs.pythonProjects": [],
     "C_Cpp.default.compilerPath": "/usr/bin/g++-13"
 
 

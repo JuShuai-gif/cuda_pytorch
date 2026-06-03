@@ -54,3 +54,6 @@ dist
 *.aux*
 *.dpth
 *.pdf
+.venv
+.cache
+.ruff_cache
