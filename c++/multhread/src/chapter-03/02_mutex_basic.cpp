@@ -25,6 +25,10 @@ public:
     void increment() {
         // lock_guard: RAII，构造时 lock，析构时 unlock
         // 即使抛异常也能正确 unlock
+        //
+        // lock 的作用: 锁定 m_mutex 后，其他试图 lock 同一 m_mutex 的线程
+        // 会被阻塞，直到当前线程析构 lock_guard 释放锁。从而保证同一时刻
+        // 只有一个线程能执行 ++m_value，避免读-改-写的竞争条件。
         std::lock_guard<std::mutex> lock(m_mutex);
         ++m_value;
     }

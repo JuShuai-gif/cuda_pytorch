@@ -140,8 +140,7 @@ int main() {
 
         // 多线程并行
         {
-            ScopedTimer                  timer("多线程并行 (" + std::to_string(n) +
-                        " 个线程)");
+            ScopedTimer timer("多线程并行 (" + std::to_string(n) + " 个线程)");
             std::vector<std::jthread> threads;  // C++20 jthread
             threads.reserve(n);
             for (unsigned int i = 0; i < n; ++i) {

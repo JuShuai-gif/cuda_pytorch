@@ -1,81 +1,81 @@
-# Industrial-Grade C++ Concurrency Project
+# 工业级 C++ 并发项目
 
-## AI/ML Operator Inference Task Scheduling System
+## AI/ML 算子推理任务调度系统
 
-A comprehensive C++20 concurrent task scheduling system for AI/ML inference workloads.
-This project implements every core concurrency concept from **"C++ Concurrency in Action (2nd Edition)"**
-by Anthony Williams in a practical, industrial-grade codebase.
+一个面向 AI/ML 推理工作负载的综合 C++20 并发任务调度系统。
+本项目将 Anthony Williams 所著 **《C++ Concurrency in Action（第二版）》** 中的每个核心并发概念
+以实用、工业级代码库的形式实现。
 
-### Book Chapter Coverage
+### 书籍章节覆盖
 
-| Chapter | Topic | Module |
+| 章节 | 主题 | 模块 |
 |---------|-------|--------|
-| Ch2 | Thread Management | `main.cpp`, `thread_pool.cpp` |
-| Ch3 | Sharing Data Between Threads | `task_queue.hpp`, `concurrent_cache.hpp`, `logger.hpp` |
-| Ch4 | Synchronizing Concurrent Operations | `thread_pool.hpp`, `task_scheduler.hpp` |
-| Ch5 | C++ Memory Model & Atomics | `spinlock.hpp`, `stop_token.hpp` |
-| Ch6 | Lock-based Concurrent Data Structures | `task_queue.hpp`, `priority_task_queue.hpp` |
-| Ch7 | Lock-free Data Structures | (design notes only) |
-| Ch8 | Designing Concurrent Code | `task_scheduler.hpp`, examples |
-| Ch9 | Advanced Thread Management | `thread_pool.hpp`, `stop_token.hpp` |
-| Ch10 | Testing & Debugging Concurrent Code | `tests/` directory |
-| Ch11 | Multi-threading Best Practices | `logger.hpp`, project patterns |
+| Ch2 | 线程管理 | `main.cpp`、`thread_pool.cpp` |
+| Ch3 | 线程间数据共享 | `task_queue.hpp`、`concurrent_cache.hpp`、`logger.hpp` |
+| Ch4 | 同步并发操作 | `thread_pool.hpp`、`task_scheduler.hpp` |
+| Ch5 | C++ 内存模型与原子操作 | `spinlock.hpp`、`stop_token.hpp` |
+| Ch6 | 基于锁的并发数据结构 | `task_queue.hpp`、`priority_task_queue.hpp` |
+| Ch7 | 无锁数据结构 | （仅设计说明） |
+| Ch8 | 设计并发代码 | `task_scheduler.hpp`、示例代码 |
+| Ch9 | 高级线程管理 | `thread_pool.hpp`、`stop_token.hpp` |
+| Ch10 | 并发代码的测试与调试 | `tests/` 目录 |
+| Ch11 | 多线程最佳实践 | `logger.hpp`、项目模式 |
 
-### Project Structure
+### 项目结构
 
 ```
 industrial-concurrency-project/
-├── include/task_scheduler/    # Header-only and template libraries
-│   ├── task_scheduler.hpp      # Core scheduler (Ch8.5)
-│   ├── thread_pool.hpp         # Fixed-size thread pool with work stealing (Ch9.1)
-│   ├── task_queue.hpp          # MPMC lock-based queue (Ch6.2)
-│   ├── priority_task_queue.hpp # Priority-based MPMC queue (Ch6.3)
-│   ├── spinlock.hpp            # TTAS spinlock (Ch5.3)
-│   ├── concurrent_cache.hpp    # LRU cache with shared_mutex (Ch3.3)
-│   ├── stop_token.hpp          # Simplified stop mechanism (Ch9.2)
-│   └── logger.hpp              # Thread-safe logger (Ch11)
-├── src/                        # Non-template implementations
+├── include/task_scheduler/    # 仅头文件及模板库
+│   ├── task_scheduler.hpp      # 核心调度器（Ch8.5）
+│   ├── thread_pool.hpp         # 带工作窃取的固定大小线程池（Ch9.1）
+│   ├── task_queue.hpp          # 基于锁的多生产者多消费者队列（Ch6.2）
+│   ├── priority_task_queue.hpp # 基于优先级的多生产者多消费者队列（Ch6.3）
+│   ├── spinlock.hpp            # TTAS 自旋锁（Ch5.3）
+│   ├── concurrent_cache.hpp    # 带 shared_mutex 的 LRU 缓存（Ch3.3）
+│   ├── stop_token.hpp          # 简化的停止机制（Ch9.2）
+│   └── logger.hpp              # 线程安全日志器（Ch11）
+├── src/                        # 非模板实现
 │   ├── main.cpp
 │   ├── thread_pool.cpp
 │   ├── task_scheduler.cpp
 │   └── logger.cpp
-├── tests/                      # Unit and stress tests
+├── tests/                      # 单元测试和压力测试
 │   ├── test_thread_pool.cpp
 │   ├── test_task_queue.cpp
 │   ├── test_task_scheduler.cpp
 │   └── test_stress.cpp
-├── examples/                   # Usage examples
+├── examples/                   # 使用示例
 │   ├── example_basic.cpp
 │   ├── example_pipeline.cpp
 │   ├── example_inference.cpp
 │   └── example_producer_consumer.cpp
-└── docs/                       # Architecture and design documentation
+└── docs/                       # 架构和设计文档
     ├── architecture.md
     └── design_notes.md
 ```
 
-### Quick Start
+### 快速开始
 
 ```bash
-# Build
+# 构建
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
 
-# Run tests
+# 运行测试
 ctest --output-on-failure
 
-# Run examples
+# 运行示例
 ./example_basic
 ./example_pipeline
 ./example_inference
 ./example_producer_consumer
 
-# Run main demo
+# 运行主程序演示
 ./main
 ```
 
-### ThreadSanitizer Build
+### ThreadSanitizer 构建
 
 ```bash
 mkdir build-tsan && cd build-tsan
@@ -84,24 +84,24 @@ make -j$(nproc)
 ./test_stress
 ```
 
-### Key Features
+### 核心特性
 
-- **Work-Stealing Thread Pool**: Fixed-size pool with per-thread local queues (Ch9.1)
-- **Priority Scheduling**: Multi-level priority queue for latency-sensitive tasks (Ch6.3)
-- **Pipeline Execution**: Multi-stage task pipelines with future chaining (Ch8.3)
-- **Concurrent LRU Cache**: Read-optimized cache with `std::shared_mutex` (Ch3.3)
-- **TTAS Spinlock**: Test-Test-And-Set with exponential backoff (Ch5.3)
-- **Graceful Shutdown**: Stop token mechanism for cooperative interruption (Ch9.2)
-- **Thread-Safe Logging**: Timestamped, leveled logging with atomic fast-path (Ch11)
-- **RAII Everywhere**: No raw `new`/`delete`, exception-safe resource management
-- **TSan Ready**: Designed for ThreadSanitizer verification (Ch10)
+- **工作窃取线程池**：带每线程本地队列的固定大小线程池（Ch9.1）
+- **优先级调度**：面向延迟敏感任务的多级优先级队列（Ch6.3）
+- **流水线执行**：带 future 链式调用的多阶段任务流水线（Ch8.3）
+- **并发 LRU 缓存**：利用 `std::shared_mutex` 实现读优化的缓存（Ch3.3）
+- **TTAS 自旋锁**：带指数退避的"测试-测试并设置"自旋锁（Ch5.3）
+- **优雅关闭**：用于协作式中断的停止令牌机制（Ch9.2）
+- **线程安全日志**：带原子快速路径的时间戳分级日志（Ch11）
+- **全程 RAII**：无裸 `new`/`delete`，异常安全的资源管理
+- **TSan 就绪**：为 ThreadSanitizer 验证而设计（Ch10）
 
-### Requirements
+### 环境要求
 
-- C++20 compiler (GCC 12+, Clang 16+)
+- C++20 编译器（GCC 12+、Clang 16+）
 - CMake 3.14+
-- pthread (Linux/macOS)
+- pthread（Linux/macOS）
 
-### License
+### 许可证
 
-MIT - See LICENSE file.
+MIT - 详见 LICENSE 文件。

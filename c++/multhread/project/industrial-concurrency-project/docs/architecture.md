@@ -1,38 +1,38 @@
-# Architecture Document
+# 架构文档
 
-## AI/ML Operator Inference Task Scheduling System
+## AI/ML 算子推理任务调度系统
 
 ---
 
-## 1. System Architecture
+## 1. 系统架构
 
 ```mermaid
 graph TB
-    subgraph "Client Layer"
-        CLI[Client Applications / REST API]
+    subgraph "客户端层"
+        CLI[客户端应用 / REST API]
     end
 
-    subgraph "Task Scheduler Core"
-        TS[TaskScheduler<br/>Ch8.5: Core Orchestrator]
-        PQ[PriorityTaskQueue<br/>Ch6.3: Priority Ordering]
-        TP[ThreadPool<br/>Ch9.1: Worker Management]
+    subgraph "任务调度器核心"
+        TS[TaskScheduler<br/>Ch8.5：核心编排器]
+        PQ[PriorityTaskQueue<br/>Ch6.3：优先级排序]
+        TP[ThreadPool<br/>Ch9.1：工作线程管理]
     end
 
-    subgraph "Thread Pool Internals"
-        subgraph "Worker Threads"
-            W1[Worker 0<br/>Local Queue + Worker Loop]
-            W2[Worker 1<br/>Local Queue + Worker Loop]
-            W3[Worker N<br/>Local Queue + Worker Loop]
+    subgraph "线程池内部结构"
+        subgraph "工作线程"
+            W1[Worker 0<br/>本地队列 + 工作循环]
+            W2[Worker 1<br/>本地队列 + 工作循环]
+            W3[Worker N<br/>本地队列 + 工作循环]
         end
-        GQ[Global TaskQueue<br/>Ch6.2: MPMC Queue]
-        WS[Work Stealing<br/>Ch8.4: Load Balancing]
+        GQ[全局 TaskQueue<br/>Ch6.2：MPMC 队列]
+        WS[工作窃取<br/>Ch8.4：负载均衡]
     end
 
-    subgraph "Concurrency Primitives"
-        SL[Spinlock<br/>Ch5.3: TTAS Lock]
-        CC[ConcurrentCache<br/>Ch3.3: shared_mutex LRU]
-        ST[StopToken<br/>Ch9.2: Cooperative Stop]
-        LG[Logger<br/>Ch11: Thread-Safe Logging]
+    subgraph "并发原语"
+        SL[Spinlock<br/>Ch5.3：TTAS 锁]
+        CC[ConcurrentCache<br/>Ch3.3：shared_mutex LRU]
+        ST[StopToken<br/>Ch9.2：协作式停止]
+        LG[Logger<br/>Ch11：线程安全日志]
     end
 
     CLI --> TS
@@ -47,69 +47,69 @@ graph TB
     W1 --> SL
 ```
 
-## 2. Task Scheduling Flow
+## 2. 任务调度流程
 
 ```mermaid
 sequenceDiagram
-    participant Client
-    participant TaskScheduler
-    participant PriorityQueue
-    participant ThreadPool
-    participant Worker
-    participant Cache
+    participant 客户端
+    participant 任务调度器
+    participant 优先级队列
+    participant 线程池
+    participant 工作线程
+    participant 缓存
 
-    Client->>TaskScheduler: submit(task, priority)
-    TaskScheduler->>PriorityQueue: push(task, priority)
-    TaskScheduler->>TaskScheduler: dispatch_pending()
+    客户端->>任务调度器: submit(task, priority)
+    任务调度器->>优先级队列: push(task, priority)
+    任务调度器->>任务调度器: dispatch_pending()
     
-    loop Until queue empty or batch limit
-        TaskScheduler->>PriorityQueue: try_pop(highest priority)
-        TaskScheduler->>ThreadPool: submit_to_local(worker_idx, task)
+    loop 直到队列为空或达到批量上限
+        任务调度器->>优先级队列: try_pop(最高优先级)
+        任务调度器->>线程池: submit_to_local(worker_idx, task)
     end
 
-    Worker->>Worker: get_task()
+    工作线程->>工作线程: get_task()
     
-    alt Local queue has task
-        Worker->>Worker: try_pop(local_queue)
-    else Steal from neighbor
-        Worker->>Worker: steal_task(victim_worker)
-    else Check global queue
-        Worker->>Worker: try_pop(global_queue)
-    else No tasks available
-        Worker->>Worker: wait on condition_variable
+    alt 本地队列有任务
+        工作线程->>工作线程: try_pop(local_queue)
+    else 从邻居窃取
+        工作线程->>工作线程: steal_task(victim_worker)
+    else 检查全局队列
+        工作线程->>工作线程: try_pop(global_queue)
+    else 无可用任务
+        工作线程->>工作线程: 在 condition_variable 上等待
     end
 
-    Worker->>Cache: check result cache (shared_lock)
-    Worker->>Worker: execute task
-    Worker->>Cache: store result (unique_lock)
-    Worker->>TaskScheduler: task complete
+    工作线程->>缓存: 检查结果缓存（shared_lock）
+    工作线程->>工作线程: 执行任务
+    工作线程->>缓存: 存储结果（unique_lock）
+    工作线程->>任务调度器: 任务完成
 ```
 
-## 3. Thread Pool Workflow
+## 3. 线程池工作流程
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Idle: Thread created
-    Idle --> CheckingLocal: Woken up / New task submitted
+    [*] --> 空闲: 线程创建
+    空闲 --> 检查本地队列: 被唤醒 / 新任务提交
     
-    CheckingLocal --> Executing: Local queue has task
-    CheckingLocal --> CheckingGlobal: Local queue empty
-    CheckingGlobal --> Executing: Global queue has task
-    CheckingGlobal --> Stealing: Global queue empty
+    检查本地队列 --> 执行中: 本地队列有任务
+    检查本地队列 --> 检查全局队列: 本地队列为空
+    检查全局队列 --> 执行中: 全局队列有任务
+    检查全局队列 --> 窃取中: 全局队列为空
     
-    Stealing --> Executing: Stole from neighbor
-    Stealing --> Waiting: All queues empty
+    窃取中 --> 执行中: 从邻居窃取到任务
+    窃取中 --> 等待中: 所有队列为空
     
-    Waiting --> CheckingLocal: New task notification
-    Waiting --> Exiting: Stop requested
+    等待中 --> 检查本地队列: 收到新任务通知
+    等待中 --> 退出中: 收到停止请求
     
-    Executing --> CheckingLocal: Task done
-    Exiting --> [*]: Thread joined
+    执行中 --> 检查本地队列: 任务完成
+    退出中 --> [*]: 线程已 join
 ```
 
-## 4. Module-to-Chapter Correspondence
+## 4. 模块与章节对应关系
 
-| Module | Ch2 | Ch3 | Ch4 | Ch5 | Ch6 | Ch7 | Ch8 | Ch9 | Ch10 | Ch11 |
+| 模块 | Ch2 | Ch3 | Ch4 | Ch5 | Ch6 | Ch7 | Ch8 | Ch9 | Ch10 | Ch11 |
 |--------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:----:|:----:|
 | `spinlock.hpp` | | | | X | | | | | | |
 | `stop_token.hpp` | | | | X | | | | X | | |
@@ -122,35 +122,31 @@ stateDiagram-v2
 | `main.cpp` | X | | | | | | | | | |
 | `test_*.cpp` | | | | | | | | | X | |
 
-## 5. Performance Considerations
+## 5. 性能考量
 
-### 5.1 Lock Contention Hierarchy
+### 5.1 锁竞争层级
 
-| Contention Level | Component | Strategy |
+| 竞争级别 | 组件 | 策略 |
 |-----------------|-----------|----------|
-| Very High | Spinlock | TTAS with exponential backoff (Ch5.3.3) |
-| High | Task Queue (global) | Single mutex, bulk operations (Ch6.2.5) |
-| Moderate | Priority Queue | Single mutex, O(log n) heap ops |
-| Low | Logger | Atomic fast-path check (Ch11.3) |
-| Very Low | Cache (reads) | shared_mutex for read concurrency (Ch3.3.2) |
+| 极高 | Spinlock | 带指数退避的 TTAS（Ch5.3.3） |
+| 高 | 任务队列（全局） | 单 mutex，批量操作（Ch6.2.5） |
+| 中等 | 优先级队列 | 单 mutex，O(log n) 堆操作 |
+| 低 | Logger | 原子变量快速路径检查（Ch11.3） |
+| 极低 | 缓存（读操作） | shared_mutex 支持读并发（Ch3.3.2） |
 
-### 5.2 Design Trade-offs
+### 5.2 设计权衡
 
-1. **Simplicity vs. Performance**: Lock-based queues chosen over lock-free (Ch7)
-   for correctness guarantees and maintainability
-2. **Work Stealing Overhead**: Random victim selection (O(1)) vs sequential
-   (O(n)). Random trades fairness for lower contention
-3. **Priority Inversion**: Single-mutex priority queue avoids priority inversion
-   but serializes dequeue. Acceptable for moderate queue depths
-4. **Cache Coherence**: TTAS spinlock polls read-only first (L1 cache shared state),
-   only attempting atomic write when lock appears free
+1. **简洁性 vs. 性能**：选择基于锁的队列而非无锁方案（Ch7），以保证正确性和可维护性
+2. **工作窃取开销**：随机选择受害线程（O(1)）vs. 顺序选择（O(n)）。随机化以较低的竞争换取更好的公平性
+3. **优先级反转**：单 mutex 优先级队列避免了优先级反转，但出队操作会串行化。对于中等队列深度是可接受的
+4. **缓存一致性**：TTAS 自旋锁先进行只读轮询（L1 缓存共享状态），仅在锁似乎可用时才尝试原子写入
 
-## 6. Extension Directions
+## 6. 扩展方向
 
-1. **Lock-free Queues** (Ch7): Replace lock-based queues with Michael-Scott queue
-2. **NUMA-Aware Scheduling**: Pin workers to NUMA nodes (Ch11)
-3. **GPU Task Offloading**: Extend ThreadPool with CUDA stream management
-4. **Distributed Scheduling**: Multi-node task distribution via gRPC
-5. **Dynamic Batching**: Auto-batching of small inference requests
-6. **Profiling Integration**: Per-task timing with nanosecond precision
-7. **A/B Model Deployment**: Hot-swap model versions in inference pipeline
+1. **无锁队列**（Ch7）：用 Michael-Scott 队列替换基于锁的队列
+2. **NUMA 感知调度**：将工作线程绑定到 NUMA 节点（Ch11）
+3. **GPU 任务卸载**：扩展 ThreadPool 以支持 CUDA 流管理
+4. **分布式调度**：通过 gRPC 实现多节点任务分发
+5. **动态批处理**：对小推理请求进行自动批处理合并
+6. **性能分析集成**：纳秒级精度的每任务计时
+7. **A/B 模型部署**：在推理流水线中热切换模型版本

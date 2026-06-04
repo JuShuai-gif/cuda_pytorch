@@ -1,5 +1,5 @@
-// Chapter 9 & 10: Thread Pool Unit Tests
-// Tests basic functionality, edge cases, and thread safety of ThreadPool.
+// Ch9 & Ch10：线程池单元测试
+// 测试 ThreadPool 的基本功能、边缘情况和线程安全性。
 
 #include "task_scheduler/thread_pool.hpp"
 #include <cassert>
@@ -12,13 +12,15 @@
 
 using namespace task_scheduler;
 
-// Ch10.2: Test helper - counts calls across threads (atomic for safety).
+// Ch10.2：测试辅助工具——跨线程计数调用（原子变量保证安全）。
+// 调用计数器辅助结构
 struct CallCounter {
     std::atomic<int> count{0};
     void increment() { count.fetch_add(1, std::memory_order_relaxed); }
 };
 
-// Ch10.3.1: Test basic submit and get result.
+// Ch10.3.1：测试基本提交和获取结果。
+// 测试基本任务提交
 void test_basic_submit() {
     std::cout << "  [test_basic_submit] ";
     ThreadPool pool(4);
@@ -29,7 +31,8 @@ void test_basic_submit() {
     std::cout << "PASSED\n";
 }
 
-// Ch10.3.2: Test multiple concurrent submits.
+// Ch10.3.2：测试多个并发提交。
+// 测试并发提交
 void test_concurrent_submits() {
     std::cout << "  [test_concurrent_submits] ";
     ThreadPool pool(4);
@@ -51,17 +54,18 @@ void test_concurrent_submits() {
     std::cout << "PASSED\n";
 }
 
-// Ch10.3.3: Test work stealing (Ch8.4).
+// Ch10.3.3：测试工作窃取（Ch8.4）。
+// 测试工作窃取：将任务不均匀分布以触发窃取
 void test_work_stealing() {
     std::cout << "  [test_work_stealing] ";
     ThreadPool pool(4);
     CallCounter counter;
 
-    // Submit tasks to uneven local queues to trigger stealing.
+    // 将任务提交到不均匀的本地队列以触发窃取。
     for (size_t i = 0; i < 50; ++i) {
         pool.submit_to_local(i % 2, [&counter] {
             counter.increment();
-            // Vary execution time to create imbalance.
+            // 变化执行时间以产生不平衡。
             std::this_thread::sleep_for(std::chrono::microseconds(100 + rand() % 200));
         });
     }
@@ -71,19 +75,21 @@ void test_work_stealing() {
     std::cout << "PASSED\n";
 }
 
-// Ch10.3.4: Test that pool can be shut down gracefully.
+// Ch10.3.4：测试线程池可以优雅关闭。
+// 测试优雅关闭
 void test_shutdown() {
     std::cout << "  [test_shutdown] ";
     {
         ThreadPool pool(4);
         pool.submit([] { std::this_thread::sleep_for(std::chrono::milliseconds(10)); });
         pool.submit([] { std::this_thread::sleep_for(std::chrono::milliseconds(10)); });
-        // Destructor calls shutdown() - should join all threads.
+        // 析构函数调用 shutdown()——应 join 所有线程。
     }
     std::cout << "PASSED\n";
 }
 
-// Ch10.3.5: Test exception propagation from tasks.
+// Ch10.3.5：测试任务的异常传播。
+// 测试异常传播
 void test_exception_propagation() {
     std::cout << "  [test_exception_propagation] ";
     ThreadPool pool(2);
@@ -101,7 +107,8 @@ void test_exception_propagation() {
     std::cout << "PASSED\n";
 }
 
-// Ch10.3.6: Test wait_for_tasks.
+// Ch10.3.6：测试 wait_for_tasks。
+// 测试等待所有任务完成
 void test_wait_for_tasks() {
     std::cout << "  [test_wait_for_tasks] ";
     ThreadPool pool(4);
@@ -119,7 +126,8 @@ void test_wait_for_tasks() {
     std::cout << "PASSED\n";
 }
 
-// Ch10.3.7: Test submit after shutdown (should throw).
+// Ch10.3.7：测试在关闭后提交（应抛出异常）。
+// 测试关闭后拒绝新任务
 void test_submit_after_shutdown() {
     std::cout << "  [test_submit_after_shutdown] ";
     ThreadPool pool(2);
@@ -129,12 +137,13 @@ void test_submit_after_shutdown() {
         pool.submit([] { return 42; });
         assert(false && "Expected exception for submit after shutdown");
     } catch (const std::runtime_error&) {
-        // Expected
+        // 预期行为
     }
     std::cout << "PASSED\n";
 }
 
-// Ch10.3.8: Stress test - many threads, many tasks.
+// Ch10.3.8：压力测试——多线程，多任务。
+// 压力测试：10000 任务，8 线程
 void test_stress() {
     std::cout << "  [test_stress] ";
     ThreadPool pool(8);
@@ -157,7 +166,7 @@ void test_stress() {
 }
 
 int main() {
-    std::cout << "=== ThreadPool Tests ===\n";
+    std::cout << "=== 线程池测试 ===\n";
     test_basic_submit();
     test_concurrent_submits();
     test_work_stealing();
@@ -166,6 +175,6 @@ int main() {
     test_wait_for_tasks();
     test_submit_after_shutdown();
     test_stress();
-    std::cout << "=== All ThreadPool tests passed ===\n";
+    std::cout << "=== 所有线程池测试通过 ===\n";
     return 0;
 }

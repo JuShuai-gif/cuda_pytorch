@@ -1,6 +1,6 @@
-// Chapter 10.4: Stress / Concurrency Safety Test
-// Validates no deadlocks, no data races, and correct results under heavy load.
-// Designed to be run with ThreadSanitizer (TSan) for data race detection.
+// Ch10.4：压力测试 / 并发安全性测试
+// 验证在高负载下无死锁、无数据竞争以及结果正确性。
+// 设计为配合 ThreadSanitizer（TSan）运行以检测数据竞争。
 
 #include "task_scheduler/task_scheduler.hpp"
 #include "task_scheduler/task_queue.hpp"
@@ -17,8 +17,9 @@
 
 using namespace task_scheduler;
 
-// Ch10.4.1: High-contention thread pool stress test.
-// Submits thousands of tasks with varying execution times.
+// Ch10.4.1：高竞争线程池压力测试。
+// 提交数千个执行时间不等的任务。
+// 线程池压力测试：5000 任务，8 线程
 void stress_thread_pool() {
     std::cout << "  [stress_thread_pool] ";
     ThreadPool pool(8);
@@ -29,7 +30,7 @@ void stress_thread_pool() {
     futures.reserve(N);
     for (size_t i = 0; i < N; ++i) {
         futures.push_back(pool.submit([i, &counter]() -> size_t {
-            // Vary work amount to trigger work stealing (Ch8.4).
+            // 变化的工作量以触发工作窃取（Ch8.4）。
             size_t work = i % 100 + 1;
             volatile size_t dummy = 0;
             for (size_t j = 0; j < work; ++j) {
@@ -48,8 +49,9 @@ void stress_thread_pool() {
     std::cout << "PASSED (counter=" << counter.load() << ")\n";
 }
 
-// Ch10.4.2: MPMC queue stress test.
-// Many producers and consumers operating simultaneously.
+// Ch10.4.2：MPMC 队列压力测试。
+// 多个生产者和消费者同时运行。
+// 队列压力测试：10000 项，4 生产者，4 消费者
 void stress_task_queue() {
     std::cout << "  [stress_task_queue] ";
     TaskQueue<int> q;
@@ -61,7 +63,7 @@ void stress_task_queue() {
     std::atomic<int> consumed{0};
     std::atomic<bool> done{false};
 
-    // Producers (Ch6.2.1)
+    // 生产者（Ch6.2.1）
     std::vector<std::jthread> producer_threads;
     for (int p = 0; p < producers; ++p) {
         producer_threads.emplace_back([&q, &produced, p] {
@@ -72,7 +74,7 @@ void stress_task_queue() {
         });
     }
 
-    // Consumers (Ch6.2.2/Ch6.2.4)
+    // 消费者（Ch6.2.2/Ch6.2.4）
     std::vector<std::jthread> consumer_threads;
     for (int c = 0; c < consumers; ++c) {
         consumer_threads.emplace_back([&q, &consumed, &done, &produced] {
@@ -97,7 +99,8 @@ void stress_task_queue() {
     std::cout << "PASSED (consumed=" << consumed.load() << ")\n";
 }
 
-// Ch10.4.3: Priority queue stress test.
+// Ch10.4.3：优先级队列压力测试。
+// 优先级队列压力测试：2000 项，4 生产者
 void stress_priority_queue() {
     std::cout << "  [stress_priority_queue] ";
     PriorityTaskQueue<int> pq;
@@ -116,14 +119,14 @@ void stress_priority_queue() {
         });
     }
 
-    // Consumer verifies all items received
+    // 消费者验证所有项都已收到
     std::atomic<int> received{0};
     auto consumer = std::jthread([&pq, &received, &submitted] {
         while (received.load() < N) {
             if (auto item = pq.try_pop()) {
                 received.fetch_add(1);
             } else if (submitted.load() >= N) {
-                // Drain remaining after all submitted
+                // 全部提交后排空剩余项
                 auto last = pq.wait_and_pop_for(std::chrono::milliseconds(10));
                 if (last) received.fetch_add(1);
                 if (!last && pq.empty()) break;
@@ -140,14 +143,15 @@ void stress_priority_queue() {
     std::cout << "PASSED (received=" << received.load() << ")\n";
 }
 
-// Ch10.4.4: Concurrent cache stress test (Ch3.3.2).
+// Ch10.4.4：并发缓存压力测试（Ch3.3.2）。
+// 缓存压力测试：50000 操作，4 读者，2 写者
 void stress_concurrent_cache() {
     std::cout << "  [stress_concurrent_cache] ";
     ConcurrentCache<int, int> cache(256);
     std::atomic<size_t> ops{0};
     constexpr size_t TARGET = 50000;
 
-    // Reader threads (shared_lock - Ch3.3.2)
+    // 读者线程（shared_lock - Ch3.3.2）
     std::vector<std::jthread> readers;
     for (int r = 0; r < 4; ++r) {
         readers.emplace_back([&cache, &ops] {
@@ -160,7 +164,7 @@ void stress_concurrent_cache() {
         });
     }
 
-    // Writer threads (unique_lock - Ch3.3.1)
+    // 写者线程（unique_lock - Ch3.3.1）
     std::vector<std::jthread> writers;
     for (int w = 0; w < 2; ++w) {
         writers.emplace_back([&cache] {
@@ -177,14 +181,15 @@ void stress_concurrent_cache() {
     std::cout << "PASSED (ops=" << ops.load() << ")\n";
 }
 
-// Ch10.4.5: Multi-component integration stress test.
+// Ch10.4.5：多组件集成压力测试。
+// 集成压力测试：调度器 + 缓存同时运行
 void stress_integration() {
     std::cout << "  [stress_integration] ";
     TaskScheduler scheduler(8, 64);
     std::atomic<size_t> completed{0};
     constexpr size_t N = 500;
 
-    // Submit mixed-priority tasks
+    // 提交混合优先级任务
     std::vector<std::future<int>> futures;
     for (size_t i = 0; i < N; ++i) {
         TaskPriority prio = static_cast<TaskPriority>(i % 4);
@@ -196,7 +201,7 @@ void stress_integration() {
                 }));
     }
 
-    // Concurrently access cache while tasks run
+    // 在任务运行同时并发访问缓存
     std::jthread cache_user([&scheduler, &completed] {
         while (completed.load() < N) {
             scheduler.cache_put(TS_FORMAT("key_{}", rand() % 100),
@@ -213,7 +218,8 @@ void stress_integration() {
     std::cout << "PASSED (completed=" << completed.load() << ")\n";
 }
 
-// Ch10.4.6: Spinlock stress test (Ch5).
+// Ch10.4.6：自旋锁压力测试（Ch5）。
+// 自旋锁压力测试：100000 次递增，4 线程
 void stress_spinlock() {
     std::cout << "  [stress_spinlock] ";
     spinlock sl;
@@ -236,11 +242,11 @@ void stress_spinlock() {
 }
 
 int main() {
-    std::cout << "=== Stress Tests ===\n";
-    std::cout << "NOTE: Run with ThreadSanitizer for data race detection:\n";
+    std::cout << "=== 压力测试 ===\n";
+    std::cout << "注意：使用 ThreadSanitizer 运行以检测数据竞争：\n";
     std::cout << "  cmake -DCMAKE_BUILD_TYPE=Tsan .. && make\n\n";
 
-    // Ch9.2: Set logger to minimal output during stress tests.
+    // Ch9.2：压力测试期间将日志器设置为最低输出。
     Logger::instance().set_level(LogLevel::WARN);
 
     stress_thread_pool();
@@ -250,7 +256,7 @@ int main() {
     stress_integration();
     stress_spinlock();
 
-    std::cout << "\n=== All Stress Tests Passed ===\n";
-    std::cout << "No deadlocks, no data races, all counters correct.\n";
+    std::cout << "\n=== 所有压力测试通过 ===\n";
+    std::cout << "无死锁、无数据竞争、所有计数器正确。\n";
     return 0;
 }

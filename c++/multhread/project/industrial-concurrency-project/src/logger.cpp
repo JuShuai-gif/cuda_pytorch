@@ -1,13 +1,14 @@
-// Chapter 11: Logger implementation stub.
-// Logger is primarily header-only (inline). This file exists for build system
-// compatibility and future expansion (e.g., async logging backend).
+// Ch11：Logger 实现占位文件。
+// Logger 主要是仅头文件实现（内联）。此文件用于构建系统
+// 兼容性和将来的扩展（例如异步日志后端）。
 //
-// Ch11.6: Future extensions:
-//   - Async log backend with dedicated writer thread
-//   - Ring buffer for zero-allocation logging
-//   - Structured logging (JSON output)
+// Ch11.6：未来扩展：
+//   - 带专用写入线程的异步日志后端
+//   - 用于零分配日志的环形缓冲区
+//   - 结构化日志（JSON 输出）
 
 #include "task_scheduler/logger.hpp"
 
-// Currently all Logger methods are inline in the header.
-// This file reserves the translation unit for future non-template code.
+// 目前所有 Logger 方法都在头文件中以内联方式实现。
+// 此文件为此翻译单元保留，用于将来添加非模板代码。
+// 当前为占位文件，预留给未来的非模板代码扩展

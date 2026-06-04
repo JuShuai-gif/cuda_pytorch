@@ -1,6 +1,6 @@
-// Chapter 2: Basic Thread Management - Entry Point
-// Demonstrates the complete TaskScheduler system for AI/ML inference workloads.
-// Covers concepts from all chapters of "C++ Concurrency in Action".
+// Ch2：基本线程管理——入口点
+// 演示面向 AI/ML 推理工作负载的完整 TaskScheduler 系统。
+// 涵盖《C++ Concurrency in Action》所有章节的概念。
 
 #include "task_scheduler/task_scheduler.hpp"
 #include "task_scheduler/task_queue.hpp"
@@ -16,10 +16,11 @@
 
 using namespace task_scheduler;
 
-// Ch8.4: Simulate an AI/ML inference workload.
-// Each "inference" task processes a batch of data and returns a result.
+// Ch8.4：模拟 AI/ML 推理工作负载。
+// 每个"推理"任务处理一批数据并返回结果。
+// 模拟推理工作量
 double simulate_inference(int batch_id, int batch_size) {
-    // Ch11.5: Simulate computation with deterministic work.
+    // Ch11.5：用确定性工作模拟计算。
     double sum = 0.0;
     for (int i = 0; i < batch_size * 1000; ++i) {
         sum += std::sin(i * 0.001) * std::cos(i * 0.002);
@@ -28,7 +29,8 @@ double simulate_inference(int batch_id, int batch_size) {
     return sum;
 }
 
-// Ch8.2: Preprocessing stage of inference pipeline.
+// Ch8.2：推理流水线的预处理阶段。
+// 预处理：标准化输入数据
 std::vector<double> preprocess(const std::vector<double>& raw_data) {
     std::vector<double> normalized;
     normalized.reserve(raw_data.size());
@@ -41,16 +43,17 @@ std::vector<double> preprocess(const std::vector<double>& raw_data) {
 }
 
 int main() {
-    Logger::instance().info("=== Industrial Concurrency Project: AI/ML TaskScheduler ===");
+    Logger::instance().info("=== 工业级并发项目：AI/ML 任务调度器 ===");
 
     // ================================================================
-    // Ch3.3.2: Concurrent Cache Demo
+    // 演示 1：并发缓存（Ch3.3.2）
+    // Ch3.3.2：并发缓存演示（读写锁）
     // ================================================================
     {
-        Logger::instance().info("--- Demo 1: Concurrent Cache (Ch3.3.2) ---");
+        Logger::instance().info("--- 演示 1：并发缓存（Ch3.3.2）---");
         ConcurrentCache<int, std::string> cache(16);
 
-        // Multiple threads reading from cache (shared_lock, Ch3.3.2)
+        // 多线程从缓存读取（shared_lock，Ch3.3.2）
         std::vector<std::jthread> readers;
         for (int i = 0; i < 4; ++i) {
             readers.emplace_back([&cache, i] {
@@ -61,7 +64,7 @@ int main() {
         }
         for (auto& t : readers) t.join();
 
-        // Single writer (unique_lock, Ch3.3.1)
+        // 单个写入者（unique_lock，Ch3.3.1）
         for (int i = 0; i < 10; ++i) {
             cache.put(i, TS_FORMAT("value_{}", i));
         }
@@ -69,10 +72,11 @@ int main() {
     }
 
     // ================================================================
-    // Ch5: Spinlock Demo
+    // 演示 2：TTAS 自旋锁（Ch5）
+    // Ch5：自旋锁演示
     // ================================================================
     {
-        Logger::instance().info("--- Demo 2: TTAS Spinlock (Ch5) ---");
+        Logger::instance().info("--- 演示 2：TTAS 自旋锁（Ch5）---");
         spinlock sl;
         int shared_counter = 0;
 
@@ -90,19 +94,20 @@ int main() {
     }
 
     // ================================================================
-    // Ch9.1: Thread Pool + Task Queue Demo
+    // 演示 3：线程池 + 任务队列（Ch9.1）
+    // Ch9.1：线程池演示
     // ================================================================
     {
-        Logger::instance().info("--- Demo 3: Thread Pool (Ch9.1) ---");
+        Logger::instance().info("--- 演示 3：线程池（Ch9.1）---");
         ThreadPool pool(4);
 
         std::vector<std::future<double>> futures;
         for (int i = 0; i < 20; ++i) {
-            // Ch9.1.1: submit returns future
+            // Ch9.1.1：submit 返回 future
             futures.push_back(pool.submit(simulate_inference, i, 50));
         }
 
-        // Ch4.2.2: Wait for all futures
+        // Ch4.2.2：等待所有 future
         double total = 0.0;
         for (auto& f : futures) {
             total += f.get();
@@ -111,13 +116,14 @@ int main() {
     }
 
     // ================================================================
-    // Ch8.5: Task Scheduler with Priority Demo
+    // 演示 4：带优先级调度的任务调度器（Ch8.5）
+    // Ch8.5：任务调度器演示
     // ================================================================
     {
-        Logger::instance().info("--- Demo 4: Task Scheduler (Ch8.5) ---");
+        Logger::instance().info("--- 演示 4：任务调度器（Ch8.5）---");
         TaskScheduler scheduler(4);
 
-        // Submit tasks with different priorities (Ch6.3: priority scheduling)
+        // 提交不同优先级的任务（Ch6.3：优先级调度）
         auto f1 = scheduler.submit(TaskPriority::LOW, "low_priority_task",
             [] { return 1; });
         auto f2 = scheduler.submit(TaskPriority::HIGH, "high_priority_task",
@@ -125,7 +131,7 @@ int main() {
         auto f3 = scheduler.submit(TaskPriority::CRITICAL, "critical_task",
             [] { return 3; });
 
-        // Ch4.2.4: Batch submission
+        // Ch4.2.4：批量提交
         auto batch_futures = scheduler.submit_batch(
             TaskPriority::NORMAL, "batch_inference", 5,
             [] { return 42; });
@@ -139,22 +145,23 @@ int main() {
     }
 
     // ================================================================
-    // Ch8.3: Pipeline Demo
+    // 演示 5：流水线（Ch8.3）
+    // Ch8.3：流水线演示
     // ================================================================
     {
-        Logger::instance().info("--- Demo 5: Pipeline (Ch8.3) ---");
+        Logger::instance().info("--- 演示 5：流水线（Ch8.3）---");
         TaskScheduler scheduler(2);
 
-        // Ch8.3.1: Two-stage pipeline: preprocess -> inference
+        // Ch8.3.1：两阶段流水线：预处理 -> 推理
         auto pipeline_result = scheduler.submit_pipeline<double, double>(
             "inference_pipeline",
-            // Stage 1: Prepares data
+            // 阶段 1：准备数据
             []() -> double {
                 double sum = 0.0;
                 for (int i = 0; i < 100; ++i) sum += i;
                 return sum;
             },
-            // Stage 2: Inference
+            // 阶段 2：推理
             [](double data) -> double {
                 return data * 1.5;
             }
@@ -165,10 +172,11 @@ int main() {
     }
 
     // ================================================================
-    // Ch8.5.1: Periodic Task Demo
+    // 演示 6：定时任务（Ch8.5.1）
+    // Ch8.5.1：定时任务演示
     // ================================================================
     {
-        Logger::instance().info("--- Demo 6: Periodic Tasks (Ch8.5.1) ---");
+        Logger::instance().info("--- 演示 6：定时任务（Ch8.5.1）---");
         TaskScheduler scheduler(2);
 
         int periodic_count = 0;
@@ -179,16 +187,16 @@ int main() {
             "health_check"
         );
 
-        // Let it run for a bit
+        // 让它运行一会儿
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
-        // Ch9.2: Stop the periodic task
+        // Ch9.2：停止定时任务
         stop.request_stop();
 
         Logger::instance().info(TS_FORMAT("Periodic task ran {} times",
             periodic_count));
     }
 
-    Logger::instance().info("=== All demos completed successfully ===");
+    Logger::instance().info("=== 所有演示成功完成 ===");
     return 0;
 }

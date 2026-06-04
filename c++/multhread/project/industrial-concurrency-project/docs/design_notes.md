@@ -1,233 +1,215 @@
-# Design Notes
+# 设计说明
 
-## Why This Project Direction?
+## 项目方向选择的原因
 
-AI/ML inference scheduling is an ideal domain for demonstrating C++ concurrency
-because it combines:
+AI/ML 推理调度是展示 C++ 并发编程的理想领域，因为它结合了：
 
-- **CPU-bound computation** (model inference, matrix operations)
-- **I/O-bound operations** (data loading, result serialization)
-- **Latency-sensitive tasks** (real-time inference requires priority scheduling)
-- **Batch processing** (throughput optimization via batching)
-- **Pipeline parallelism** (preprocessing -> inference -> post-processing)
-- **Result caching** (avoid redundant computation)
+- **CPU 密集型计算**（模型推理、矩阵运算）
+- **I/O 密集型操作**（数据加载、结果序列化）
+- **延迟敏感任务**（实时推理需要优先级调度）
+- **批处理**（通过批处理优化吞吐量）
+- **流水线并行**（预处理 -> 推理 -> 后处理）
+- **结果缓存**（避免冗余计算）
 
-This naturally exercises thread pools, priority queues, work stealing, shared
-data structures, and graceful shutdown - essentially all core concepts from
-"C++ Concurrency in Action."
+这自然地练习了线程池、优先级队列、工作窃取、共享数据结构和优雅关闭——基本上是《C++ Concurrency in Action》中所有核心概念。
 
 ---
 
-## Knowledge Points by Module
+## 各模块知识点
 
-### 1. `spinlock.hpp` - TTAS Spinlock (Ch5)
+### 1. `spinlock.hpp` - TTAS 自旋锁（Ch5）
 
-| Technique | Source |
+| 技术 | 来源 |
 |-----------|--------|
-| `std::atomic_flag` (always lock-free) | Ch5.3.2 |
-| `test_and_set()` with `memory_order_acquire` | Ch5.3.3 |
-| `clear()` with `memory_order_release` | Ch5.3.3 |
-| TTAS: Test before Test-And-Set | Ch5.3.4 (cache ping-pong) |
-| Exponential backoff | Ch5.3.5 (contention management) |
-| `_mm_pause()` / `yield` instruction | Ch5.3.5 (power efficiency) |
-| `memory_order_relaxed` for polling | Ch5.3.1 (no synchronization needed) |
-| RAII lock guard pattern | Ch3.2.1 (`std::lock_guard` design) |
+| `std::atomic_flag`（始终为 lock-free） | Ch5.3.2 |
+| 带 `memory_order_acquire` 的 `test_and_set()` | Ch5.3.3 |
+| 带 `memory_order_release` 的 `clear()` | Ch5.3.3 |
+| TTAS：先 Test 再 Test-And-Set | Ch5.3.4（缓存乒乓效应） |
+| 指数退避 | Ch5.3.5（竞争管理） |
+| `_mm_pause()` / `yield` 指令 | Ch5.3.5（能效优化） |
+| 轮询使用 `memory_order_relaxed` | Ch5.3.1（无需同步） |
+| RAII 锁守卫模式 | Ch3.2.1（`std::lock_guard` 设计） |
 
-### 2. `stop_token.hpp` - Cooperative Stop (Ch9.2)
+### 2. `stop_token.hpp` - 协作式停止（Ch9.2）
 
-| Technique | Source |
+| 技术 | 来源 |
 |-----------|--------|
-| Stop source / stop token pattern | Ch9.2.1-9.2.2 |
-| `std::atomic<bool>` for stop flag | Ch5.3.3 |
-| `std::condition_variable` for blocking wait | Ch4.1.2 |
-| `wait_for()` with timeout | Ch9.2.6 |
-| StopRequestedException at interruption points | Ch9.2.7-9.2.8 |
-| `std::shared_ptr` for shared state (ref counting) | Ch3.2.6 |
-| Move-only stop_source, copyable stop_token | Ch9.2.3 |
+| stop source / stop token 模式 | Ch9.2.1-9.2.2 |
+| `std::atomic<bool>` 作为停止标志 | Ch5.3.3 |
+| `std::condition_variable` 用于阻塞等待 | Ch4.1.2 |
+| 带超时的 `wait_for()` | Ch9.2.6 |
+| 在中断点抛出 StopRequestedException | Ch9.2.7-9.2.8 |
+| `std::shared_ptr` 用于共享状态（引用计数） | Ch3.2.6 |
+| 仅可移动的 stop_source，可拷贝的 stop_token | Ch9.2.3 |
 
-### 3. `task_queue.hpp` - MPMC Queue (Ch6.2)
+### 3. `task_queue.hpp` - MPMC 队列（Ch6.2）
 
-| Technique | Source |
+| 技术 | 来源 |
 |-----------|--------|
 | `std::mutex` + `std::condition_variable` | Ch4.1.1 |
-| `std::lock_guard` for exception safety | Ch3.2.3 |
-| `std::unique_lock` for CV wait (deferred lock) | Ch3.2.6 |
-| `condition_variable::wait()` with predicate | Ch4.1.2 (avoids spurious wake) |
-| `wait_for()` with timeout | Ch4.1.2 |
-| `notify_one()` outside lock | Ch4.1.1 (hurry-up-and-wait) |
-| Thread-safe via single mutex | Ch6.2.1 (simple = correct) |
-| `const` methods with `mutable` mutex | Ch3.2.8 |
-| Move semantics for zero-copy transfer | Ch6.2.2 |
-| Bulk pop operations | Ch6.2.5 |
-| Deleted copy/move constructors | Ch6.2.1 (no data race on queue itself) |
+| `std::lock_guard` 用于异常安全 | Ch3.2.3 |
+| `std::unique_lock` 用于 CV 等待（延迟锁定） | Ch3.2.6 |
+| 带谓词的 `condition_variable::wait()` | Ch4.1.2（避免虚假唤醒） |
+| 带超时的 `wait_for()` | Ch4.1.2 |
+| 在锁外调用 `notify_one()` | Ch4.1.1（避免"急上加急"问题） |
+| 通过单 mutex 实现线程安全 | Ch6.2.1（简单 = 正确） |
+| `const` 方法配合 `mutable` mutex | Ch3.2.8 |
+| 移动语义实现零拷贝传递 | Ch6.2.2 |
+| 批量出队操作 | Ch6.2.5 |
+| 删除拷贝/移动构造函数 | Ch6.2.1（队列本身无数据竞争） |
 
-### 4. `priority_task_queue.hpp` - Priority Queue (Ch6.3)
+### 4. `priority_task_queue.hpp` - 优先级队列（Ch6.3）
 
-| Technique | Source |
+| 技术 | 来源 |
 |-----------|--------|
-| `std::priority_queue` + mutex | Ch6.2 (extended pattern) |
-| Monotonic sequence counter for FIFO | Ch6.2.7 (within priority band) |
-| Single-mutex design for inversion avoidance | Ch3.2.7 (deadlock avoidance) |
-| Priority enum for AI workloads | Ch6.3 (domain-specific design) |
-| Batch pop by priority | Ch6.2.5 (bulk operations) |
+| `std::priority_queue` + mutex | Ch6.2（扩展模式） |
+| 单调递增序号计数器保证同优先级 FIFO | Ch6.2.7（优先级带内） |
+| 单 mutex 设计避免优先级反转 | Ch3.2.7（死锁避免） |
+| 面向 AI 工作负载的优先级枚举 | Ch6.3（领域特定设计） |
+| 按优先级批量出队 | Ch6.2.5（批量操作） |
 
-### 5. `concurrent_cache.hpp` - LRU Cache (Ch3.3)
+### 5. `concurrent_cache.hpp` - LRU 缓存（Ch3.3）
 
-| Technique | Source |
+| 技术 | 来源 |
 |-----------|--------|
-| `std::shared_mutex` (C++17) | Ch3.3.2 |
-| `std::shared_lock` for reads | Ch3.3.2 (multiple concurrent readers) |
-| `std::unique_lock` for writes | Ch3.3.1 (exclusive write) |
-| LRU eviction policy with `std::list` | Ch6.2.7 (order maintenance) |
-| `std::optional` for cache miss | Ch4.2.5 (monadic interface) |
-| Read-heavy workload optimization | Ch3.3.2 (think readers-writer pattern) |
+| `std::shared_mutex`（C++17） | Ch3.3.2 |
+| `std::shared_lock` 用于读操作 | Ch3.3.2（多个并发读者） |
+| `std::unique_lock` 用于写操作 | Ch3.3.1（独占写入） |
+| 使用 `std::list` 的 LRU 淘汰策略 | Ch6.2.7（顺序维护） |
+| `std::optional` 用于缓存未命中 | Ch4.2.5（单子接口） |
+| 读密集型工作负载优化 | Ch3.3.2（参考读写者模式） |
 
-### 6. `thread_pool.hpp` + `thread_pool.cpp` - Thread Pool (Ch9.1)
+### 6. `thread_pool.hpp` + `thread_pool.cpp` - 线程池（Ch9.1）
 
-| Technique | Source |
+| 技术 | 来源 |
 |-----------|--------|
-| Fixed-size thread pool | Ch9.1.1 |
-| `std::jthread` (C++20) | Ch2.1 + Ch9.2.3 |
-| `submit()` returning `std::future` | Ch9.1.3 + Ch4.4.1 |
-| `std::packaged_task` for callable wrapping | Ch4.4.1 |
-| Type erasure via `std::function<void()>` | Ch4.4.2 |
-| Per-thread local queues | Ch9.1.4 |
-| Work stealing (random victim) | Ch8.4.2-8.4.4 |
-| Global task queue fallback | Ch9.1.11 |
-| `std::atomic<size_t>` for active task counter | Ch5.3.3 |
-| `condition_variable` for worker wake-up | Ch4.1.2 |
-| Exception catching in worker loop | Ch4.4.6 (future stores exception) |
-| RAII shutdown in destructor | Ch2.1 (thread lifecycle) |
-| `hardware_concurrency()` auto-sizing | Ch8.4.1 |
+| 固定大小的线程池 | Ch9.1.1 |
+| `std::jthread`（C++20） | Ch2.1 + Ch9.2.3 |
+| `submit()` 返回 `std::future` | Ch9.1.3 + Ch4.4.1 |
+| `std::packaged_task` 包装可调用对象 | Ch4.4.1 |
+| 通过 `std::function<void()>` 实现类型擦除 | Ch4.4.2 |
+| 每线程本地队列 | Ch9.1.4 |
+| 工作窃取（随机选择受害线程） | Ch8.4.2-8.4.4 |
+| 全局任务队列作为后备 | Ch9.1.11 |
+| `std::atomic<size_t>` 活动任务计数器 | Ch5.3.3 |
+| `condition_variable` 用于工作线程唤醒 | Ch4.1.2 |
+| 工作循环中的异常捕获 | Ch4.4.6（future 存储异常） |
+| 析构函数中 RAII 关闭 | Ch2.1（线程生命周期） |
+| `hardware_concurrency()` 自动调整大小 | Ch8.4.1 |
 
-### 7. `task_scheduler.hpp` + `task_scheduler.cpp` - Core Scheduler (Ch8.5)
+### 7. `task_scheduler.hpp` + `task_scheduler.cpp` - 核心调度器（Ch8.5）
 
-| Technique | Source |
+| 技术 | 来源 |
 |-----------|--------|
-| Integration of pool + priority queue | Ch8.4 (composing concurrent structures) |
-| Batch task submission | Ch8.2.2 (data decomposition) |
-| Pipeline execution (continuation style) | Ch8.3.1-8.3.3 |
-| `std::promise`/`std::future` for results | Ch4.2.1 |
-| `std::shared_ptr<std::packaged_task>` | Ch4.4.3 (shared ownership) |
-| Periodic task scheduling | Ch8.5.1 + Ch4.1.3 (timed wait) |
-| Stop token for all subsystems | Ch9.2.1 |
-| Round-robin distribution | Ch8.4.5 (load balancing) |
-| Result caching integration | Ch3.3.2 |
+| 线程池 + 优先级队列的集成 | Ch8.4（组合并发结构） |
+| 批量任务提交 | Ch8.2.2（数据分解） |
+| 流水线执行（延续风格） | Ch8.3.1-8.3.3 |
+| `std::promise`/`std::future` 用于结果传递 | Ch4.2.1 |
+| `std::shared_ptr<std::packaged_task>` | Ch4.4.3（共享所有权） |
+| 定时任务调度 | Ch8.5.1 + Ch4.1.3（定时等待） |
+| 所有子系统的停止令牌 | Ch9.2.1 |
+| 轮询分发 | Ch8.4.5（负载均衡） |
+| 结果缓存集成 | Ch3.3.2 |
 
-### 8. `logger.hpp` - Thread-Safe Logger (Ch11)
+### 8. `logger.hpp` - 线程安全日志器（Ch11）
 
-| Technique | Source |
+| 技术 | 来源 |
 |-----------|--------|
-| Singleton pattern (Meyer's) | Ch11.2 (thread-safe init in C++11+) |
-| `std::atomic<LogLevel>` for fast check | Ch5.3.3 (no lock for common case) |
-| Single mutex for output serialization | Ch3.2.1 |
-| `std::format` (C++20) | Ch11.3 (modern string formatting) |
-| `std::source_location` (C++20) | Ch11.3 (automatic caller info) |
-| Timestamp + thread ID in output | Ch11.3 (debugging aid) |
-| stderr for errors, stdout otherwise | Ch11.6 (proper stream routing) |
+| 单例模式（Meyer 实现法） | Ch11.2（C++11+ 线程安全初始化） |
+| `std::atomic<LogLevel>` 快速检查 | Ch5.3.3（常见情况无锁） |
+| 单 mutex 用于输出序列化 | Ch3.2.1 |
+| `std::format`（C++20） | Ch11.3（现代字符串格式化） |
+| `std::source_location`（C++20） | Ch11.3（自动调用者信息） |
+| 输出中包含时间戳和线程 ID | Ch11.3（调试辅助） |
+| 错误输出到 stderr，其他输出到 stdout | Ch11.6（正确的流路由） |
 
 ---
 
-## Concurrency Design Challenges & Solutions
+## 并发设计挑战与解决方案
 
-### Challenge 1: Work Stealing Contention
+### 挑战 1：工作窃取竞争
 
-**Problem**: Multiple workers stealing from the same victim creates contention.
-**Solution**: Random victim selection with `rand()` (Ch8.4.3). Each worker starts
-at a random index and steals from the first non-empty queue found. This
-distributes theft attempts evenly across all workers.
+**问题**：多个工作线程从同一个受害线程窃取会产生竞争。
+**解决方案**：使用 `rand()` 随机选择受害线程（Ch8.4.3）。每个工作线程从随机索引开始，从找到的第一个非空队列窃取。这将窃取尝试均匀分布到所有工作线程。
 
-### Challenge 2: Priority Inversion
+### 挑战 2：优先级反转
 
-**Problem**: Low-priority task holds a lock needed by a high-priority task.
-**Solution**: Single-mutex design (Ch3.2.7). The priority queue uses a single
-`std::mutex` for both push and pop. This avoids nested locks and lock ordering
-issues. All operations are O(log n) on the heap, so contention is bounded.
+**问题**：低优先级任务持有高优先级任务需要的锁。
+**解决方案**：单 mutex 设计（Ch3.2.7）。优先级队列使用单个 `std::mutex` 同时保护入队和出队。这避免了嵌套锁和锁顺序问题。所有操作在堆上为 O(log n)，因此竞争是有限的。
 
-### Challenge 3: Graceful Shutdown
+### 挑战 3：优雅关闭
 
-**Problem**: How to stop worker threads without losing in-flight tasks.
-**Solution**: Two-phase stop (Ch9.2.3):
-1. Request stop (atomic flag).
-2. Workers check flag at safe points, drain remaining tasks, then exit.
-3. `std::jthread` destructor joins automatically (RAII).
+**问题**：如何在不丢失进行中任务的情况下停止工作线程。
+**解决方案**：两阶段停止（Ch9.2.3）：
+1. 请求停止（原子标志）。
+2. 工作线程在安全点检查标志，排空剩余任务，然后退出。
+3. `std::jthread` 析构函数自动 join（RAII）。
 
-### Challenge 4: Exception Propagation
+### 挑战 4：异常传播
 
-**Problem**: Tasks throw exceptions; workers must not crash.
-**Solution**: `std::packaged_task` stores exceptions in the associated future
-(Ch4.4.6). Worker catches all exceptions to prevent thread termination. The
-caller retrieves the exception via `future::get()`.
+**问题**：任务抛出异常时，工作线程不能崩溃。
+**解决方案**：`std::packaged_task` 将异常存储在关联的 future 中（Ch4.4.6）。工作线程捕获所有异常以防止线程终止。调用者通过 `future::get()` 获取异常。
 
-### Challenge 5: Cache Line Contention (False Sharing)
+### 挑战 5：缓存行竞争（伪共享）
 
-**Problem**: Workers' atomic counters on same cache line cause ping-pong.
-**Solution**: Each `Worker` struct has its `running` flag placed with other
-frequently-used members. In production, `alignas(64)` would be added. Noted
-as future optimization.
+**问题**：工作线程的原子计数器位于同一缓存行会导致乒乓效应。
+**解决方案**：每个 `Worker` 结构体的 `running` 标志与其他常用成员放在一起。在生产环境中应添加 `alignas(64)`。标记为未来优化。
 
 ---
 
-## Deadlock Avoidance Strategies
+## 死锁避免策略
 
-1. **Single Lock Per Component**: Each concurrent data structure uses exactly
-   one mutex (Ch3.2.5 - avoid nested locks)
-2. **Lock Outside Notify**: `condition_variable::notify_one()` called outside
-   the mutex lock (Ch4.1.1 - avoid "hurry up and wait")
-3. **No Lock Ordering**: Components never call into each other while holding
-   their own lock (Ch3.2.5 - hierarchical locking avoided)
-4. **RAII Lock Management**: `std::lock_guard`, `std::unique_lock`,
-   `std::shared_lock` ensure locks are released on any code path (Ch3.2.3)
-5. **Time-bounded Waits**: All blocking operations have timeout variants
-   (Ch4.1.2) to prevent infinite blocking
+1. **每个组件单锁**：每个并发数据结构只使用一个 mutex（Ch3.2.5 - 避免嵌套锁）
+2. **锁外通知**：`condition_variable::notify_one()` 在 mutex 锁外调用（Ch4.1.1 - 避免"急上加急"问题）
+3. **无锁顺序**：组件在持有自己的锁时绝不调用其他组件（Ch3.2.5 - 避免层级锁定）
+4. **RAII 锁管理**：`std::lock_guard`、`std::unique_lock`、`std::shared_lock` 确保在任何代码路径上释放锁（Ch3.2.3）
+5. **有界等待时间**：所有阻塞操作都有超时变体（Ch4.1.2）以防止无限阻塞
 
 ---
 
-## Performance Optimization Points
+## 性能优化点
 
-| Optimization | Technique | Benefit |
+| 优化 | 技术 | 收益 |
 |-------------|-----------|---------|
-| TTAS Spinlock | Read before test-and-set | Reduces cache coherence traffic (Ch5.3.4) |
-| Bulk Queue Operations | `try_pop_bulk()` | Amortizes lock overhead (Ch6.2.5) |
-| Atomic Fast-Path | Logger checks level before lock | Avoids lock for filtered messages (Ch11.3) |
-| shared_mutex | Multiple readers in cache | Parallelizes read-heavy workloads (Ch3.3.2) |
-| Local Queues | Per-worker task queues | Reduces global queue contention (Ch9.1.4) |
-| Work Stealing | Random victim selection | Load balances without coordination (Ch8.4.3) |
-| Move Semantics | `std::move` in queue | Avoids copies of large objects (Ch6.2.2) |
+| TTAS 自旋锁 | 先读再 test-and-set | 减少缓存一致性流量（Ch5.3.4） |
+| 批量队列操作 | `try_pop_bulk()` | 分摊锁开销（Ch6.2.5） |
+| 原子快速路径 | Logger 在加锁前检查级别 | 对被过滤的消息避免加锁（Ch11.3） |
+| shared_mutex | 缓存中多个并发读者 | 并行化读密集型工作负载（Ch3.3.2） |
+| 本地队列 | 每工作线程的任务队列 | 减少全局队列竞争（Ch9.1.4） |
+| 工作窃取 | 随机选择受害线程 | 无需协调即可实现负载均衡（Ch8.4.3） |
+| 移动语义 | 队列中使用 `std::move` | 避免大对象的拷贝（Ch6.2.2） |
 
 ---
 
-## Testing Strategy
+## 测试策略
 
-### Unit Tests (Ch10.3)
-- **Thread Pool**: Basic submit, concurrent submits, work stealing, shutdown,
-  exception propagation, wait_for_tasks
-- **Task Queue**: Push/pop basic, MPSC, MPMC try_pop, timeout wait, empty/bulk
-- **Task Scheduler**: Priority execution, batch submission, mixed priorities,
-  pipeline, periodic tasks, cache integration
+### 单元测试（Ch10.3）
+- **线程池**：基本提交、并发提交、工作窃取、关闭、异常传播、等待任务完成
+- **任务队列**：入队/出队基础、MPSC、MPMC 尝试出队、超时等待、空队列/批量操作
+- **任务调度器**：优先级执行、批量提交、混合优先级、流水线、定时任务、缓存集成
 
-### Stress Tests (Ch10.4)
-- High-contention thread pool (5000 tasks, 8 threads)
-- MPMC queue with multiple producers and consumers (10000 items)
-- Priority queue under concurrent access (2000 items, 4 producers)
-- Concurrent cache with mixed read/write load (50000 operations)
-- Multi-component integration test (scheduler + cache simultaneously)
-- Spinlock stress test (100000 increments, 4 threads)
+### 压力测试（Ch10.4）
+- 高竞争线程池（5000 任务，8 线程）
+- 多生产者多消费者 MPMC 队列（10000 项）
+- 并发访问下的优先级队列（2000 项，4 生产者）
+- 混合读写负载的并发缓存（50000 操作）
+- 多组件集成测试（调度器 + 缓存同时运行）
+- 自旋锁压力测试（100000 次递增，4 线程）
 
-### Tool Verification
-- **ThreadSanitizer (TSan)**: `-fsanitize=thread` build mode detects data races
-- **AddressSanitizer (ASan)**: Detects use-after-free, buffer overflows
-- **Valgrind Helgrind**: Detects lock ordering violations and potential deadlocks
+### 工具验证
+- **ThreadSanitizer（TSan）**：`-fsanitize=thread` 构建模式检测数据竞争
+- **AddressSanitizer（ASan）**：检测释放后使用、缓冲区溢出
+- **Valgrind Helgrind**：检测锁顺序违规和潜在死锁
 
 ---
 
-## Style Conventions
+## 代码风格约定
 
-- C++20 standard throughout
-- No raw `new`/`delete` - `std::make_unique`/`std::make_shared` only
-- RAII for all resource management
-- English comments explaining the "why" not the "what"
-- Each comment references the relevant book chapter (ChX.Y)
-- `const` correctness on all methods
-- `[[nodiscard]]` on pure queries
-- `noexcept` on guaranteed-no-throw functions
+- 全程使用 C++20 标准
+- 无裸 `new`/`delete`——仅使用 `std::make_unique`/`std::make_shared`
+- 所有资源管理使用 RAII
+- 英文注释解释"为什么"而非"是什么"
+- 每条注释引用相关书籍章节（ChX.Y）
+- 所有方法坚持 `const` 正确性
+- 纯查询使用 `[[nodiscard]]`
+- 保证不抛出异常的函数使用 `noexcept`
