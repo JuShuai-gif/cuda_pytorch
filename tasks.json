@@ -52,7 +52,7 @@
       "6. Write README.md"
     ],
     "acceptance-criteria": "main.py runs without errors on CPU. Channel pruning based on Frobenius norm works. Fine-tuning runs 5 epochs. Comparison metrics printed. Pruned model saved to disk. README.md exists.",
-    "complete": false
+    "complete": true
   },
   {
     "task": "lecture-05: Linear quantization int8/int4/int2",

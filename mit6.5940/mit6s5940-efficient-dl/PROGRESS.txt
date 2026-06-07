@@ -98,3 +98,119 @@ TESTING RESULTS:
      type hints, structured docstrings, section separators)
 
 ================================================================================
+
+================================================================================
+TASK ID: task-004
+TASK NAME: lecture-04: Channel pruning with Frobenius norm
+STATUS: complete
+TIMESTAMP: 2026-06-07T12:01:00Z
+WORKER AGENT: Worker-v2
+================================================================================
+OBJECTIVE (Acceptance Criteria):
+   main.py runs without errors on CPU. Channel pruning based on Frobenius norm
+   works. Fine-tuning runs 5 epochs. Comparison metrics printed. Pruned model
+   saved to disk. README.md exists.
+
+STEPS PROVIDED:
+   1. Create src/lecture-04/ directory
+   2. Write main.py with Frobenius norm importance ranking and prune by ratio
+   3. Implement fine-tuning loop after pruning (5 epochs)
+   4. Compare accuracy, params, MACs, latency before/after pruning
+   5. Generate and save pruned model
+   6. Write README.md
+
+STEPS EXECUTED:
+   ✓ Step 1: Created src/lecture-04/ directory
+   ✓ Step 2: Wrote main.py with frobenius_importance(), select_top_channels(),
+     and channel_prune() using DemoCNN and PrunedCNN model classes
+   ✓ Step 3: Implemented fine_tune() running 5 epochs with SGD+momentum
+   ✓ Step 4: Compared accuracy, params, MACs, latency in a formatted table
+     with reduction percentages
+   ✓ Step 5: Saved pruned model state_dict to pruned_model.pth, verified loadable
+   ✓ Step 6: Wrote comprehensive README.md with function table, concepts, references
+
+WORK COMPLETED:
+   1. Created src/lecture-04/ directory
+   2. Implemented DemoCNN (4 ConvBlock layers with Conv2d->BN->ReLU pattern)
+   3. Implemented PrunedCNN class accepting channel configuration list
+   4. Implemented frobenius_importance(weight): computes ||W_i||_F per output channel
+   5. Implemented select_top_channels(importance, ratio): top-k selection by importance
+   6. Implemented channel_prune(original, ratio): builds smaller model with
+      cascading channel removal (output of layer i -> input of layer i+1)
+      Copies Conv2d weights, BN params (weight/bias/running_mean/running_var),
+      and FC classifier weights/bias
+   7. Implemented fine_tune(model, ...): 5-epoch retraining loop with per-epoch
+      accuracy tracking
+   8. Implemented estimate_macs(model, input_shape): Conv2d MACs via forward hooks
+   9. Implemented measure_latency(model, input_shape): CPU inference timing
+   10. Implemented print_comparison() and formatted comparison table
+   11. Wrote README.md with structured overview, function table, concept
+       explanations (Frobenius norm, cascading removal, fine-tuning importance),
+       and references
+
+FILES MODIFIED:
+   - src/lecture-04/main.py (created, 364 lines)
+   - src/lecture-04/README.md (created, 180 lines)
+
+KEY DECISIONS:
+   - Used separate DemoCNN and PrunedCNN classes: DemoCNN has named block attributes
+     for original training; PrunedCNN uses a channel-config list for flexibility
+     after pruning
+   - Frobenius norm: L2 norm per output channel, flattened view of [C_in*K*K] elements
+   - Per-layer uniform pruning: same prune_ratio (0.3) applied to all 4 ConvBlocks
+   - Cascading handled by tracking kept output indices and using them as input
+     indices for the next block
+   - BatchNorm parameters pruned together with their Conv2d output channels
+   - FC classifier weight pruned along the input dimension (last conv's kept output)
+   - Used synthetic data to match lecture-03 pattern, runs on CPU in ~10 seconds
+   - MACs estimation via forward hooks (from lecture-01 pattern)
+   - Latency measurement with warmup+timed iterations (from lecture-01 pattern)
+   - pruned_model.pth saved alongside main.py (output artifact, not git-tracked)
+
+BLOCKERS RESOLVED:
+   - None
+
+REMAINING ISSUES:
+   - None
+
+NOTES FOR NEXT AGENT:
+   - Synthetic data accuracy is low (~13%); this is expected for demonstrating
+     the pruning concept. For meaningful accuracy comparisons, switch to CIFAR-10
+     or use more training epochs.
+   - The pruned_model.pth in src/lecture-04/ is an output file generated at
+     runtime. It may need .gitignore consideration.
+   - The channel counts in the saved model depend on PRUNE_RATIO. Loading code
+     must match the architecture that was produced during pruning.
+   - For lecture-05 or future structured pruning tasks, this codebase provides
+     a reusable channel_prune() function and PrunedCNN factory pattern.
+
+ACCEPTANCE CRITERIA VERIFICATION:
+   ✓ Criterion 1: main.py runs without errors on CPU
+     VERIFIED - Full pipeline executed (data gen -> train -> prune -> FT -> compare -> save)
+     with exit code 0
+   ✓ Criterion 2: Channel pruning based on Frobenius norm works
+     VERIFIED - 30% channel pruning: block1 64->44, block2 128->89, block3 256->179,
+     block4 256->179. 51.2% param reduction (964,170 -> 470,962)
+   ✓ Criterion 3: Fine-tuning runs 5 epochs
+     VERIFIED - Output shows "Fine-tuning for 5 epochs (lr=0.01) ..." with epochs 1-5
+   ✓ Criterion 4: Comparison metrics printed
+     VERIFIED - Accuracy, params, MACs, latency displayed in formatted table with
+     reduction percentages
+   ✓ Criterion 5: Pruned model saved to disk
+     VERIFIED - pruned_model.pth created (1,851.8 KiB), successfully loaded back
+     with correct architecture and 470,962 params
+   ✓ Criterion 6: README.md exists
+     VERIFIED - src/lecture-04/README.md created with 180 lines covering overview,
+     usage, functions, concepts, and references
+
+TESTING RESULTS:
+   ✓ Full pipeline: all 7 stages executed without errors
+   ✓ Frobenius norm: sanity check on block1.conv (64 channels, top-5 indices printed)
+   ✓ Channel pruning: verified correct cascading channel counts for all 4 blocks
+   ✓ Fine-tuning: 5 epochs completed with per-epoch loss/accuracy
+   ✓ Comparison: full metric table with 4 metrics (acc, params, MACs, latency)
+   ✓ Model save/load: pruned_model.pth loadable, output shape verified [1, 10]
+   ✓ Manual review: code follows lecture-03 patterns (from __future__ import annotations,
+     type hints, structured docstrings, section separators)
+
+================================================================================
