@@ -439,3 +439,104 @@ TESTING RESULTS:
      block, synthetic data pipeline)
 
 ================================================================================
+
+================================================================================
+TASK ID: task-007
+TASK NAME: lecture-07: Simplified NAS random search
+STATUS: complete
+TIMESTAMP: 2026-06-07T12:25:00Z
+WORKER AGENT: Worker-v2
+================================================================================
+OBJECTIVE (Acceptance Criteria):
+   main.py runs without errors on CPU. Search space defined correctly.
+   Random sampler generates valid architectures. Accuracy evaluated for each
+   architecture. MACs vs accuracy plot saved/displayed. README.md exists.
+
+STEPS PROVIDED:
+   1. Create src/lecture-07/ directory
+   2. Write main.py with CNN search space: kernel sizes [3,5,7], channels [16,32,64,128], depths [1,2,3,4]
+   3. Implement random sampler + evaluate accuracy on CIFAR-10 (fixed validation set)
+   4. Plot accuracy vs MACs tradeoff curve
+   5. Write README.md
+
+STEPS EXECUTED:
+   ✓ Step 1: Created src/lecture-07/ directory
+   ✓ Step 2: Wrote main.py with ArchSpec dataclass and NasCNN builder covering kernel sizes [3,5,7], channels [16,32,64,128], depths [1,2,3,4] (22,620 total architectures)
+   ✓ Step 3: Implemented random_sample_architecture() with seeded RNG, train_and_evaluate() on 5K CIFAR-10 subset, 3 proxy-training epochs per architecture
+   ✓ Step 4: Implemented count_macs() via forward hooks, plot_accuracy_vs_macs() with scatter+annotations+colorbar, Pareto-frontier identification
+   ✓ Step 5: Wrote comprehensive README.md following lecture-03/04/05/06 pattern
+
+WORK COMPLETED:
+   1. Created src/lecture-07/ directory
+   2. Implemented ArchSpec dataclass with post_init validation for consistent depth/kernels/channels
+   3. Implemented random_sample_architecture(..., rng): uniformly samples depth, per-layer kernel sizes, and per-layer channels from the search space
+   4. Implemented NasCNN(spec) builder: VGG-style with Conv2d->BN->ReLU->MaxPool(2) per layer, AdaptiveAvgPool2d(1), and Linear classifier
+   5. Implemented count_macs(model, input_shape): Conv2d MACs counted via forward hooks (consistent with lecture-01 pattern)
+   6. Implemented estimate_macs_conv2d(in_c, out_c, k, h, w): per-layer MACs formula
+   7. Implemented CIFAR-10 data loading: 5K train subset + 2K fixed validation subset (NumPy RandomState for deterministic subset selection)
+   8. Implemented train_one_epoch() and evaluate_accuracy(): Adam+CosineAnnealingLR, CrossEntropyLoss
+   9. Implemented train_and_evaluate(): full build-train-eval pipeline for one architecture, returns accuracy + wall time
+   10. Implemented plot_accuracy_vs_macs(): scatter plot with viridis colormap, per-point architecture labels, colorbar, grid
+   11. Implemented Pareto-frontier identification: O(N^2) pairwise dominance check, prints non-dominated count
+   12. Implemented format_macs(x): human-readable MACs formatting (K/M/G suffixes)
+   13. Implemented arch_summary(spec): compact D{N}_C[...]_K[...] string
+   14. Wrote README.md (147 lines) following established pattern
+   15. Script runs successfully: 20 architectures, 2.5 min CPU, exit code 0
+
+FILES MODIFIED:
+   - src/lecture-07/main.py (created, 474 lines)
+   - src/lecture-07/README.md (created, 147 lines)
+   - PROGRESS.txt (modified, this entry)
+
+KEY DECISIONS:
+   - Used CIFAR-10 subsets (5K train, 2K val) for fast proxy evaluation
+   - Used 3 proxy-training epochs (Adam + CosineAnnealingLR); accuracies 27-44%
+   - Used NumPy RandomState for deterministic validation subset selection
+   - MACs counted via forward hooks on Conv2d only (BN/ReLU/Pool/Linear negligible)
+   - Plot saved to project root (nas_accuracy_vs_macs.png)
+   - matplotlib 'Agg' backend for headless plot generation
+   - ArchSpec dataclass with __post_init__ validation
+   - random.Random for architecture sampling, torch.manual_seed for model init
+   - Pareto frontier: 4 non-dominated out of 20 sampled
+
+BLOCKERS RESOLVED:
+   - None
+
+REMAINING ISSUES:
+   - None
+
+NOTES FOR NEXT AGENT:
+   - CIFAR-10 data cached in ./data/ (project root); first run downloads ~170 MB
+   - The plot is saved at project root (nas_accuracy_vs_macs.png)
+   - Proxy-training accuracy (27-44%) is lower than full training; this is expected
+     and acceptable for demonstrating the NAS concept
+   - For a more sophisticated NAS, this framework could be extended with:
+     * Evolutionary search (mutation/crossover)
+     * Bayesian optimization (GP surrogate model)
+     * Differentiable NAS (DARTS-style)
+     * Weight sharing (ENAS, one-shot NAS)
+   - NasCNN builder compatible with MACs estimation from lecture-01
+
+ACCEPTANCE CRITERIA VERIFICATION:
+   ✓ Criterion 1: main.py runs without errors on CPU
+     VERIFIED - Full pipeline completed with exit code 0, 20 architectures in 2.5 min
+   ✓ Criterion 2: Search space defined correctly
+     VERIFIED - Kernel sizes [3,5,7], channels [16,32,64,128], depths [1,2,3,4]; 22,620 total
+   ✓ Criterion 3: Random sampler generates valid architectures
+     VERIFIED - All 20 architectures with valid depth/kernels/channels; arch_summary() confirms
+   ✓ Criterion 4: Accuracy evaluated for each architecture
+     VERIFIED - All 20 architectures trained/evaluated; accuracy range 27.10%-44.20%, mean 34.51%
+   ✓ Criterion 5: MACs vs accuracy plot saved/displayed
+     VERIFIED - nas_accuracy_vs_macs.png created (117 KB, 150 DPI), scatter with annotations
+   ✓ Criterion 6: README.md exists
+     VERIFIED - src/lecture-07/README.md (147 lines) covering overview, usage, functions, concepts
+
+TESTING RESULTS:
+   ✓ Full pipeline: 6 stages executed without errors
+   ✓ Random sampler: 20 valid ArchSpec instances generated
+   ✓ MACs estimation: ranges from 884.74K to 124.13M -- realistic for CNNs
+   ✓ Accuracy evaluation: all 20 accuracies computed, 4 Pareto-frontier identified
+   ✓ Plot: PNG file created (117 KB), 150 DPI, viridis colormap
+   ✓ Manual review: follows lecture-01/03/04/05/06 patterns
+
+================================================================================

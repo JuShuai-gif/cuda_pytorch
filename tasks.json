@@ -93,7 +93,7 @@
       "5. Write README.md"
     ],
     "acceptance-criteria": "main.py runs without errors on CPU. Search space defined correctly. Random sampler generates valid architectures. Accuracy evaluated for each architecture. MACs vs accuracy plot saved/displayed. README.md exists.",
-    "complete": false
+    "complete": true
   },
   {
     "task": "lecture-08: Evolutionary search with latency-aware NAS",
