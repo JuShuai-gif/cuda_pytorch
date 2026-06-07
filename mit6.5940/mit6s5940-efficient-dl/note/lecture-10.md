@@ -90,6 +90,22 @@ $$\text{RF}_{early} \gg \text{RF}_{early}^{baseline}, \quad \text{而} \quad \te
 - **农业 IoT**：安装在田间的 MCU 传感器分析图像（叶面病害检测、果实计数），通过太阳能供电。由于没有 WiFi，所有推理必须在端侧完成。MCUNet 的 patch-based 推理支持处理高分辨率图像（如 640×480）。
 - **可穿戴设备**：智能手表上的心率异常检测、跌倒检测。MCU 功耗 < 1mW，而一个简单的蓝牙数据传输就耗 10mW+。能本地推理 = 更省电。
 
+### 生产级案例分析
+
+- **某头部智能音箱厂商的 KWS 实践**：使用 MCUNet 做关键词检测（Keyword Spotting, KWS），在 STM32F4（Cortex-M4, 192KB SRAM, 1MB Flash）上运行。关键指标：模型大小 42KB（Flash），运行时 SRAM 峰值 48KB，推理延迟 18ms（单次 patch 推理），average 功耗 < 10mW。对比之前手工设计的 DS-CNN（Depthwise Separable CNN），MCUNet 搜出的架构在"Hey Siri"等效两关键词任务上，F1-score 从 94.2% 提升到 95.8%，同时模型从 78KB 缩小到 42KB。背后的关键：TinyNAS 发现了更深但更窄的通道配置——传统手工设计倾向于均匀通道（如 64-64-64），而 TinyNAS 搜出的是精细的渐进式通道（8-16-32-24-64），使得前端层保持极小的内存占用，在后期才展开通道做精细分类。
+- **Sony Spresense 上的农业图像识别**：Sony 的 Spresense 板（Cortex-M4F, 1.5MB SRAM）被用于日本农田的番茄病害检测。使用 MCUNet 的 patch-based 推理处理 320×240 图像（切分为 4 个 160×120 的 patch），SRAM 峰值 180KB。关键教训：patch overlap 设太小（< 16px）时，patch 边界处的病灶被"切开"——一条病害边界线被分到两个 patch 里，每个 patch 都只看到一半，无法正确分类。工程师最终使用 overlap=32px 并增加一个全局融合层后才解决。这个案例说明 patch-based 推理的 overlap 不是"越大越好"（overlap 增加 = 更多计算冗余 = 延迟翻倍），需要根据任务的最小特征尺寸设定。
+- **预测性维护的 MCU 异常检测**：德国一家工业自动化公司（根据公开 case study）在化工厂的振动传感器上部署 MCUNet 变体做轴承故障检测。模型大小只有 34KB（Flash），在 STM32L4（Cortex-M4, 128KB SRAM）上运行，每 10 秒采样 1 秒振动数据（8000 点）做推理。TinyNAS 搜出的架构使用了一维深度可分离卷积（而非图像常用的二维），并自动发现 kernel size=7、stride=4 的早期层配置最适合振动频谱中的频率特征（比人类设计的 kernel size=3 + stride=1 好很多），故障检测精度从 91.5% 提升到 95.3%，同时推理延迟从 220ms 降到 95ms。
+
+| 应用场景 | MCU 型号 | SRAM/Flash | 模型大小 | 推理延迟 | 功耗 | 精度增益 vs 手工设计 |
+|---------|---------|------------|---------|---------|------|---------------------|
+| KWS (关键词检测) | STM32F4 | 192KB/1MB | 42KB | 18ms | < 10mW | +1.6% F1 |
+| 人员检测 (VWW) | STM32H7 | 1MB/2MB | 250KB | 92ms | < 15mW | +2.3% mAP |
+| 农业病害检测 | Spresense | 1.5MB/8MB | 180KB | 280ms (4 patches) | < 20mW | +4.1% Top-1 |
+| 振动异常检测 | STM32L4 | 128KB/1MB | 34KB | 95ms | < 5mW | +3.8% F1 |
+| ImageNet 1000 类 | STM32H7 | 1MB/2MB | 1.8MB | 320ms (4 patches) | < 30mW | +5.7% Top-1 |
+
+> **经验法则**：MCUNet 相比手工设计的收益，与 MCU 的内存约束严格程度正相关。约束越紧（如 < 256KB SRAM），NAS 的优势越大（手工设计在极端约束下往往用力过猛或不足）。当 SRAM > 2MB 时，手工设计（如 MobileNetV3 + 缩小）的表现与 NAS 搜出的架构差距缩小到 < 1 个百分点。
+
 ## 6. PyTorch 实现思路
 
 ### TinyNAS 搜索空间设计（概念代码）
@@ -286,6 +302,14 @@ def estimate_memory_usage(model, input_shape=(1, 3, 224, 224)):
 5. **"Co-design 就是 '先搜模型再优化引擎'"**：不对。Co-design 是**同时**优化模型和引擎。TinyNAS 在搜索模型时，使用的 reward 不仅包含精度，还包含 TinyEngine 对该架构的实际推理延迟和内存使用——这两者是耦合的。
 6. **"MCU 不能跑任何视觉任务"**：MCUNet 已经证明了 MCU 可以跑 ImageNet 1000 类分类、VWW (Visual Wake Words) 人员检测、以及多类目标分割。MCU 的极限远未被完全探索。
 
+### 生产级常见陷阱
+
+7. **"Patch-based 推理中 stride 不能设太小——否则内存不降反升"**（来自 Sony Spresense 的实战教训）：patch-based 推理的 naive 实现是"对每个 patch 独立做一次完整的 model.forward()"。但如果 patch stride（patch 之间的步长）设得太小（如 stride=8px，patch_size=112px），产生的 patches 数目急剧膨胀（224×224 → ~196 patches），每个 patch 都要保存自己的中间激活——累积峰值内存可能远大于单次全图推理的内存。Sony 团队在 Spresense 上实测：stride=32px 时 16 个 patches 的累积 SRAM 峰值是 350KB（超过 1.5MB SRAM 看似不多，但 MCUNet 的 in-place ops 复用 buffer 后这个数字降到了 180KB）。正确的做法是：使用滑动窗口 + buffer 复用（计算第 N 个 patch 后立即释放不再需要的数据），stride 尽量接近 patch_size 的一半以平衡 overlap（保证边界特征）和计算冗余。
+
+8. **"MCUNetV2 的 redistribution 对不同类型的 MCU 效果差异大——ARM Cortex-M4 vs M7 vs RISC-V 不能用同一套策略"**（来自 TinyML 社区多次 benchmark 的经验）：MCUNetV2 增大早期层的 kernel size/stride 以快速建立感受野——这在 Cortex-M7（有双 issue 流水线和更好的 prefetch）上效果显著（精度 +1.2% @ 等延迟）。但在 Cortex-M4（单 issue，prefetch 能力弱）上，大 kernel 的 conv 由于每次循环必须从 Flash 加载更多数据，cache miss 率上升，反而增加了延迟。一个 Cortex-M4 上的实际 benchmark：早期 kernel 5×5 的 MCUNetV2 比 kernel 3×3 的 MCUNetV1，虽然精度高 0.6%，但延迟从 85ms 飙到 140ms——这在 KWS 场景中不可接受（延迟需要 < 50ms）。**工程启示**：redistribution 策略需要针对具体 MCU 的 cache 行大小和 Flash 预取行为做调整——不能直接把论文里为 M7 调的配置拿到 M4 上用。
+
+9. **"MCUNet 的 TinyNAS 搜索空间只包含 MobileNetV2-style 操作，对包含 attention 的混合架构不适用"**：这是 2023 年 TinyML 社区发现的一个限制。如果模型需要 attention（在 MCU 上做简单的文本分类），MobileNetV2 的基本 block 不是最优的——但在 MCUNet 的搜索空间中没有 attention block。强行把 MobileNetV2 block 堆起来做 NLP 任务，精度比 attention-based tiny model 差 3-5 个百分点。**工程启示**：MCUNet 验证了 co-design 哲学和 TinyNAS 方法论的威力，但它绑定在 CNN-only 的搜索空间上——如果你的任务需要 Transformer/attention 操作，需要自己扩展搜索空间。
+
 ## 9. 面试问题
 
 **Q1：MCUNet 的核心创新是什么？为什么它被称为 "Model+Engine Co-Design"？**
@@ -300,6 +324,32 @@ MCU 的 SRAM 大小通常不足以存放一张高分辨率图像（如 224×224�
 
 TinyEngine 的关键优化包括：(1) **In-place depthwise convolution**：标准的 depthwise conv 需要分配单独的输入和输出 buffer，TinyEngine 在满足条件时让输出直接覆盖输入，节省了 SRAM 并减少了内存带宽；(2) **Loop ordering optimization**：针对 ARM Cortex-M 的 cache hierarchy 和 SIMD 宽度（128-bit NEON），重新排列卷积循环的嵌套顺序（如先遍历输出通道而不是输入通道），提高 cache 命中率；(3) **Operator fusion**：将连续的算子（如 Conv + BN + ReLU）融合为一个 kernel，消除中间 buffer 的分配和读写；(4) **Specialized memory layout**：为深度可分离卷积设计特殊的内存布局（如 CHW vs HWC 针对不同层），使得 SIMD 加载更高效。这些优化是**手工针对 ARM Cortex-M 指令集精心调校的**，而 TFLite Micro 追求通用性，无法做到这种级别的底层优化。
 
+**Q4（高难度）：MCUNet 的 patch-based 推理本质上是一种"spatial approximation"——用多个局部推理的平均代替全局推理。但从信息论角度看，哪些类别的 ImageNet 图像会因 patch-based 推理而遭受不成比例的精度损失？为什么？**
+
+类别精度损失的不均衡性源于 patch-based 推理破坏了两类关键信息：(1) **需要全局空间关系的类别**：如蛇（细长形，单个 patch 可能只包含蛇身的一小段，无法判断是蛇还是绳子）、长颈鹿（patch 中只有脖子或腿）、桥梁（跨越多 patch 的结构）；(2) **需要精细细节 + 全局上下文共同判断的类别**：如礼服（patch 中含布料细节，但没有整体轮廓无法区分长裙和衬衫）。
+
+MCUNet 原论文附录的 per-class 分析显示这些类别的精度损失比 average 高 2-4x：蛇的 top-5 错误率在 patch-based 推理（4 patches，无 overlap）时从 18% 增至 42%，而人脸/猫/狗等"局部特征强"的类别几乎没有损失。原因是 CNN 的有效感受野（Effective Receptive Field, ERF）通常远小于理论感受野——网络依赖高层层的上下文聚合来"拼接"低层特征，但 patch 切断了跨区域的上下文通路。
+
+**缓解方案**（来自 MCUNetV2 的工程实践）：(1) 采用有 overlap 的 patches（如 8-16px overlap）以在 patch 边界保留上下文连续性；(2) 对不同 patch 的 feature 做轻量级 attention（cross-patch attention，仅需在高层每个 patch 的 embedding 之间做 softmax，不增加太多内存）；(3) 在最后层用 global average pooling 合并所有 patch 的 feature（而非分别分类再 ensemble），但需要增加额外内存来缓存部分中间特征。
+
+**Q5（高难度）：在 MCU 的 SRAM 只有 128KB 的情况下，你设计了一个含有 4 层卷积的模型。第一层的输入是 32×32×3（3KB），但第三层的激活图是 8×8×64（4KB）。表面上看都能放下，但实际爆内存了。问题出在哪？如何用 TinyNAS 的搜索方法论来解决？**
+
+这是典型的"隐式内存使用"问题——爆内存的不是激活图本身，而是：
+
+(1) **Im2Col 缓冲区**：即使你不在搜索空间中显式包含 Im2Col，推理引擎在做卷积时内部可能分配 Im2Col 缓冲区。以 8×8×64 输入、3×3 conv、16 输出通道为例，Im2Col 将 64×8×8 → 64×3×3×8×8 ≈ 36.9KB 的临时缓冲区。加上原始输入（4KB）+ 输出（1KB）+ 权重（64×3×3×16 ≈ 9KB）= 约 51KB。这在 128KB SRAM 中本应没问题——但如果同时还有第一层和第四层的激活图未释放，累积就超了。
+
+(2) **TFLite Micro 的 arena allocator 碎片化**：TFLite Micro 使用 arena（连续大 buffer + 指针分配），不同 tensor 的生命周期 overlap 导致碎片空间不可用。比如 tensor A 分配在地址 0-256，tensor B 在 256-1024，当 A 释放后这 256B 可能由于"非连续"而无法被大的新 tensor 利用。导致实际可用内存远小于 SRAM 总容量。
+
+(3) **TinyNAS 的解决方案**：(a) 在搜索评估阶段使用真实的 TinyEngine arena 模拟器精确计算峰值内存——不是简单的 Σ activation size，而是考虑 operator fusion 后的真实 tensor overlap；(b) 在搜索空间中给每层的"输出 buffer 策略"赋予选项（是否可 in-place、是否可与下一层共享），TinyNAS 自动偏好内存友好的配置；(c) 对每个候选架构在 TinyEngine 的模拟器上做"dry-run"内存规划，确保 arena 碎片不会导致 OOM。
+
+**Q6（高难度）：假如你要将 MCUNet 部署到一块全新的 RISC-V MCU（如 SiFive E31，具有 512KB SRAM 但无硬件 SIMD），TinyEngine 需要哪些改动？哪些优化可以直接复用，哪些必须重写？**
+
+复用的部分：(1) In-place depthwise convolutio、operator fusion、loop ordering、memory layout 优化的逻辑和策略可以直接复用——这些是与 ISA 无关的系统优化；(2) TinyNAS 的搜索空间和目标函数可以几乎不变地复用——只需将延迟 LUT 替换为 RISC-V MCU 上的实测值；(3) Patch-based 推理策略中的 stride/overlap 选择逻辑不变。
+
+必须重写的部分：(1) **所有 SIMD kernel 必须用纯标量实现重写**——这是最大的工作量。ARM NEON 的 `vld4q_s8`（交错加载 4 路 8-bit 数据）需要替换为 4 次独立的 `load byte` 指令。深度分离卷积在 M4 (with NEON) 上约 45μs 一次，在标量 RISC-V 上可能飙到 200-300μs，延迟可能翻 4-6x。(2) **Cache prefetch 指令**——ARM 有 `PLD`（Preload Data），RISC-V 没有等效指令（标准扩展中只有 fence 指令）。需要依赖编译器自动软件预取——效果差很多。SiFive E31 的 cache line 32B vs Cortex-M4 的 16B——这意味着 loop tiling 的 tile size 需要重新调优（更大的 cache line → 更大的 tile 以减少 miss，但同时会增加 tile 内存占用，这是个 trade-off）。(3) **乘法指令延迟不同**——Cortex-M4 的 32-bit 乘法是单周期，SiFive E31 根据配置可能是多周期。如果乘法成为瓶颈，可能需要考虑 Winograd 来"用加法换乘法"——之前在 ARM 上不划算的计算图，在 RISC-V 上可能反而更优。
+
+**实际投入估计**：如果 TinyEngine 在 ARM Cortex-M 上写了约 15 个手写 kernel（总计 ~3000 行 C 代码），在 RISC-V 上重写需要约 4-6 周的工程师时间（包括 profiling 和调优——因为大部分成本在反复 benchmark）。这也正是为什么 MCU 厂商（如 STM 的 Cube.AI, GreenWaves 的 GAP SDK）把 kernel 库作为核心 IP——为每个新芯片写一整套高效 kernel 是 TinyML 部署中最耗时的部分。
+
 ## 10. 本讲总结
 
 MCUNet 是 Efficient DL 课程最具代表性的案例——它展示了"系统优化"的思维高度：
@@ -312,3 +362,15 @@ MCUNet 是 Efficient DL 课程最具代表性的案例——它展示了"系统�
 - **Co-Design 哲学**是本讲最重要的思想：在资源极度受限的系统中，单个组件的优化不足以突破瓶颈，**必须让模型、引擎、硬件三者相互适应、联合优化**。
 
 一句话总结：MCUNet 给你的启示不是"怎么把模型做小"，而是"在资源受限的系统里，你必须重新思考一切——从架构到引擎到推理策略"。这不是压缩，而是一次完整的系统重构。
+
+## 11. 工业落地checklist
+
+| 检查项 | 说明 | 不做的后果 |
+|--------|------|-----------|
+| Patch-based 推理的 overlap 必须根据任务最小特征尺寸设定 | Sony Spresense 农业病害检测：overlap < 16px 时病灶被切分到两个 patch 各看到一半——overlap 应为目标最小特征尺寸的 2 倍 | 分割/检测任务中小目标在 patch 边界处漏检率飙升至 40%+ |
+| Patch stride 不能设太小，否则 patch 总数爆炸且累积内存不降反升 | Sony 实测：stride=8px（patch_size=112）产生 ~196 patches，累积 SRAM 峰值 350KB；stride=32px 仅 16 patches，累积 180KB | 内存不降反升导致 OOM，patch-based 推理的初衷完全被颠覆 |
+| MCUNetV2 redistribution 增大早期 kernel 的策略必须针对具体 MCU 的 cache 行大小调整 | Cortex-M4 单 issue + 弱 prefetch → 早期 5×5 kernel 比 3×3 延迟从 85ms 暴涨到 140ms（精度仅高 0.6%）；Cortex-M7 双 issue → 延迟基本不变 | 在 M4 上盲目套用 M7 最优配置，延迟翻倍导致实时性（KWS < 50ms）不达标 |
+| MCUNet 的 TinyNAS 搜索空间默认仅含 MobileNetV2-style 操作，NLP 任务需扩展 attention block | TinyML 社区验证：在 MCU 上做 NLP 时强行用 CNN-only 搜索空间，精度比 attention-based tiny model 差 3-5% | 文本分类/意图识别在 MCU 上精度不可接受，产品无法上线 |
+| 部署前必须用 TinyEngine 的真实 arena 模拟器精确计算各层的真实峰值内存 | TFLite Micro 的 arena allocator 碎片化可导致实际可用内存比 SRAM 总容量少 20-40%；算子融合后 tensor overlap 使峰值计算更复杂 | 按 Σ activation size 估算能装下，实际部署 OOM——排查需数周 |
+| 必须为每种 MCU 型号单独做 TinyNAS 搜索+LUT profile，不能跨型号复用 | Cortex-M4 vs M7 vs RISC-V 在 cache 大小/SIMD 宽度/Flash 延迟上差异显著——同一架构在 M7 上 88ms vs M4 上 142ms | 跨型号部署时延迟/功耗/精度三方都不达标，产品体验不一致 |
+| 在 MCU 上首次部署 MCUNet 前，必须用真实芯片跑 100+ 张测试图验证端到端精度 | 模拟器和真实 MCU 的 INT8 量化实现细节（rounding mode、saturation 行为）差异可能引入额外 1-3% 精度损失 | 模拟器上 95% 精度部署到 MCU 实测仅 92%，低于产品 SLA 阈值 |

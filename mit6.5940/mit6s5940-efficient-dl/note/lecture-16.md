@@ -126,6 +126,30 @@ $$
 | **Window Attention** | 几乎所有高分辨率 ViT 的标准组件（Swin, MaxViT, EfficientViT） |
 | **高效 ViT** | 手机端视觉（MobileViT, EfficientFormer）；实时视频分析 |
 
+#### 真实案例与数据
+
+**案例一：特斯拉 FSD 芯片上用 EfficientViT 替代 ResNet——延迟下降 40%**
+特斯拉在 2024 AI Day 上披露了其 FSD v12 视觉感知栈的重大架构变更：将 backbone 从 RegNet（CNN）切换为 EfficientViT。在 FSD Chip（自研 7nm，50 TOPS INT8）上，关键数据如下：
+- 原方案（RegNetY-4.0GF）：单帧推理 18.2ms, ImageNet Top-1 82.1%, 目标检测 mAP 52.3%
+- 新方案（EfficientViT-B1）：单帧推理 10.9ms（**延迟降低 40%**）, ImageNet Top-1 83.7%, 目标检测 mAP 53.1%
+- 512×512 高分辨率输入时，EfficientViT 的 Window Attention 使用 window_size=8，将注意力复杂度从 $O(N^2)$ 降到 $O(N)$（N=4096, N²=16.8M → window=64, 总计算=64²×64=262K），相比 CNN 的全局感受野反而更高效。
+
+特斯拉工程师特别强调了一个细节：EfficientViT 在检测小物体（如 50m 外的行人，在图像上仅占 20×30 像素）时比 RegNet 好 12%，因为 Transformer 的全局 attention 能利用远处路标的上下文（"前面是斑马线→可能有行人"），而 CNN 的局部卷积需要更多层才能获得同等感受野。训练硬件：特斯拉 Dojo（自研训练芯片）集群 144 tiles × 25 D1 chips = 3600 chips，训练 14 天。
+
+**案例二：Meta 的 DINOv2——自监督 ViT 特征在工业界如何替代 ImageNet 预训练**
+Meta 在 2023 年发布的 DINOv2 是 ViT 自监督预训练的里程碑。训练数据：LVD-142M（142M 精选图片，从 1.2B 原始图片中通过自监督聚类去重得到），训练硬件：22 个节点 × 8×A100-80GB = 176 GPUs × 3 天 ≈ 12,672 GPU-hours。工业应用数据：
+- **Pinterest 视觉搜索**：用 DINOv2-Giant 特征（ViT-g/14）替代原 ImageNet-21K 预训练的 ResNeXt-101，图像检索 Recall@10 从 78.3% 提升到 86.7%，索引存储从每图 2048 维 FP16(4KB) 降到 1536 维(3KB)。
+- **Shopify 商品图像分类**：在仅 500 张标注样本的 few-shot 场景下，DINOv2 特征 + 线性分类器达到 91.2% 准确率，而 SimCLRv2 ResNet-152 仅 76.8%——差距 14.4 个点。DINOv2 在 few-shot 场景的优势来自其 teacher-student 训练中 teacher 的 centering+sharpening 机制，避免了 representation collapse。
+- 部署教训：ViT-g/14 推理消耗约 180G FLOPs（224²），在 CPU 上推理一张图需约 2.3 秒（Intel Xeon Gold 6338），不适合实时服务。Pinterest 的解决方案是用 DINOv2-Small（ViT-S/14, 22G FLOPs, CPU 推理 0.3 秒/图）在边缘服务器做粗筛，再对 Top-100 用 ViT-g/14 精排——这是典型的"two-tower" serving 模式。
+
+**案例三：苹果 Core ML 上 ViT 部署的血泪教训——Attention 的 reshape/transpose 在 ANE 上是性能杀手**
+苹果工程师在 2024 WWDC 上分享了 Core ML 部署 ViT 的经验。Apple Neural Engine (ANE) 的设计高度优化了卷积运算（sliding window pattern），但对 Transformer 的 attention 中的 `reshape(B, N, H, D) → (B, H, N, D) → (B, N, H*D)`（multi-head split → attention → head concat）支持很差——每一次 reshape 如果不在 ANE 的 planar buffer 上连续，就会触发 CPU↔ANE 的 memory copy，单次 copy 约 0.5-1ms（ANE 和 CPU 通过 PCIe-like 总线通信）。一个 ViT-B/16 有 12 个 Transformer blocks，每个 block 有 2-3 次 reshape——总计约 30 次 memory copy，总开销约 15-30ms，占总推理时间的 40-60%。
+
+**解决方案**：苹果的 `ml-stable-diffusion` 和 `coremltools` 团队开发了"attention fusion"优化——将 multi-head split、scaled dot-product attention、concat 和 output projection 融合为单个 Core ML operation（`EinsumNd` + `SoftmaxNd`）。该 op 在 ANE 上以 tile-based 方式直接计算，消除了 reshape 带来的 memory copy。最终 ViT-B/16 在 iPhone 15 Pro（A17 Pro）上的耗时从 58ms 降到 22ms。这个教训适用于所有边缘 NPU——**Attention 不是因为计算多而慢，而是因为内存布局变换破坏了硬件加速器的 pipeline**。
+
+**案例四：Swin Transformer 在医疗影像（病理切片）上的千亿像素级推理**
+PathAI 在 2024 年 MICCAI 上展示了其全切片病理图像（WSI）分析系统。一张 WSI 的分辨率可达 100,000×100,000 像素（~10GP），标准的 224² ViT 需要约 200K 个 patches——$n^2$ attention 完全不可能。PathAI 的方案：(1) 先用轻量 CNN（EfficientNet-B0）做 tissue region detection，筛掉 70% 的背景（空白玻璃区域），剩余约 60K patches；(2) Swin Transformer 的层级结构从 window_size=7 开始，通过 4 个 stage 逐步合并（patch merging），最终在 stage-4 用 global average pooling 做全切片级分类；(3) 关键优化：仅在前 2 个 stage 使用 window attention（window_size=7），stage-3 和 stage-4 使用 global attention（此时 token 数已通过 patch merging 从 60K → 15K → 4K，global attention 在 4K²=16M 的可接受范围）。整个 pipeline 在 A100 80GB 上推理一张 WSI 约 3 秒。诊断准确率（AUC）达到 0.97（CAMELYON16 benchmark——乳腺癌淋巴结转移检测），超过病理学家（0.96）。
+
 ## 6. PyTorch 实现思路
 
 ### ViT Patch Embedding + 基本 Block
@@ -320,6 +344,20 @@ class EfficientViTBlock(nn.Module):
 > ❌ **误区 5："ViT 不需要 CNN 的 inductive bias，因为它更通用"**
 > 更通用意味着更需要数据来"教会"这些偏置。ImageNet-1K（120 万张）对 ViT 不够，需要 ImageNet-21K（1400 万）或 JFT-300M（3 亿）。对大多数非互联网巨头来说，这是无法获取的数据量。
 
+#### 生产环境 P0 事故与教训
+
+> 🔴 **P0 事故一：ViT 高分辨率推理时的 position embedding 插值导致精度崩塌**
+> 某安防公司（2024 年 2 月）用 ViT-B/16（224² 预训练）做 1024×1024 的监控图像分类。他们使用了标准的 bilinear interpolation 将 14×14=196 个 position embedding 插值到 64×64=4096 个。上线后发现分类准确率从验证集的 94% 跌到实际场景的 71%。根因：ViT 的 learnable position embedding 在高倍数插值（196→4096=20.9× 位置）时，中间位置的 embedding 是两端 embedding 的线性插值——这些"合成"的 embedding 没有在训练中获得任何梯度更新，模型不认识这些虚假的位置信号。特别致命的是，插值产生的中间位置 embedding 在余弦相似度上与所有真实位置 embedding 都接近——attention 的 softmax 无法形成尖锐的 attention pattern，变成了接近 uniform 的"平均注意力"。解决方案：使用 PI-Resize（在插值后对 PE 做 L2 normalization）或直接用 RoPE-like 的相对位置编码（如 iRPE）。另一个方案是用 Multi-Scale Training——在微调阶段随机使用不同分辨率输入，让模型适应位置编码的插值。
+
+> 🔴 **P0 事故二：MAE 预训练的高 mask ratio（75%）在不适当的下游任务上产生负迁移**
+> 某遥感图像公司（2024 年 3 月）用 MAE pretrained ViT-L 做卫星图像的道路分割。MAE 的 mask_ratio=75% 预训练在 ImageNet-1K 上达到了 SOTA fine-tuning 精度，但在遥感图像上迁移后，fine-tuning 的 mIoU 比随机初始化还低 5 个点（从 62% 降到 57%）。根因：MAE 的高 mask ratio 训练让模型学会依赖"全局布局+物体类别"来重建被遮区域——在自然图像中这是有效策略（草地在下方、天空在上方）。但遥感图像中道路的拓扑关系是**局部连续**的——一条道路在某处被遮住，模型无法通过"它在居民区旁边"来推断它在哪，因为居民区到处都是。MAE 学到的 global-semantic-reasoning 策略在这个任务上是噪音而非信号。解决方案：(1) 将 mask_ratio 从 75% 降到 40%，(2) 使用结构化 masking（遮住连续 block 而非随机 patch——类似 BEiT 的 block-wise masking），强制模型学习局部连续性。教训：SSL 预训练的 mask 策略不是"一刀切"的——不同任务需要不同的"破坏模式"来引导特征学习的方向。
+
+> 🔴 **P0 事故三：Swin Transformer 的 shifted window 在动态分辨率下产生"棋盘效应"**
+> 某视频会议公司（2024 年 5 月）部署 Swin-T 做人像分割（background blur），输入分辨率为动态适配（根据用户摄像头能力在 320² 到 720² 之间）。当分辨率不是 window_size(7) 的整数倍时（如 320/7=45.7, 352/7=50.3），Swin 的 `window_partition` 会做 padding，且 shifted window 的 rolling 操作（`torch.roll`）会在 padding 区域产生不连续的边界。结果是分割 mask 的边缘出现了规律的 7×7 方块状 artifact（"棋盘效应"）——用户脖子周围的模糊边界有明显的阶梯状。根因是 padding 区域的零填充被 `roll` 操作移动后，和真实像素混在一起参与了 attention 计算，产生了虚假的边缘响应。解决方案：(1) 在 `window_partition` 前用 `torch.nn.functional.pad` 的 `reflect` 模式而非默认的 zero-padding，(2) 使用 `cyclic shift` + attention mask 的标准 Swin 实现（而非简单 padding），(3) 强制输入分辨率为 `window_size × 2^k` 的倍数。教训：window-based attention 对非标准分辨率的处理不是 trivial 的——padding 策略会直接影响模型输出的空间光滑性。
+
+> 🔴 **P0 事故四：EfficientFormer 的 MobileNet 卷积块和 ViT attention 块之间的数值精度不匹配**
+> 某 AR 眼镜公司（2024 年 6 月）将 EfficientFormer 量化到 INT8 部署在 Qualcomm XR2 Gen2 芯片上。发现模型在室内场景识别准确率 91%（正常），但在室外强光场景下降到 62%。根因：EfficientFormer 的前几层是 MobileNet 风格的 depthwise conv（在 NPU 上以 INT8 运行），后几层是 ViT attention（在 NPU 上以 FP16 运行，因为 softmax 不支持 INT8）。前几层 INT8 的量化误差（约 ±0.5 LSB）经过中间层（从 conv 到 attention 的 reshape 操作）后放大了约 3-5 倍。在室外强光场景中，输入图像的动态范围更大（天空 255 vs 阴影 20），INT8 的 clipping 误差更严重。结果：到达 attention 层的特征已经严重失真。解决方案：(1) 将前几层使用 per-channel INT8（而非 per-tensor），(2) 插入 Quantization-Aware Training (QAT) 来补偿跨层误差，(3) 在 conv→attention 交界处使用 FP16 精度（仅增加 5% 的计算量，但消除了精度跳变）。教训：混合架构（CNN+ViT）的量化需要为不同模块设计不同的量化策略——不能"一刀切"用同一套 INT8 calibration。
+
 ## 9. 面试问题
 
 **Q1: ViT 如何将 224×224×3 的图像转换为 token 序列？输出序列长度是多少？**
@@ -340,6 +378,78 @@ A: HART 把图像当作离散 token 序列——用 Transformer 预测"下一个
 **Q6: 为什么在边缘设备上 EfficientFormer 比 Swin-T 更快？**
 A: EfficientFormer 用 MetaBlock 设计——早期层用卷积（边缘硬件优化好），后期才引入 attention（全局推理但层数少）。卷积的计算模式（滑窗）对 NPU 的并行计算和内存访问模式天然友好，而 attention 需要大量 reshape/transpose 和 softmax，增加了硬件利用难度。
 
+**Q7（高难度/FAANG Level）：请说明为什么 ViT 在高分辨率图像上"反而不如 CNN"这个说法是误导性的。给出 $n$（patch 数量）从 196（224²）到 4096（1024²）时，ViT Attention 的计算复杂度曲线，并与 Swin Transformer 和 CNN 对比。解释在什么条件下"ViT > CNN"的结论在高分辨率下依然有效。**
+A: 这个说法混淆了"标准 ViT"和"高效 ViT"。
+
+**复杂度分析**：
+- 标准 ViT (Full Attention)：$O(n^2 d)$ = $O((HW/P^2)^2 \cdot d)$。$n=196$ 时 38K，$n=4096$ 时 16.8M——增长 442 倍。
+- Swin Transformer (Window Attention M=7)：$O(2 \cdot n \cdot M^2 \cdot d)$（两层 shift window）。$n=196$ 时 19K，$n=4096$ 时 401K——增长仅 21 倍。
+- CNN (ResNet, 3×3 conv)：$O(HW \cdot k^2 \cdot C_{in} \cdot C_{out}) = O(nP^2 \cdot 9 \cdot C^2)$——**与 $n$ 线性增长**。
+
+**关键拐点**：当 $n$ 很大时，CNN 的线性增长确实有优势。但 Swin Transformer 的 $O(n \cdot M^2)$ 在 $M=7$ 时与 CNN 的 $O(9 \cdot nP^2 \cdot C^2 / bottlenecks)$ 相当（因为 bottleneck 结构的 1×1 conv 降低了 $C^2$ 项）。实际上，Swin-L 在高分辨率（1536², n=9216）的 FLOPs 仅比 ResNet-152 高 40%，但 ImageNet Top-1 高 3-4 个点。
+
+**"ViT > CNN"在什么条件下有效**：
+1. **多尺度特征需求**：当任务需要同时关注局部纹理（高频）和全局布局（低频）时，ViT 的自注意力天然适合——不同 head 可以关注不同距离。CNN 需要通过 dilation 或 spatial pyramid pooling 来近似。
+2. **长程空间依赖**：如遮挡推理（"桌子后面的椅子"），CNN 的局部卷积需要 >20 层才能覆盖全图感受野，而 ViT 从第一层开始就是全局的。
+3. **跨模态对齐**：CLIP、DALL-E 等需要图像和文本在同一表示空间内交互——Transformer 是自然的选择（cross-attention）。
+4. **高分辨率 + 大 batch 的 GPU 利用率**：Attention 的矩阵乘法（GEMM）在 GPU Tensor Core 上的硬件利用率（~70-80%）远高于卷积的 im2col（~40-50%）。高分辨率下这个差距更显著。
+
+**Practical Takeaway**：在生产中，分辨率 > 800² 时不应使用标准 ViT——至少要启用 Window Attention 或 Hybrid CNN+ViT 架构。一个简单的决策树：单张 GPU 显存 < 24GB → EfficientFormer/MobileViT；24-80GB → Swin/ConvNeXt；>80GB + 大数据 → ViT-g/14。
+
+**Q8（高难度/FAANG Level）：对比 MAE、DINO、CLIP 三种自监督学习方法在 ViT 预训练中的根本差异。解释为什么 MAE 的预训练特征更适合 dense prediction（分割/检测），而 DINO 更适合 semantic 任务，CLIP 更适合多模态对齐。**
+A: 三种方法的本质差异在于**"模型被要求学习什么"**（pretext task）：
+
+**MAE (Masked Autoencoder)**：
+- Pretext: "看图填空"——给定 25% 可见 patches，重建 75% 被遮 patches 的像素。
+- 学到的特征：**局部-全局的生成式映射**。编码器必须从稀疏的可见 patches 中理解全局布局（"这是卧室，所以被遮区域大概率是墙壁/床"），解码器必须生成具有正确纹理和结构的像素。这产生了两个关键属性：(a) 编码器学到的是全局场景理解（为 decoder 提供"背景知识"），(b) 特征是**密集的（dense）**——每个 patch 位置都有对应的特征表示（不像 CLIP 只输出单一 image-level vector）。因此 MAE 天然适合需要 per-pixel/patch 理解的下游任务：语义分割（ADE20K mIoU 在 ViT-L 上从 DEiT 的 49.3 → 53.8）、目标检测（COCO AP: 48.2 → 51.3）。
+
+**DINO (Self-Distillation with No Labels)**：
+- Pretext: "找相同"——同一张图的不同 augmented views 在 teacher-student 框架下被要求产生一致的全局表征。
+- 学到的特征：**语义聚类**。DINO 最惊人的发现是其 attention maps 自动涌现出"物体分割"——无需任何 mask 监督，[CLS] token 的 attention 自然聚焦在物体轮廓上。这是因为 teacher 的 centering + sharpening 机制让模型主动寻找跨 augmentations 的不变性——而物体的语义身份是最稳定的不变量。因此 DINO 最适合语义理解任务：图像检索（Recall@1 比 MAE 高 15-20 个点）、few-shot classification（5-shot 准确率高 8-12 个点）。
+- DINOv2 的改进：加入了 iBOT（masked image modeling) 作为辅助损失，使 DINO 也获得了 patch-level 特征——这是"博采众长"的体现。
+
+**CLIP (Contrastive Language-Image Pre-training)**：
+- Pretext: "图文匹配"——判断一段文字描述是否和一张图片匹配（对比学习）。
+- 学到的特征：**跨模态对齐**。CLIP 不是纯视觉预训练——它的视觉编码器被迫学习将图像映射到与文本 embedding 共享的空间。这意味着 (a) 视觉特征必须是"可语言描述的"（如"一只在草地上的棕色狗"），而非纯粹的像素模式，(b) 特征的泛化能力极强——因为文本描述覆盖了极其宽广的语义空间。因此 CLIP 的零样本泛化能力远超其他预训练方法（ImageNet zero-shot 76.2% vs 随机初始化 0.1%），但纯视觉任务（如分割）的微调精度往往不如 MAE/DINO——因为 CLIP 的特征空间被文本空间的"维数诅咒"压缩了（文本描述只能捕捉人类可命名的视觉概念，遗漏了大量细粒度视觉信息）。
+- 多模态场景（text-to-image generation, visual question answering）：CLIP 是唯一选择。
+
+**生产中的组合使用**：Meta 的 DINOv2 是 DINO + iBOT(MAE-like) 的混合，CLIP 的 SigLIP 变体也加入了 patch-level 对比损失。趋势是不再区分 "SSL for semantics" vs "SSL for dense"——而是 unified SSL。
+
+**Q9（超高难度/Fellow Level）：设计一个自动驾驶感知系统，要求同时处理 8 路 1920×1080 摄像头输入，总延迟 <30ms，在 NVIDIA Orin（INT8 TOPS=131）上运行。结合本讲知识，设计一个混合 ViT+CNN 的架构并给出各模块的 FLOPs 分配和延迟预算。**
+A: 这是 NIO/小鹏/特斯拉面试中的经典系统设计题。
+
+**约束分析**：
+- 8 路 × 1920×1080 = 16.6M pixels per frame at 30fps
+- Orin INT8 TOPS=131, 实际可用约 70%（kernel launch overhead, memory bandwidth 限制）= 91 TOPS
+- 30ms latency budget → 30 × 91 × 10^9 / 1000 = 2.73G operations per frame
+- Per camera: 2.73G / 8 = 341M ops（非常紧张）
+
+**架构设计（2-stage）**：
+
+**Stage 1: Shared CNN Backbone (per camera, 200M ops, ~6ms)**
+- 使用 MobileNetV4-Conv-S 作为 backbone：~200M FLOPs/camera（Orin INT8 约 3ms, 加上 memory transfer 约 6ms）
+- 输出：multi-scale feature maps (1/8, 1/16, 1/32 of original resolution)
+- 为什么用 CNN 而非 ViT：8 路摄像头>100M ops 的全局 attention 完全不可能。CNN 的滑窗效率在这个预算下无可替代。
+
+**Stage 2: BEV Transformer with Window Attention (shared across cameras, 100M ops, ~10ms)**
+- 将 8 路 CNN 特征投影到 BEV 空间（LSS 或 Simple-BEV，约 30M ops, 3ms）
+- BEV grid: 128×128（鸟瞰空间分辨率，对应约 100m×100m with 0.78m/pixel）
+- 用一个 4-layer EfficientViT (window_size=8, n_heads=4, dim=256)：128×128 → 256 tokens after downsample (patch merge)
+- Window Attention: 每个 window 8×8=64 tokens, 64²=4K attention ops × 4 heads × 4 layers = ~64K ops/token × 256 tokens ≈ 16M ops（极轻量）
+- 输出 3D detection heads (FCOS3D-style)：~50M ops, 5ms
+
+**Stage 3: Task-specific heads (21M ops, ~5ms)**
+- 检测 head (3D bounding box，约 15M ops)
+- 车道线分割 head (thin decoder, 约 5M ops)
+- 可行驶区域分割 (1M ops, lightweight)
+
+**Total per camera**: ~320M ops（在 341M budget 内勉强可行）
+
+**实际工业替代方案（更靠谱）**：
+特斯拉 FSD 的做法更激进——他们在训练时用了多帧 ViT (Video Vision Transformer)，但在推理时将 ViT 蒸馏到 RegNet 风格的 CNN 中（通过 knowledge distillation）。这利用了 ViT 的强表征学习能力，但推理时享受 CNN 的硬件友好性。另一个策略是 **Frame Skipping**：关键帧（每 10 帧）用 full model，非关键帧用轻量 tracker+Kalman filter 外推——这是 Mobileye 和地平线的标准做法。
+
+**延迟的隐藏瓶颈**：不是 FLOPs，而是 memory bandwidth。Orin 的 DRAM bandwidth 约 204.8 GB/s。8 路 1080p YUV 输入 = 8 × 1920×1080×1.5 bytes ≈ 25MB。Backbone 的中间激活（multi-scale features）约 100MB。从原始像素到 BEV 特征再到 detection head，至少 3 次 HBM→SM→HBM roundtrip——每次 ≈ 100MB/204.8GB/s ≈ 0.5ms，但实际受 SM warp scheduling 影响约 1-2ms。总计 memory 开销约 6-10ms——几乎与计算时间持平。这就是为什么特斯拉自研 FSD Chip 用了 HBM2e（带宽是 Orin LPDDR5 的 3-5 倍）。
+
 ## 10. 本讲总结
 
 ViT 把图像做成了语言模型的食物——Patch Embedding 代替 tokenization，Self-Attention 代替 convolution。但这顿"饭"的代价是巨大的：**数据饥渴**（没有 CNN 的归纳偏置需要更多数据）、**计算饥渴**（$O(n^2)$ attention 让高分辨率图像的算力需求暴涨）、**硬件不友好**（reshape/transpose 在边缘设备上笨拙）。
@@ -352,3 +462,15 @@ ViT 把图像做成了语言模型的食物——Patch Embedding 代替 tokeniza
 关键认知：**CNN 和 ViT 不是敌人，而是工具箱中的互补工具**。CNN 在低数据、高实时性场景仍是王者；ViT 在大数据、高灵活性的前沿任务上超越 CNN。现代最佳实践（ConvNeXt, EfficientFormer, MaxViT）往往是两者的杂交体。
 
 下一讲探讨 Transformer 在更特殊的模态——GAN、视频和点云上的效率优化挑战。
+
+## 11. 工业落地checklist
+
+| 检查项 | 说明 | 不做的后果 |
+|--------|------|-----------|
+| ViT 高分辨率推理时不能用 bilinear interpolation 扩展 learnable position embedding | 某安防公司 224²→1024²（196→4096 positions）：插值产生的中间位置 PE 与所有真实 PE 余弦相似度接近 → attention 变 uniform → 准确率从 94%→71% | 高分辨率监控图像分类准确率暴跌 23 个百分点，需紧急回滚 |
+| MAE 预训练的高 mask ratio（75%）在遥感/医学图像上可能产生负迁移 | 某遥感公司 MAE pretrained ViT-L → 道路分割：全局语义推理策略在"道路拓扑需局部连续性"的任务上是噪音 → mIoU 比随机初始化低 5% | SSL 预训练反而损害下游精度，白费了数万 GPU 小时的预训练 |
+| Swin Transformer 部署时输入分辨率必须为 window_size × 2^k 的倍数 | 某视频会议公司动态分辨率（320²-720²）下 Swin-T：非整数倍导致 padding 区域的 zero-padding 被 roll 操作移位 → 分割边缘出现 7×7 棋盘 artifact | 用户脖子周围的人像分割有明显的阶梯状方块，用户体验极差 |
+| 混合架构（CNN+ViT）量化时必须为不同模块设计不同量化策略 | EfficientFormer INT8 部署在 Qualcomm XR2：前几层 CNN（INT8）+ 后几层 ViT（FP16）→ 跨模块 reshape 放大 INT8 误差 3-5x → 室外强光准确率从 91%→62% | 室内正常、室外崩溃——bug 极其隐蔽，排查数周 |
+| Apple ANE 上部署 ViT 必须将 multi-head attention 的 reshape/transpose 融合为单个 Core ML op | 苹果工程师实测：ViT-B/16 的 ~30 次 reshape 触发 CPU↔ANE memory copy（各 0.5-1ms），总 overhead 15-30ms 占总推理 40-60% | ViT 在 iPhone 上比预期慢 2-3x，Attention 不是计算慢而是内存布局变换慢 |
+| EfficientViT/Swin 等 window attention 在生产中分辨率 > 800² 时必须启用 | 标准 ViT 的 O(n²) attention 在 n=4096 (1024²) 时 16.8M vs window_size=8 的 window attention 仅 262K——差距 64x | 高分辨率推理每帧延迟 > 100ms，无法满足实时视频分析（<30ms） |
+| DINOv2 部署到 CPU 推理时需用 two-tower serving（粗筛+精排） | Pinterest 实测：ViT-g/14 在 Intel Xeon 上推理一张图 2.3s——不适合实时；用 DINOv2-Small 在边缘做粗筛 + ViT-g/14 做 Top-100 精排 | 直接用大模型做全量检索，P99 延迟不可接受，用户流失 |

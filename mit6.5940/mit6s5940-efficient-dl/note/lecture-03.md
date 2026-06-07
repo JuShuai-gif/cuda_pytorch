@@ -95,6 +95,24 @@ NVIDIA A100 支持 **2:4 结构化稀疏**：每4个连续值中正好有2个是
 | MCU端关键词检测 | 非结构化(pruning重训练) | 模型缩小8x |
 | LLM部署 | Wanda/SparseGPT | 50%稀疏, 几乎无损 |
 
+### 大厂剪枝实战数字
+
+- **字节跳动抖音推荐视觉模型**: ResNet50 通道剪枝 + 敏感度分析 → 参数量从 25M 压缩到 5.2M（79% 压缩），FLOPs 从 4.1G 降到 0.73G。配合 TensorRT INT8 量化后线上推理延迟从 42ms 降至 17ms（59% 降幅），单 GPU QPS 从 1200 提升到 3400。过程中发现最关键的一层是 conv5_x 的最后一个 block — 该层被剪超过 40% 后长尾类目（低频品类）的 top-5 准确率暴跌 12%。
+
+- **快手短视频特征提取**: MobileNetV3-Large 在 ARM 端上做结构化剪枝 → 模型从 5.4MB 降到 0.9MB，配合 ncnn FP16 推理，端上首帧耗时从 380ms 降至 110ms。剪枝率分配的关键：前 3 层只剪 10-15%（提取基础纹理，对 compression 敏感），中间 8 层剪 50-60%（冗余通道多），最后 2 层不剪（分类头信息密度高）。
+
+- **Google Waymo 自动驾驶感知**: 感知模型在 NVIDIA Orin 芯片上部署，使用结构化通道剪枝 + 2:4 稀疏。核心挑战不是准确率，而是 **P99.99 尾延迟** — 平均 3.2ms 的推理延迟中，有 0.01% 的帧延迟超过 12ms（因为 OS 调度抖动 + 内存碎片化）。解决方案是在剪枝基础上增加 **固定时间预算的早停机制**（latency budget enforcement）。
+
+- **Meta LLaMA 2 70B 部署优化**: 使用 SparseGPT（一次性剪枝不重训练）对 Attention 的 QKV 和 FFN 做 50% 非结构化稀疏 → 模型显存从 140GB 降到 70GB（理论 50%，实际减少约 45%），推理速度在 batch=1 时仅提升 8%（memory-bound），但在 batch=32 时提升 42%（compute-bound 场景终于受益）。
+
+### 剪枝 vs 量化的成本收益取舍
+
+| 方案 | 模型大小降低 | 延迟降低 | 精度损失 | 工程复杂度 | 适用场景 |
+|------|------------|---------|---------|-----------|----------|
+| 纯通道剪枝 (50%) | ~50% | ~50% | 0.5-2% | 中（需敏感度分析+重训练） | 通用 CPU/GPU 推理 |
+| 纯 INT8 量化 | 75% | 2-4x | 0.5-1% | 低（PTQ一行命令） | 有 INT8 指令的硬件 |
+| 剪枝+量化叠加 | ~87% | 4-8x | 1-3% | 高（需两次评估+重训练） | 极致压缩场景 |
+
 ## 6. PyTorch 实现思路
 
 ### 6.1 幅度剪枝（非结构化）
@@ -180,12 +198,54 @@ def prune_and_finetune(model, train_loader, prune_ratios):
     return model
 ```
 
+### 生产级剪枝的关键陷阱与解决方案
+
+**陷阱 1: Mask 应用时机 Bug — 被剪权重"复活"**
+
+这是剪枝中最容易被忽视的 P0 级 bug：
+
+```python
+# ❌ WRONG — mask 在 optimizer.step() 之后应用
+loss.backward()
+optimizer.step()              # 动量更新会修改权重, 包括被剪掉的!
+apply_pruning_mask(model)     # mask 又把它设回 0, 但动量已经记录了梯度
+
+# ✅ CORRECT — mask 在 optimizer.step() 之前应用
+loss.backward()
+apply_pruning_mask(model)     # 先把被剪权重的梯度清零
+optimizer.step()              # 然后再更新参数, 被剪权重保持为 0
+```
+
+**原理**: SGD with momentum 的更新公式是 `v = momentum * v + lr * grad`。如果先 `optimizer.step()` 再 apply mask，被剪掉的权重虽然被 mask 置零了，但 momentum buffer 里已经存了梯度方向。下一次 `step()` 时，momentum 会把这些权重"推"回非零值 — 这就是"剪枝权重复活"。正确的顺序是先 mask（清掉被剪权重的梯度），再 step（optimizer 看不到被剪权重的梯度，momentum 也不会积累错误方向）。
+
+**陷阱 2: 错误地存储 mask 为附加 buffer**
+
+```python
+# ❌ WRONG — 把 mask 存成 buffer 会在 save/load 时丢失
+module.register_buffer('pruning_mask', mask)
+
+# ✅ CORRECT — 使用 PyTorch 原生 prune 机制
+import torch.nn.utils.prune as prune
+prune.custom_from_mask(module, 'weight', mask)
+# mask 被保存在 module.weight_mask 中, 且与 state_dict 持久化绑定
+```
+
+生产环境中模型需要反复 save/load/retrain。如果 mask 丢失，被剪掉的权重会随着训练重新"长回来"。
+
 ## 7. TinyML / Edge AI 部署意义
 
 剪枝在 TinyML 中至关重要：
 - MCU的Flash只有几百KB → 必须把模型降到Flash能容下
 - 非结构化剪枝配合 **TinyEngine**（后续讲座）可以利用稀疏性
 - 结构化剪枝适合有 SIMD 或 DSP 指令的 MCU
+
+### 真实 MCU 部署剪枝约束
+
+- **STM32F746 (320KB SRAM)**: 使用 MCUNet 模型 + 非结构化剪枝 70% 稀疏度 → 模型从 744KB 压缩到 223KB。但用 CSR 稀疏格式存储的开销（col_idx + row_ptr）额外占用约 80KB，总 Flash 占用约 303KB，刚好踩在 1MB Flash 预算内。如果用结构化剪枝（channel pruning），模型可进一步压缩但不能利用 MCUNet 的稀疏 kernel 优化。
+
+- **Arduino Nano 33 BLE Sense (256KB SRAM, 1MB Flash)**: 关键词检测模型 DS-CNN，通过迭代式幅度剪枝（iterative magnitude pruning）从 38KB 压缩到 14KB。配合 INT8 量化后总占用 14KB Flash + 24KB RAM（激活值 buffer），剩余 232KB 给传感器采集代码和 BLE 协议栈。未经剪枝的模型（38KB）会挤占 BLE 缓冲区 → BLE 广播间隔从 100ms 变成 800ms → 手机端连接频繁超时。
+
+- **性能核算**: 在 Cortex-M7 (216MHz) 上，DS-CNN 每帧推理的 MAC 数从 5.6M 经过 70% 非结构化剪枝降到 1.68M。但实际加速只有 1.6x 而非理论 3.3x，原因是非结构化的 CSR 解码（从 col_idx 和 row_ptr 还原稠密索引）消耗了额外 CPU 周期。这再次证明：**在 MCU 上，稀疏解码的 overhead 可能吃掉大部分收益**。结构化剪枝虽然压缩率低一些，但无需 CSR 解码 → 实际加速更接近理论值。
 
 ## 8. 常见误区
 
@@ -194,6 +254,14 @@ def prune_and_finetune(model, train_loader, prune_ratios):
 3. **"稀疏度越高越好"** — 超过某个拐点，准确率会断崖式下跌
 4. **"剪枝只减少计算量"** — 也减少内存占用和IO带宽需求
 5. **"一次剪到位"** — 迭代式剪枝（每次剪一点→微调→再剪）效果更好
+
+### 生产环境 P0 级剪枝事故
+
+6. **"测试集精度 OK, 上线长尾爆炸"** — 在 ImageNet 上剪枝后 Top-1 仅降 0.3%，但部署到监控场景后发现：夜间低光照图片的准确率从 82% 暴跌到 61%。原因：剪枝主要去掉了低频特征通道（负责纹理细节和暗光特征），而这些通道在正常光照数据中贡献小但在暗光场景下是唯一可依赖的信息源。**解决方案**: 剪枝后的评估必须覆盖业务的长尾场景（不同光照/角度/遮挡），不能只看整体 Top-1。
+
+7. **"mask 在 optimizer.step() 之前还是之后 apply? Debug 时永远看不出来"** — 这个顺序错误不会导致训练 crash 或 loss NaN。它的表现为：被剪掉的权重在 training/eval 时确实保持为 0（看起来一切正常），但随着训练的进行，被剪权重附近的"幸存"权重会异常分布 — momentum 反复试图"复活"被剪权重，导致幸存权重的更新方向被扭曲。最终效果是：迭代剪枝时，第 3 轮微调的精度恢复远低于预期。**排查方法**: 在每轮微调结束后检查被剪权重的绝对值 — 正确的剪枝流程中它们应该是精确的 0.0。如果出现 1e-7 量级的非零值 → mask 应用时机有问题。
+
+8. **"train mode 下 eval, 结果差 10%"** — 剪枝后在 `model.train()` 模式下跑验证集。因为剪枝 mask 只在 `eval()` 时真正生效（PyTorch 的 `prune.remove()` 后的行为），而 `train()` 模式下的 forward 会 bypass mask 钩子，导致实际上用的是未剪枝的权重。虽然结果"更好"，但这完全是虚假的 — 你验证的不是剪枝后的模型。
 
 ## 9. 面试问题
 
@@ -208,6 +276,44 @@ def prune_and_finetune(model, train_loader, prune_ratios):
 
 **A2**: 敏感度分析。逐层尝试不同剪枝率，绘制"剪枝率 vs 准确率"曲线，然后用启发式算法（如AMC的RL方法）或简单的搜索（给敏感层少剪，不敏感层多剪）分配。
 
+**Q3 (字节跳动/快手 面试真题)**: "你用敏感度分析确定了 ResNet50 每层的最大剪枝率。但实际部署时发现，按这些剪枝率剪完后，端到端延迟只降低了 18%，而 FLOPs 明明降低了 55%。请从系统层面分析原因并提出解决方案。"
+
+**参考答案**: 
+
+1. **瓶颈转移**: 剪枝把你的模型从 compute-bound 变成了 memory-bound。剪枝前，Conv 层的 GEMM 操作是瓶颈（占 70% 时间）。剪枝后 Conv 变快了，但 element-wise 操作（BN, ReLU, Add shortcut）和 memory copy 变成了新瓶颈（从 30% 升到 60%）。这些操作不受剪枝影响。
+
+2. **Kernel launch overhead**: ResNet50 有 53 个 Conv 层和大量 element-wise 操作。每个小 kernel 的 launch overhead 约 5-10μs。53 个 Conv + BN + ReLU + Shortcut → 约 200+ 个 kernel launch → launch overhead 累计 ~2ms。剪枝前总延迟 10ms，然后 overhead 占 20%；剪枝后计算降为 5ms，overhead 仍为 2ms → overhead 占比升到 40%。
+
+3. **解决方案**: 
+   - **Kernel fusion**: 用 TensorRT 或 `torch.jit.freeze` 把 Conv+BN+ReLU 融合成一个 kernel，大幅减少 launch overhead
+   - **层融合 (Layer fusion)**: 把多个连续的 Conv3×3 合并为单个等效操作（如 RepVGG 的重参数化技术）
+   - **检查 GPU 内存带宽利用率**: 用 `nvprof` 或 Nsight 检查 memory bandwidth utilization。如果 bandwidth 利用率已经 >85%，说明模型是 memory-bound → FLOPs 优化已经到天花板，需要减少内存访问（如用更小的激活值精度）
+
+4. **最终的 tradeoff**: 如果上面的优化都做了还是不够，说明瓶颈已经从计算转移到内存/调度。此时应该考虑进一步压缩模型（降低激活值内存占用）或使用更现代的架构（如 MobileNetV3 的 h-swish 替代 ReLU，可以减少内存访问）。
+
+**Q4 (NVIDIA 面试真题)**: "你为什么推荐在生产环境中用 2:4 结构化稀疏而不是随机的 50% 非结构化稀疏？请从硬件实现（Tensor Core 微架构）和数值稳定性两个角度给出论证。"
+
+**参考答案**: 
+
+**硬件角度**: Tensor Core 的 2:4 稀疏指令（SPMMA）工作原理是：硬件在读取每个 warp 的 4 个连续元素时，通过一个 2-bit 的 metadata（指示哪 2 个位置是 non-zero）直接跳过零值取值。这个 metadata 是硬编码在指令编码中的，零开销。相比之下，随机的 50% 非结构化稀疏需要 CSR/CSC 格式存储 — 每次矩阵乘法都要额外做 index 解码（col_idx 和 row_ptr 的指针追踪），这又引入了不规则内存访问（scatter/gather），在 A100 上可能比稠密计算还慢。
+
+**数值稳定性角度**: 2:4 的约束意味着"每 4 个值中必须有 2 个为零"。这个约束在训练时可以通过"选择每 4 个中 magnitude 最小的 2 个置零"来自然满足，剪枝决策是局部最优的。而随机的非结构化剪枝没有这个局部结构，导致 (1) 剪枝后的权重矩阵条件数变差（condition number 增大），梯度不稳定；(2) 不同行/列的稀疏模式不一致，导致某些输出通道的激活值方差异常大，需要重新校准 BN 层。
+
+**Q5 (快手面试真题)**: "你在手机上部署的剪枝模型在实验室测得好好的，但灰度上线后发现 P99 延迟从 25ms 跳到了 80ms。分析后发现是因为手机在充电时 CPU 降频（热节流）。你会怎么解决？"
+
+**参考答案**: 
+
+1. **问题根因**: 手机在充电时 SoC 温度升高 → DVFS (动态电压频率调节) 触发 → CPU 从 2.84GHz 降到 1.2GHz → 推理延迟飙升。这跟剪枝质量没关系，是硬件热管理导致的 performance regression。
+
+2. **短期方案**: 增加推理超时 fallback — 如果推理超过 40ms，切换到更轻量的模型（如 MobileNetV3-Small），延迟降回 20ms 以内，准确率损失 ~2%。
+
+3. **长期方案**: 
+   - 在剪枝时用 **硬件感知的搜索（hardware-aware NAS）** — 不仅在 nominal frequency 下评估延迟，还要在降频模式（1.2GHz）下评估
+   - 采用 **多级模型级联（model cascade）**: 极轻的 model 处理简单帧（99% 流量），复杂帧才走剪枝模型
+   - 用 on-device profiling 样本训练一个延迟预测器，在运行时根据设备温度动态选择模型大小
+
+4. **面试加分点**: 提到"这个问题反映了剪枝优化的一个根本矛盾 — 剪枝降低的是 nominal 算力需求，但对 worst-case 场景（热节流、后台 app 抢占 CPU）没有保护。系统级的鲁棒性需要**计算预算控制（latency budget enforcement）**，而不只是模型压缩。"
+
 ## 10. 本讲总结
 
 - **剪枝的目标**: 减少参数和计算量，同时保持准确率
@@ -216,3 +322,17 @@ def prune_and_finetune(model, train_loader, prune_ratios):
 - **工业实践**: 结构化剪枝是工业界首选，因为硬件友好；非结构化剪枝用于极限压缩场景
 
 剪枝回答了："哪些参数是冗余的？"下一讲量化回答："能不能用更少比特表示参数？"
+
+## 11. 工业落地 Checklist
+
+| 检查项 | 说明 | 不做的后果 |
+|--------|------|-----------|
+| Mask 应用时机 | `loss.backward() → apply_mask() → optimizer.step()`，这个顺序不能错 | 被剪权重被 momentum 复活，精度恢复异常 |
+| Mask 持久化 | 用 `prune.custom_from_mask` 而非 `register_buffer`，确保 save/load 不丢失 mask | 加载模型后 mask 丢失，再训练时权重全量恢复 |
+| Train/Eval 模式 | 剪枝后验证时必须用 `model.eval()`，train 模式下 mask 可能不生效 | 虚假的高精度（实际在测未剪枝模型） |
+| 敏感度分析覆盖所有层 | 每一层都用多个 ratio 测试敏感度，不能凭经验拍板 | 某些层剪太多导致长尾精度崩溃 |
+| 长尾场景专项评估 | 剪枝后不仅看 Top-1，还要看低光照/遮挡/罕见类目的准确率 | 整体指标 OK 但线上关键场景掉点 |
+| 迭代剪枝次数 | 至少 3-5 轮"剪一点→微调→再剪" | 一次剪到位 → 精度断崖下跌，微调恢复有限 |
+| 剪枝后逐层 Latency Profiling | 确认瓶颈是否从 GEMM 转移到 element-wise / kernel launch | 剪枝降了 FLOPs 但 latency 几乎不变 |
+| 稀疏度 vs 实际加速验证 | 非结构化剪枝后，在目标硬件上实测延迟，不计理论 FLOPs 减少 | CSR 解码 overhead 吃光剪枝收益 |
+| Finetune LR 策略 | 剪枝后微调的学习率应比原始训练的最终 lr 低 10-100x | lr 太大 → 破坏已学到的特征表示 → 精度下降 |

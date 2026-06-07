@@ -32,10 +32,10 @@ MIT 6.5940 (Efficient Deep Learning Computing / TinyML) 由 MIT HAN Lab 的 **Pr
 
 ```
 mit6s5940-efficient-dl/
-├── note/           # 中文讲解笔记 (按 lecture 一一对应)
+├── note/           # 中文讲解笔记 (23讲 + 附录A: 算力-板卡-模型效率)
 ├── src/            # 可运行的 PyTorch 代码示例
 ├── labs/           # 重构的实验 (含 starter/solution/report)
-├── papers/         # 论文中文导读
+├── papers/         # 论文中文导读 (20篇, 全部来自 MIT HAN Lab)
 ├── project/        # 端侧 AI 模型压缩与部署完整项目
 ├── diagrams/       # Mermaid 架构图
 ├── README.md       # 本文件
@@ -120,8 +120,36 @@ LLM专项 (2-3周)  → Lecture 12-15 + Lab 4-5
 - **端侧 AI**: 手机端运行 LLM → AWQ/W4A16 量化 + ONNX/TensorRT
 - **TensorRT 部署**: pruning + quantization → ONNX export → TensorRT engine → latency benchmark
 
+## 论文导读目录
+
+| # | 论文 | 发表 | 与课程关联 |
+|---|------|------|-----------|
+| 01 | Deep Compression | ICLR 2016 | 剪枝+量化+霍夫曼编码三阶段流水线 |
+| 02 | MCUNet | NeurIPS 2020 | TinyML 系统：模型-引擎协同设计 |
+| 03 | Once-for-All (OFA) | ICLR 2020 | 渐进收缩：训练一次，部署多处 |
+| 04 | AWQ | MLSys 2024 | 激活感知权重量化，LLM INT4 |
+| 05 | SmoothQuant | ICML 2023 | 平滑异常值，W8A8 LLM 量化 |
+| 06 | LoRA | ICLR 2022 | 低秩适应，高效 LLM 微调 |
+| 07 | EIE | ISCA 2016 | 稀疏+压缩神经网络的专用硬件加速器 |
+| 08 | Learning Weights & Connections | NIPS 2015 | 剪枝开山之作，三步法 |
+| 09 | ProxylessNAS | ICLR 2019 | 直接目标硬件上 NAS，无代理 |
+| 10 | HAQ | CVPR 2019 | 硬件感知自动混合精度量化 |
+| 11 | MCUNetV2 | NeurIPS 2021 | 分块推理，突破 MCU 内存瓶颈 |
+| 12 | MCUNetV3 (On-Device Training) | NeurIPS 2022 | 256KB MCU 上完整训练系统 |
+| 13 | GAN Compression | CVPR 2020 | GAN 生成器 9-21x 压缩 |
+| 14 | TSM | ICCV 2019 | 时序位移模块，零参数量视频理解 |
+| 15 | StreamingLLM | ICLR 2024 | 注意力沉降，无限长流式 LLM |
+| 16 | LongLoRA | ICLR 2024 | S²-Attn + LoRA，高效扩展上下文 |
+| 17 | QServe | MLSys 2025 | W4A8KV4 量化+系统协同，LLM 服务 |
+| 18 | EfficientViT | ICCV 2023 | 高效视觉 Transformer，线性注意力 |
+| 19 | SVDQuant | ICLR 2025 | SVD 低秩吸收异常值，4-bit Diffusion |
+| 20 | BEVFusion | ICRA 2023 | 多传感器融合，高效自动驾驶感知 |
+
+> 以上 20 篇论文均来自 MIT HAN Lab (https://hanlab.mit.edu/publications)，与课程内容直接关联。
+
 ## 参考资料
 
 - 课程官网: https://efficientml.ai
 - HAN Lab: https://hanlab.mit.edu
+- HAN Lab 论文集: https://hanlab.mit.edu/publications
 - 参考书籍: "Efficient Deep Learning" (即将出版)

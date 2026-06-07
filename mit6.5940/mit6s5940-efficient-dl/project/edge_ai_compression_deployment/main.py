@@ -43,6 +43,12 @@ import yaml
 from torch.utils.data import DataLoader, Dataset
 
 # ============================================================
+# 设置项目根路径
+# ============================================================
+PROJECT_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+# ============================================================
 # 导入项目模块
 # ============================================================
 from models.model_factory import create_model, get_model_info, list_available_models
@@ -991,7 +997,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config",
         type=str,
-        default="configs/config.yaml",
+        default=str(PROJECT_ROOT / "configs" / "config.yaml"),
         help="配置文件路径 (默认: configs/config.yaml)",
     )
 

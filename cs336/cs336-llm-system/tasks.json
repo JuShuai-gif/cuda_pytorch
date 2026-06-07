@@ -1,0 +1,89 @@
+[
+  {
+    "task": "lecture-01: Tokenization - BPE from scratch",
+    "description": "Implement Byte-Pair Encoding tokenizer (bpe.py) and demo script (demo.py) with __init__.py.",
+    "steps": [
+      "1. Create src/lecture-01/__init__.py",
+      "2. Write bpe.py: BPE tokenizer with train, encode, decode, unicode handling, test cases",
+      "3. Write demo.py: demonstrate BPE tokenizer usage on sample text",
+      "4. Verify all files run without errors"
+    ],
+    "acceptance-criteria": "bpe.py runs with test cases passing. demo.py runs without errors. BPE train/corpus/vocab_size, encode/decode methods work correctly. Unicode handling works. __init__.py exists.",
+    "skills": ["writing-python", "tdd-workflow"],
+    "complete": false
+  },
+  {
+    "task": "lecture-02: Resource Accounting - FLOPs, arithmetic intensity, mixed precision",
+    "description": "Implement flops_counter.py, arithmetic_intensity.py, mixed_precision.py with __init__.py.",
+    "steps": [
+      "1. Create src/lecture-02/__init__.py",
+      "2. Write flops_counter.py: count_parameters, estimate_training_flops, memory footprint estimation",
+      "3. Write arithmetic_intensity.py: compute arithmetic intensity for matmul/attention/elementwise, roofline model visualization",
+      "4. Write mixed_precision.py: demonstrate fp16/bf16/fp32 differences, simple AMP training loop example",
+      "5. Verify all files run without errors"
+    ],
+    "acceptance-criteria": "flops_counter.py correctly counts parameters and estimates FLOPs. arithmetic_intensity.py produces roofline plot. mixed_precision.py demonstrates precision differences. __init__.py exists. All files run without errors.",
+    "skills": ["writing-python", "tdd-workflow"],
+    "complete": false
+  },
+  {
+    "task": "lecture-03: Transformer Architecture from scratch",
+    "description": "Implement full Transformer model (transformer.py) and tests (test_transformer.py) with __init__.py.",
+    "steps": [
+      "1. Create src/lecture-03/__init__.py",
+      "2. Write transformer.py: MultiHeadAttention, TransformerBlock, TransformerLM with causal masking, pre-norm/post-norm",
+      "3. Write test_transformer.py: basic shape and functionality tests",
+      "4. Verify all tests pass"
+    ],
+    "acceptance-criteria": "MultiHeadAttention implements QKV projection and scaled dot-product attention. TransformerBlock includes Attention+MLP+residual+LayerNorm. TransformerLM has Embedding+Blocks+LM head. Causal masking works. Pre-norm and post-norm supported. Forward pass runs. All tests pass.",
+    "skills": ["writing-python", "tdd-workflow"],
+    "complete": false
+  },
+  {
+    "task": "lecture-04: Training components from scratch",
+    "description": "Implement AdamW optimizer, LR scheduler, loss, training loop, gradient clipping with __init__.py.",
+    "steps": [
+      "1. Create src/lecture-04/__init__.py",
+      "2. Write optimizer.py: AdamW from scratch with decoupled weight decay and bias correction",
+      "3. Write lr_scheduler.py: cosine schedule, warmup, WSD schedule",
+      "4. Write loss.py: cross-entropy loss implementation and verification",
+      "5. Write training_loop.py: simple train+eval loop",
+      "6. Write gradient_clipping.py: clip_grad_norm implementation",
+      "7. Verify all files run without errors"
+    ],
+    "acceptance-criteria": "AdamW correctly decouples weight decay with bias correction. Cosine schedule, warmup, WSD implemented. Cross-entropy loss verified against PyTorch. Training loop runs on dummy data. clip_grad_norm works correctly. __init__.py exists. All files run without errors.",
+    "skills": ["writing-python", "tdd-workflow"],
+    "complete": false
+  },
+  {
+    "task": "lecture-05: GPU Architecture analysis and demonstration",
+    "description": "Implement GPU spec analysis, memory analysis, occupancy calculator, bandwidth test with __init__.py.",
+    "steps": [
+      "1. Create src/lecture-05/__init__.py",
+      "2. Write gpu_specs.py: NVIDIA GPU spec comparison table, memory hierarchy analysis",
+      "3. Write memory_analysis.py: analyze attention/MLP/embedding layer memory usage",
+      "4. Write occupancy_calc.py: occupancy calculator based on registers/shared memory",
+      "5. Write bandwidth_test.py: HBM bandwidth and matmul throughput tests",
+      "6. Verify all files run without errors"
+    ],
+    "acceptance-criteria": "gpu_specs.py displays GPU spec comparison table. memory_analysis.py correctly computes memory for transformer layers. occupancy_calc.py computes occupancy given register/shared memory constraints. bandwidth_test.py runs bandwidth and matmul tests. __init__.py exists. All files run without errors.",
+    "skills": ["writing-python", "tdd-workflow"],
+    "complete": false
+  },
+  {
+    "task": "lecture-06: GPU Programming with Triton kernels",
+    "description": "Implement Triton kernels (GeLU, softmax, matmul), benchmarks, and profiler demo with __init__.py.",
+    "steps": [
+      "1. Create src/lecture-06/__init__.py",
+      "2. Write gelu_kernel.py: fused GeLU kernel in Triton with PyTorch comparison",
+      "3. Write softmax_kernel.py: online softmax in Triton",
+      "4. Write matmul_kernel.py: tiled matmul with shared memory in Triton",
+      "5. Write benchmark_kernels.py: benchmark Triton kernels vs PyTorch built-in",
+      "6. Write torch_profiler_demo.py: use torch.profiler for model analysis",
+      "7. Verify all files run (with GPU fallback where needed)"
+    ],
+    "acceptance-criteria": "GeLU kernel matches PyTorch output within tolerance. Softmax kernel uses online algorithm. Matmul kernel uses tiling and shared memory. Benchmarks compare Triton vs PyTorch. Profiler demo shows CPU/GPU timeline. All files have GPU fallback. __init__.py exists.",
+    "skills": ["writing-python", "tdd-workflow"],
+    "complete": false
+  }
+]
