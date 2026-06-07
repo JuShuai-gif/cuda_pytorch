@@ -1,0 +1,80 @@
+graph TB
+    %% ============================================================================
+    %% CS336: Complete LLM System Architecture Overview
+    %% ============================================================================
+
+    subgraph TRAINING["Training Pipeline"]
+        direction TB
+        D1["Raw Text Corpus<br/>CommonCrawl / C4 / The Pile"] --> D2["Tokenizer<br/>BPE encoding"]
+        D2 --> D3["DataLoader<br/>batching + padding"]
+        D3 --> D4["Embedding<br/>vocab (32k) → d_model"]
+    end
+
+    subgraph MODEL["Transformer Model (Pre-norm Llama-style)"]
+        direction TB
+        M0["Token Embedding<br/>nn.Embedding(32000, 4096)"]
+        M0 --> M1
+
+        subgraph BLOCK["TransformerBlock × N"]
+            direction TB
+            B1["RMSNorm<br/>input normalization"]
+            B1 --> B2["GQA Attention<br/>Q Heads: 32 | KV Heads: 8"]
+            B2 --> B3["RoPE<br/>Rotary Position Embedding"]
+            B3 --> B4["+ Residual −→"]
+            B4 --> B5["RMSNorm<br/>pre-FFN normalization"]
+            B5 --> B6["SwiGLU FFN<br/>gate_proj / up_proj / down_proj"]
+            B6 --> B7["+ Residual −→"]
+        end
+
+        M1["Block 1 + ⋯ + Block N<br/>N=32 for 7B, N=80 for 70B"] --> BLOCK
+        BLOCK --> M2["Final RMSNorm"]
+        M2 --> M3["LM Head<br/>d → vocab (tied weights)"]
+        M3 --> M4["Logits<br/>(B, S, vocab_size)"]
+    end
+
+    subgraph LOSS["Loss & Optimization"]
+        direction TB
+        L1["CrossEntropyLoss<br/>logits vs labels"] --> L2["Gradient<br/>loss.backward()"]
+        L2 --> L3["Gradient Clipping<br/>max_norm = 1.0"]
+        L3 --> L4["AdamW Optimizer<br/>step + lr schedule"]
+    end
+
+    subgraph DIST["Distributed Sync"]
+        direction TB
+        S1["FSDP (ZeRO-3)<br/>param/grad/optimizer sharding"] --> S2["All-Gather params<br/>forward pre-layer"]
+        S2 --> S3["Reduce-Scatter grads<br/>backward post-layer"]
+        S3 --> S4["Ring All-Reduce<br/>gradient averaging"]
+    end
+
+    subgraph INFERENCE["Inference Pipeline"]
+        direction TB
+        I1["Client Request<br/>prompt + params"] --> I2["Admission Control<br/>rate limiting + queue"]
+        I2 --> I3["Scheduler<br/>continuous batching"]
+        I3 --> I4["Prefill Phase<br/>process full prompt"]
+        I4 --> I5["PagedAttention<br/>block table + block allocator"]
+        I5 --> I6["Decode Phase<br/>autoregressive loop"]
+        I6 --> I7["Sampling<br/>top-k / top-p / temperature"]
+        I7 --> I8["Output<br/>detokenized text"]
+    end
+
+    subgraph MEMORY["GPU Memory Hierarchy"]
+        direction TB
+        H1["Register File<br/>256 KiB/SM | ~10+ TB/s | 0 cycles"]
+        H1 --> H2["L1 / Shared Memory<br/>256 KiB/SM | ~10+ TB/s | ~30 cycles"]
+        H2 --> H3["L2 Cache<br/>50 MiB (H100) | ~5 TB/s | ~200 cycles"]
+        H3 --> H4["HBM3 Global Memory<br/>80 GiB (H100) | 3350 GB/s | ~400-800 cycles"]
+        H4 --> H5["NVLink / NVSwitch<br/>900 GB/s (H100) bidirectional"]
+    end
+
+    %% Cross-system data flow
+    D4 --> M0
+    M4 --> L1
+    L4 --> S1
+    I3 --> M0
+
+    style TRAINING fill:#e3f2fd,stroke:#1565c0
+    style MODEL fill:#fff3e0,stroke:#ef6c00
+    style LOSS fill:#fce4ec,stroke:#c62828
+    style DIST fill:#e8f5e9,stroke:#2e7d32
+    style INFERENCE fill:#f3e5f5,stroke:#7b1fa2
+    style MEMORY fill:#e0f7fa,stroke:#00695c

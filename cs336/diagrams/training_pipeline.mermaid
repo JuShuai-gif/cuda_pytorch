@@ -1,0 +1,97 @@
+graph TB
+    %% ============================================================================
+    %% CS336: Detailed Training Pipeline -- 3D Hybrid Parallelism (PTD-P)
+    %% ============================================================================
+
+    subgraph INIT["Phase 0: Initialization"]
+        direction LR
+        INIT1["Load Config<br/>MiniLLMConfig"] --> INIT2["Build Model<br/>MiniLLM(wrapping FSDP)"]
+        INIT2 --> INIT3["Initialize Optimizer<br/>AdamW (lr, wd, β)"]
+        INIT3 --> INIT4["Setup LR Scheduler<br/>CosineWarmup"]
+    end
+
+    subgraph DATA["Phase 1: Data Pipeline"]
+        direction TB
+        DP1["Raw Corpus<br/>(text files / jsonl)"] --> DP2["Preprocess<br/>filter / dedup / score"]
+        DP2 --> DP3["Tokenize<br/>BPE encode → token IDs"]
+        DP3 --> DP4["TextDataset<br/>stride windowing → (x, y) pairs"]
+        DP4 --> DP5["DataLoader<br/>shuffle + batch + collate"]
+        DP5 --> DP6["DistributedSampler<br/>per-rank partition"]
+    end
+
+    subgraph BATCH["Phase 2: Micro-batch Loop"]
+        direction TB
+        MB1["Get Micro-batch<br/>tokens: (B_micro, S)"] --> MB2["Forward Pass<br/>autocast (bf16)"]
+        MB2 --> MB3["Compute Loss<br/>CE loss / scalar"]
+        MB3 --> MB4["Backward Pass<br/>loss.backward()"]
+    end
+
+    subgraph GRAD_ACCUM["Phase 3: Gradient Accumulation"]
+        direction TB
+        GA1["Accumulate Iteration"] --> GA2{"acc_steps ==<br/>gradient_accumulation_steps?"}
+        GA2 -->|No| MB1
+        GA2 -->|Yes| GA3["Accumulation Complete<br/>ready for optimizer"]
+    end
+
+    subgraph COMM["Phase 4: Distributed Communication (FSDP/ZeRO-3)"]
+        direction TB
+
+        subgraph FORWARD_COMM["Forward: All-Gather Params"]
+            FWD1["Layer N Start<br/>params currently sharded"] --> FWD2["All-Gather<br/>gather full param tensors"]
+            FWD2 --> FWD3["Compute Layer N<br/>forward with full params"]
+            FWD3 --> FWD4["Discard Full Params<br/>keep shard only"]
+        end
+
+        subgraph BACKWARD_COMM["Backward: Reduce-Scatter Grads"]
+            BWD1["Layer N Backward<br/>compute local grads"] --> BWD2["Reduce-Scatter<br/>reduce+scatter grads across ranks"]
+            BWD2 --> BWD3["Discard Full Grads<br/>keep shard only"]
+        end
+    end
+
+    subgraph OPT["Phase 5: Optimizer Step"]
+        direction TB
+        OPT1["Clip Gradients<br/>max_norm = 1.0"] --> OPT2["AdamW Step<br/>unscale → step → update"]
+        OPT2 --> OPT3["Zero Grad<br/>reset for next step"]
+        OPT3 --> OPT4["LR Scheduler Step<br/>cosine warmup step"]
+    end
+
+    subgraph PERIODIC["Phase 6: Periodic Housekeeping"]
+        direction TB
+        HK1{"Log Step<br/>every N steps?"} -->|Yes| HK2["Log Metrics<br/>loss | lr | tokens/s | gpu_mem"]
+        HK1 -->|No| HK3{"Eval Step<br/>every M steps?"}
+        HK3 -->|Yes| HK4["Validation<br/>eval loss + perplexity"]
+        HK3 -->|No| HK5{"Checkpoint Step<br/>every K steps?"}
+        HK5 -->|Yes| HK6["Save Checkpoint<br/>model + optimizer + scheduler"]
+        HK5 -->|No| HK7{"Max Steps<br/>reached?"}
+    end
+
+    %% Parallelism taxonomy
+    subgraph PTD_P["PTD-P: 3D Hybrid Parallelism"]
+        direction LR
+        TP1["Tensor Parallel (TP)<br/>within NVLink domain<br/>Column + Row partitioning"] ---
+        PP1["Pipeline Parallel (PP)<br/>across DGX nodes<br/>GPipe / 1F1B schedule"] ---
+        DP1["Data Parallel (FSDP)<br/>across all ranks<br/>ZeRO-3 parameter sharding"]
+    end
+
+    %% Flow connections
+    INIT4 --> DP1
+    DP6 --> MB1
+    GA3 --> COMM
+    FORWARD_COMM --> BACKWARD_COMM
+    BWD3 --> OPT1
+    OPT4 --> HK1
+    HK7 -->|No| MB1
+    HK7 -->|Yes| END1["Training Complete"]
+
+    %% Communication patterns detail
+    COMM_DETAIL["Communication Pattern Details<br/><br/>All-Gather: O(P) comm<br/>sent = (N-1)/N × P per rank<br/><br/>Reduce-Scatter: O(P) comm<br/>sent = (N-1)/N × G per rank<br/><br/>Ring All-Reduce (DDP): 2(N-1)/N × G<br/>Step 1: Reduce-Scatter → partial sums<br/>Step 2: All-Gather → full sums"]
+
+    style INIT fill:#e3f2fd,stroke:#1565c0
+    style DATA fill:#fff3e0,stroke:#ef6c00
+    style BATCH fill:#fce4ec,stroke:#c62828
+    style GRAD_ACCUM fill:#f3e5f5,stroke:#7b1fa2
+    style COMM fill:#e8f5e9,stroke:#2e7d32
+    style OPT fill:#fffde7,stroke:#f9a825
+    style PERIODIC fill:#e0f7fa,stroke:#00695c
+    style PTD_P fill:#ede7f6,stroke:#4527a0
+    style COMM_DETAIL fill:#efebe9,stroke:#4e342e

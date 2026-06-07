@@ -1,0 +1,88 @@
+graph TB
+    %% ============================================================================
+    %% CS336: CUDA Kernel Optimization Patterns
+    %% ============================================================================
+
+    subgraph COALESCING["1. Memory Coalescing"]
+        direction TB
+
+        subgraph GOOD_COAL["Good: Coalesced Access"]
+            GC1["Thread 0 → addr[0]<br/>Thread 1 → addr[1]<br/>Thread 2 → addr[2]<br/>...<br/>Thread 31 → addr[31]"]
+            GC2["Result: 1 × 128-byte L1 segment<br/>transaction efficiency: 100%<br/>addresses all in same cache line"]
+        end
+
+        subgraph BAD_COAL["Bad: Strided Access"]
+            BC1["Thread 0 → addr[0]<br/>Thread 1 → addr[128]<br/>Thread 2 → addr[256]<br/>...<br/>Thread 31 → addr[3968]"]
+            BC2["Result: 32 × transactions<br/>efficiency: 3.125%<br/>bandwidth-utilization catastrophe"]
+        end
+
+        subgraph FIX_COAL["Fix: Structure-of-Arrays → Array-of-Structures"]
+            FIX1["Before: [x0,y0,z0,x1,y1,z1,...]<br/>thread i reads x[i], stride=3"] -->
+            FIX2["After: [x0,x1,...,y0,y1,...,z0,z1,...]<br/>thread i reads x[i], stride=1 → coalesced!"]
+        end
+    end
+
+    subgraph TILING["2. Matmul Tiling Strategy"]
+        direction TB
+
+        T1["Problem: C[M,N] = A[M,K] × B[K,N]<br/>Too large for SRAM → must tile"] -->
+        T2["Tile C into blocks<br/>Block size: BM × BN<br/>Each thread block computes<br/>one C-block tile"]
+
+        T2 --> T3["Outer Loop: for each block of C"]
+        T3 --> T4["Inner Loop: for k_tile in K-dimension"]
+        T4 --> T5["Load A_tile[BM, BK]<br/>from HBM → Shared Memory<br/>Load B_tile[BK, BN]<br/>from HBM → Shared Memory"]
+        T5 --> T6["Compute: C_tile += A_tile × B_tile<br/>using registers (256 KiB/SM)"]
+        T6 -->|"loop k"| T4
+        T6 --> T7["Write C_tile back to HBM"]
+
+        T_DETAIL["Arithmetic Intensity per tile:<br/>Compute: 2 × BM × BN × BK FLOPs<br/>Data: (BM×BK + BK×BN + BM×BN) × bytes/elem<br/>For BM=BN=BK=128 → AI ≈ 128 FLOP/Byte<br/>H100 ridge point (bf16): 989e12 / 3350e9 ≈ 295<br/>→ Memory-bound for small tiles, compute-bound for large tiles"]
+    end
+
+    subgraph FLASH["3. FlashAttention Tiling (Online Softmax)"]
+        direction TB
+
+        FA1["Problem: Standard Attention<br/>S = Q @ K^T → O(S²) HBM writes<br/>P = softmax(S) → O(S²) HBM read+write<br/>O = P @ V → O(S²) HBM reads<br/>Total HBM: O(S²) → bottleneck!"] -->
+        FA2["Solution: Tile Q, K, V into blocks<br/>Keep blocks in SRAM across passes"]
+
+        FA2 --> FA3["For each Q_block (outer loop):"]
+        FA3 --> FA4["Initialize: O=0, ℓ=0, m=-∞ (running stats)"]
+        FA4 --> FA5["For each K,V block (inner loop):"]
+        FA5 --> FA6["Load Q_block, K_block, V_block → SRAM"]
+        FA6 --> FA7["Compute S_block = Q_block @ K_block^T"]
+        FA7 --> FA8["Online Softmax Rescaling:<br/>m_new = max(m, rowmax(S_block))<br/>ℓ_new = exp(m-m_new)×ℓ + ∑exp(S_block-m_new)<br/>O = exp(m-m_new)×O + exp(S_block-m_new) @ V"]
+        FA8 -->|"loop K/V"| FA5
+        FA8 --> FA9["Final: O = O/ℓ → output for Q_block"]
+
+        FA_DETAIL["HBM Access Reduction:<br/>Standard: O(Nd + N²) → 1080 Ti bottleneck<br/>FlashAttention: O(N²d²/M) SRAM<br/>With 256 KiB SRAM, M ≪ N² → huge savings<br/>FlashAttention-2: 2× faster via better work partitioning<br/>FlashAttention-3: Hopper async + WGMMA instructions"]
+    end
+
+    subgraph BANK["4. Bank Conflict Avoidance"]
+        direction TB
+
+        B1["Shared Memory: 32 banks<br/>32-bit word per bank per cycle<br/>Any 32 threads accessing<br/>32 different banks → 1 cycle"] -->
+        B2["2-way conflict: 2 threads same bank<br/>→ 2 cycles (serialized)<br/>32-way conflict: all same bank<br/>→ 32 cycles (broadcast if same addr)"]
+
+        subgraph BANK_GOOD["No Conflict"]
+            BG1["Bank  0: Thread 0<br/>Bank  1: Thread 1<br/>Bank  2: Thread 2<br/>...<br/>Bank 31: Thread 31<br/>→ 1 transaction"]
+        end
+
+        subgraph BANK_BAD["Stride-32 Conflict"]
+            BB1["Bank 0: Thread 0<br/>Bank 0: Thread 1 (conflict!)<br/>Bank 0: Thread 2 (conflict!)<br/>...<br/>Bank 0: Thread 31 (conflict!)<br/>→ 32 transactions (worst case)"]
+        end
+
+        subgraph BANK_FIX["Fix: Padding"]
+            BP1["Add 1 word padding per row<br/>float shared[N_ROWS][BANK_SIZE + 1]<br/>Stride = BANK_SIZE + 1 (odd)<br/>→ no stride-32 conflict"]
+        end
+    end
+
+    subgraph OCCUPANCY["5. Occupancy Optimization"]
+        direction TB
+        O1["Registers per thread<br/>Lower = more warps active<br/>Example: 64 regs/thread<br/>→ 256 KiB / (64×32×4) = 32 warps/SM"] -->
+        O2["Shared memory per block<br/>Lower = more blocks active<br/>Example: 64 KiB/block<br/>→ 256 KiB/64 KiB = 4 blocks/SM"] -->
+        O3["Block dimensions<br/>(128,256,512,1024 threads)<br/>Must be multiple of 32<br/>Balance occupancy vs parallelism"]
+
+    style COALESCING fill:#e3f2fd,stroke:#1565c0
+    style TILING fill:#fff3e0,stroke:#ef6c00
+    style FLASH fill:#fce4ec,stroke:#c62828
+    style BANK fill:#e8f5e9,stroke:#2e7d32
+    style OCCUPANCY fill:#f3e5f5,stroke:#7b1fa2

@@ -1,0 +1,88 @@
+graph TB
+    %% ============================================================================
+    %% CS336: GPU Architecture Internals -- H100 Focus
+    %% ============================================================================
+
+    subgraph CHIP["H100 (GH100) Die -- 814 mm², TSMC 4nm, 80B transistors"]
+        direction TB
+
+        subgraph GPCs["8 GPCs (Graphics Processing Clusters)"]
+            direction LR
+            GPC0["GPC 0<br/>16 SM + Raster Engines"]
+            GPC1["GPC 1<br/>16 SM"]
+            GPC2["GPC 2<br/>16 SM"]
+            GPC3["GPC 3<br/>16 SM"]
+            GPC4["GPC 4<br/>16 SM"]
+            GPC5["GPC 5<br/>16 SM"]
+            GPC6["GPC 6<br/>18 SM"]
+            GPC7["GPC 7<br/>18 SM"]
+        end
+
+        subgraph SMs["132 SMs Total -- 16,896 CUDA Cores, 528 Tensor Cores"]
+            direction TB
+
+            subgraph SM_INTERNALS["Single SM (Streaming Multiprocessor)"]
+                direction TB
+
+                subgraph EXEC["Execution Units"]
+                    EX1["128 CUDA Cores / SM<br/>FP32/FP64/INT32 pipelines"]
+                    EX2["4× Gen4 Tensor Cores<br/>FP8/FP16/BF16/FP32/TF32<br/>989 TFLOPS BF16 (total chip)"]
+                    EX3["1× RT Core<br/>ray tracing"]
+                    EX4["32× LD/ST Units<br/>load/store per cycle"]
+                    EX5["32× SFU<br/>special function units"]
+                end
+
+                subgraph REG_FILE["Register File"]
+                    REG1["256 KiB / SM<br/>65,536 × 32-bit registers<br/>(4 warps × 64 registers × 32 threads)<br/>Bandwidth: ~10+ TB/s per SM"]
+                end
+
+                subgraph L1_SHMEM["L1 Cache + Shared Memory"]
+                    L11["256 KiB / SM (configurable)<br/>Unified data cache<br/>+ Programmable shared memory<br/>Bandwidth: ~10+ TB/s per SM<br/>Latency: ~30 cycles"]
+                end
+
+                subgraph WARP["Warp Scheduler"]
+                    W1["4 Warp Schedulers / SM<br/>32 threads per warp<br/>SIMT execution model<br/>Each scheduler: 1 warp/cycle<br/>64 warps active / SM<br/>(max occupancy)"]
+                end
+
+                REG_FILE ---- WARP
+                WARP ---- EXEC
+                L1_SHMEM ---- EXEC
+            end
+        end
+    end
+
+    subgraph MEMORY["Memory Hierarchy (H100)"]
+        direction TB
+        MEM0["Register File<br/>256 KiB/SM × 132 SM<br/>= 33 MiB total<br/>~10+ TB/s per SM<br/>Latency: ~0 cycles"] -->
+        MEM1["L1 Cache<br/>256 KiB/SM × 132 SM<br/>= 33 MiB total<br/>~10+ TB/s per SM<br/>Latency: ~30 cycles"] -->
+        MEM2["L2 Cache<br/>50 MiB (unified)<br/>~5 TB/s aggregate<br/>Latency: ~200 cycles<br/>2× vs A100 (40 MiB)"] -->
+        MEM3["HBM3 (5 stacks)<br/>80 GiB capacity<br/>3350 GB/s peak BW<br/>(5120-bit interface)<br/>Latency: ~400-800 cycles"] -->
+        MEM4["NVLink 4.0<br/>900 GB/s bidirectional<br/>7 links × 128 GB/s<br/>Connected via NVSwitch<br/>Latency: ~1-5 µs"] -->
+        MEM5["PCIe 5.0 ×16<br/>~64 GB/s<br/>to CPU DRAM<br/>Latency: ~10 µs"] -->
+        MEM6["NVMe SSD<br/>Multi-TB capacity<br/>~3-14 GB/s<br/>Latency: ~10-100 µs"]
+    end
+
+    subgraph MATMUL["Tensor Core MMA Operation"]
+        direction LR
+        MMA_IN["Input A (fp16/bf16)<br/>fragment: 16×16"] -->
+        MMA_OP["MMA m16n8k16<br/>D = A × B + C<br/>1 warp-synchronous op<br/>(32 threads cooperate)<br/>Accumulator: fp32"] -->
+        MMA_OUT["Output D (fp16/bf16)<br/>fragment: 16×8"]
+
+        MMA_DETAIL["Throughput per SM (H100, 4 TC/SM):<br/>FP8: 2× FP16 throughput<br/>FP16: 1024 FMA/clk per TC<br/>BF16: same as FP16<br/>TF32: 8× FP32 throughput<br/>Sparsity: 2× structured sparsity<br/>(2:4 pattern)"]
+    end
+
+    subgraph EXEC_MODEL["Warp Execution & SIMT"]
+        direction TB
+        SIMT1["Thread Block<br/>up to 1024 threads<br/>organized in 32 warps"] -->
+        SIMT2["Warp (32 threads)<br/>execute same instruction<br/>(SIMT lockstep)<br/>divergence → serialization"] -->
+        SIMT3["Warp Scheduler<br/>issue 1 instruction/warp/cycle<br/>4 schedulers/SM → 4 warps/cycle<br/>active mask for predication"]
+
+        SIMT4["Memory Coalescing<br/>warp accesses same cache line<br/>(128-byte L1 segment)<br/>→ 1 transaction<br/>vs<br/>uncoalesced → N transactions"]
+    end
+
+    style CHIP fill:#e3f2fd,stroke:#1565c0
+    style MEMORY fill:#fff3e0,stroke:#ef6c00
+    style MATMUL fill:#fce4ec,stroke:#c62828
+    style EXEC_MODEL fill:#e8f5e9,stroke:#2e7d32
+    style GPCs fill:#f3e5f5,stroke:#7b1fa2
+    style SMs fill:#e0f7fa,stroke:#00695c

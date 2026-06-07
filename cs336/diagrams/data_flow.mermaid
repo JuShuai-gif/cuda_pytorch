@@ -1,0 +1,81 @@
+graph LR
+    %% ============================================================================
+    %% CS336: Data Processing Pipeline -- DCLM-style Data Curation
+    %% ============================================================================
+
+    subgraph SOURCES["1. Raw Data Sources"]
+        direction TB
+        SRC1["CommonCrawl<br/>~400B tokens (raw)<br/>monthly web crawl"] --- SRC2["C4<br/>~160B tokens (en)<br/>heavily filtered CC"]
+        SRC1 --- SRC3["The Pile<br/>~800 GiB<br/>curated subsets"]
+        SRC1 --- SRC4["arXiv / PubMed<br/>academic papers<br/>high-quality"]
+        SRC1 --- SRC5["Books3 / BookCorpus<br/>long-form text<br/>narrative structure"]
+        SRC1 --- SRC6["Wikipedia<br/>~6M articles (en)<br/>encyclopedic"]
+        SRC1 --- SRC7["GitHub Code<br/>~100+ languages<br/>code pretraining"]
+        SRC1 --- SRC8["StackExchange<br/>Q&A format<br/>domain-specific"]
+    end
+
+    subgraph FILTERING["2. Filtering & Cleaning"]
+        direction TB
+        F1["Language Detection<br/>fastText / CLD3<br/>remove non-target languages"] --> F2["Quality Heuristics<br/>perplexity threshold<br/>stop-word ratio<br/>mean word length"]
+        F2 --> F3["Repetition Removal<br/>n-gram duplication<br/>line-level dedup"]
+        F3 --> F4["PII Scrubbing<br/>email / phone / SSN<br/>regex + NER models"]
+        F4 --> F5["HTML / Code Stripping<br/>boilerplate removal<br/>trafilatura / jusText"]
+    end
+
+    subgraph DEDUP["3. Deduplication"]
+        direction TB
+        D1["Exact Dedup<br/>hash-based (SHA256)<br/>remove byte-identical docs"] --> D2["Fuzzy Dedup<br/>MinHash + LSH<br/>Jaccard threshold: 0.8"]
+        D2 --> D3["URL Dedup<br/>remove duplicate URLs<br/>canonicalization"]
+        D3 --> D4["Cross-source Dedup<br/>between all corpora<br/>MinHash across sources"]
+    end
+
+    subgraph SCORING["4. Quality Scoring & Filtering"]
+        direction TB
+        Q1["Perplexity Scoring<br/>KenLM / GPT-2 small<br/>keep low perplexity"] --> Q2["Classifier-based<br/>fastText quality model<br/>trained on high/low samples"]
+        Q2 --> Q3["Educational Value<br/>textbook-quality scoring<br/>DSIR importance weighting"]
+        Q3 --> Q4["Rule-based Filters<br/>min chars / words<br/>Greek/Latin ratio<br/>bullet-point ratio"]
+    end
+
+    subgraph MIXING["5. Data Mixing"]
+        direction TB
+        MX1["Domain Weights<br/>web:48% / code:15%<br/>academic:15% / books:10%<br/>wiki:8% / other:4%"] --> MX2["Upsampling<br/>high-quality sources<br/>repeated epochs"]
+        MX2 --> MX3["Stratified Sampling<br/>per-domain proportions<br/>respect distribution targets"]
+    end
+
+    subgraph TOKENIZE["6. Tokenization"]
+        direction TB
+        TK1["BPE Training<br/>merge operations: 32k<br/>on representative mix"] --> TK2["Encode<br/>text → token IDs<br/>add BOS / EOS"]
+        TK2 --> TK3["Stride Windowing<br/>stride=S/2 context<br/>pack multiple docs"]
+    end
+
+    subgraph CONTAM["7. Contamination Checking"]
+        direction TB
+        CT1["N-gram Overlap<br/>13-gram match test<br/>against eval benchmarks"] --> CT2["Embedding Similarity<br/>cosine similarity search<br/>flagged if > threshold"]
+        CT2 --> CT3["Exact Match<br/>remove contaminated<br/>from training set"]
+    end
+
+    subgraph DCLM["DCLM Pipeline Reference"]
+        direction TB
+        DCLM1["Stage 1: Extract<br/>from CommonCrawl WARC"] --> DCLM2["Stage 2: Filter<br/>fastText language id<br/>quality heuristics"]
+        DCLM2 --> DCLM3["Stage 3: Dedup<br/>paragraph-level MinHash<br/>within and across sources"]
+        DCLM3 --> DCLM4["Stage 4: Resample<br/>model-based quality<br/>importance resampling"]
+    end
+
+    %% Flow
+    SOURCES --> FILTERING
+    FILTERING --> DEDUP
+    DEDUP --> SCORING
+    SCORING --> MIXING
+    MIXING --> TOKENIZE
+    TOKENIZE --> CONTAM
+    CONTAM --> OUT["Final Training Corpus<br/>tokenized + deduplicated<br/>shuffled + batched"]
+
+    style SOURCES fill:#e3f2fd,stroke:#1565c0
+    style FILTERING fill:#fff3e0,stroke:#ef6c00
+    style DEDUP fill:#fce4ec,stroke:#c62828
+    style SCORING fill:#e8f5e9,stroke:#2e7d32
+    style MIXING fill:#f3e5f5,stroke:#7b1fa2
+    style TOKENIZE fill:#fffde7,stroke:#f9a825
+    style CONTAM fill:#e0f7fa,stroke:#00695c
+    style DCLM fill:#ede7f6,stroke:#4527a0
+    style OUT fill:#c8e6c9,stroke:#1b5e20,stroke-width:3px

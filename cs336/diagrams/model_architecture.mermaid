@@ -1,0 +1,72 @@
+graph TB
+    %% ============================================================================
+    %% CS336: Model Architecture Comparison
+    %% Llama 3 vs DeepSeek-V3 vs Mistral
+    %% ============================================================================
+
+    subgraph LLAMA3["Llama 3 (Meta) -- Pre-norm + GQA + SwiGLU + RoPE"]
+        direction TB
+
+        subgraph L3_BLOCK["Llama 3 Transformer Block"]
+            direction TB
+            L3_IN["Input x (B, S, d=4096)"] --> L3_RMS1["RMSNorm(x)<br/>Pre-norm: norm before sub-layer"]
+            L3_RMS1 --> L3_GQA["GQA Attention<br/>Q: 32 heads × head_dim=128<br/>KV: 8 heads (GQA ratio=4)<br/>Q @ K^T / sqrt(128)"]
+            L3_GQA --> L3_ROPE["RoPE<br/>θ=500,000 base<br/>applied to Q and K<br/>(not V)"]
+            L3_ROPE --> L3_ADD1["x = x + Attention(RMSNorm(x))<br/>residual connection"]
+            L3_ADD1 --> L3_RMS2["RMSNorm(x)<br/>Pre-norm before FFN"]
+            L3_RMS2 --> L3_SWIGLU["SwiGLU FFN<br/>gate = SiLU(x @ W_gate)<br/>up = x @ W_up<br/>hidden = gate * up<br/>out = hidden @ W_down<br/>hidden_dim = 8/3 × d ≈ 10923 (7B)<br/>(14,336 for 8B)"]
+            L3_SWIGLU --> L3_ADD2["x = x + FFN(RMSNorm(x))<br/>residual connection"]
+            L3_ADD2 --> L3_OUT["Output x (B, S, d)"]
+        end
+
+        L3_SPEC["Llama 3 Configurations:<br/>8B:  d=4096, L=32, GQA=8kv, vocab=128k<br/>70B: d=8192, L=80, GQA=8kv, vocab=128k<br/>405B: d=16384, L=126, GQA=8kv<br/>Key: tied embedding/LM head, no bias<br/>Context: 8k (native), extended to 128k<br/>Norm: RMSNorm (no LayerNorm bias)"]
+    end
+
+    subgraph DEEPSEEK["DeepSeek-V3 -- MLA + MoE + DeepNorm + Multi-Token Prediction"]
+        direction TB
+
+        subgraph DS_BLOCK["DeepSeek-V3 Transformer Block"]
+            direction TB
+            DS_IN["Input x"] --> DS_MLA["MLA (Multi-head Latent Attention)<br/>Low-rank KV compression:<br/>c_KV = x @ W_down_KV (d→d_c)<br/>K = c_KV @ W_up_K (d_c→n_heads×d_h)<br/>V = c_KV @ W_up_V<br/>Saves KV cache: O(d_c×L) vs O(n_heads×d_h×L)<br/>d_c ≪ n_heads × d_h (96× smaller)"]
+            DS_MLA --> DS_ADD1["x = x + MLA(x)<br/>residual connection"]
+            DS_ADD1 --> DS_MOE["DeepSeekMoE<br/>Shared Experts: always active (K_s=1-2)<br/>Routed Experts: top-k selection (K_r=8/256)<br/>gate = softmax(TopK(x @ W_gate, k))<br/>output = Σ shared_i(x) + Σ gate_j × expert_j(x)<br/>Load balance: auxiliary loss + bias update"]
+            DS_MOE --> DS_ADD2["x = x + MoE(x)<br/>residual connection"]
+            DS_ADD2 --> DS_OUT["Output x"]
+        end
+
+        DS_SPEC["DeepSeek-V3 Config:<br/>d=7168, L=61, n_heads=128, d_h=128<br/>MLA: kv_lora_rank=512, qk_rope_dim=64<br/>MoE: 256 experts, K_r=8 active per token<br/>Total params: 671B, Active per token: 37B<br/>Norm: DeepNorm (post-norm with α scaling)<br/>Auxiliary-loss-free load balancing<br/>Multi-Token Prediction (MTP): predict<br/>next 1-4 tokens simultaneously"]
+    end
+
+    subgraph MISTRAL["Mistral (Mistral AI) -- Sliding Window + GQA + RoPE"]
+        direction TB
+
+        subgraph M_BLOCK["Mistral Transformer Block"]
+            direction TB
+            M_IN["Input x"] --> M_RMS1["RMSNorm(x)"]
+            M_RMS1 --> M_SW["Sliding Window Attention<br/>window_size = 4096 (7B model)<br/>Each token attends only to<br/>W previous tokens (local)<br/>Q: 32 heads, KV: 8 heads<br/>O(W × d) instead of O(S × d)"]
+            M_SW --> M_ROPE["RoPE<br/>θ=10,000 base<br/>applied to Q and K"]
+            M_ROPE --> M_ADD1["+ Residual"]
+            M_ADD1 --> M_RMS2["RMSNorm(x)"]
+            M_RMS2 --> M_FFN["SwiGLU FFN<br/>standard 3-projection<br/>hidden_dim = 14336"]
+            M_FFN --> M_ADD2["+ Residual"]
+            M_ADD2 --> M_OUT["Output x"]
+
+            M_SW_DETAIL["Sliding Window Attention<br/>⊕ Can handle sequences longer<br/>than training window via<br/>layer-wise information propagation<br/>After L layers, effective receptive<br/>field = L × W tokens<br/>For L=32, W=4096:<br/>131,072 effective context<br/>⊕ O(W) memory per layer<br/>vs O(S²) for full attention"]
+        end
+
+        M_SPEC["Mistral Configurations:<br/>7B:  d=4096, L=32, GQA=8kv, window=4096<br/>Mixtral 8×7B (MoE): 8 experts, top_k=2<br/>8×22B: 8 experts, top_k=2, window=null<br/>Norm: RMSNorm, pre-norm<br/>Vocab: 32k tokenizer (SentencePiece BPE)<br/>Features: GQA, RoPE, no bias terms"]
+    end
+
+    subgraph COMPARE["Side-by-Side Comparison"]
+        direction TB
+
+        COMP_TABLE["Feature            | Llama 3      | DeepSeek-V3   | Mistral 7B<br/>────────────────────────────────────────────────────<br/>Norm Position      | Pre-norm     | Post-norm     | Pre-norm<br/>Norm Type          | RMSNorm      | DeepNorm      | RMSNorm<br/>Attention          | GQA          | MLA (latent)  | SW-GQA<br/>Position Enc       | RoPE         | RoPE + decoup | RoPE<br/>MLP                | SwiGLU       | MoE (256 exp) | SwiGLU<br/>Vocab Size         | 128k         | 128k          | 32k<br/>Context Window     | 8k→128k      | 128k          | 4k→32k<br/>Tied Weights       | Yes          | Yes           | Yes<br/>Bias Terms         | No           | No            | No<br/>Activation         | SiLU         | SiLU          | SiLU<br/>QK Normalization  | No           | Yes (QK-Norm) | No<br/>Multi-Token Pred.  | No           | Yes (MTP)     | No"]
+    end
+
+    style LLAMA3 fill:#e3f2fd,stroke:#1565c0
+    style DEEPSEEK fill:#fff3e0,stroke:#ef6c00
+    style MISTRAL fill:#fce4ec,stroke:#c62828
+    style COMPARE fill:#e8f5e9,stroke:#2e7d32
+    style L3_SPEC fill:#bbdefb,stroke:#1976d2
+    style DS_SPEC fill:#ffe0b2,stroke:#f57c00
+    style M_SPEC fill:#f8bbd0,stroke:#d32f2f

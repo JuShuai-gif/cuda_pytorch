@@ -1,0 +1,108 @@
+graph TB
+    %% ============================================================================
+    %% CS336: Production Inference Pipeline
+    %% ============================================================================
+
+    subgraph ADMISSION["1. Request Admission Control"]
+        direction TB
+        A1["Incoming Requests<br/>HTTP/gRPC endpoint"] --> A2["Rate Limiter<br/>max concurrent / token bucket"]
+        A2 --> A3["Admission Queue<br/>FIFO with priority"]
+        A3 --> A4["Preprocessor<br/>parse prompt / apply chat template"]
+        A4 --> A5["Tokenize<br/>BPE encode → token IDs"]
+    end
+
+    subgraph SCHEDULER["2. Scheduler -- Continuous Batching"]
+        direction TB
+        S1["Running Batch<br/>active sequences"] --> S2{"New Request<br/>arrives?"}
+        S2 -->|Yes| S3["Add to Batch<br/>prefill new sequence"]
+        S2 -->|No| S4{"Sequence<br/>finished?"}
+        S4 -->|Yes| S5["Evict from Batch<br/>free KV cache blocks"]
+        S4 -->|No| S6["Continue Decode<br/>step all active sequences"]
+        S6 --> S7["Selective Batching<br/>join running prefill+decode"]
+    end
+
+    subgraph KV_CACHE["3. PagedAttention KV Cache"]
+        direction TB
+
+        subgraph BLOCK_MGR["Block Manager"]
+            BM1["Block Table<br/>per-sequence mapping<br/>logical_block → physical_block"]
+            BM2["Free Block Pool<br/>available physical blocks"]
+            BM3["Block Allocator<br/>allocate on demand<br/>block_size = 16 tokens"]
+        end
+
+        subgraph KVCACHE_OP["PagedAttention Kernel"]
+            KV1["Input: Q (1 token)<br/>K, V blocks from cache"] --> KV2["For each physical block<br/>in sequence block_table"]
+            KV2 --> KV3["Compute Q @ K_block^T<br/>scaled + mask"]
+            KV3 --> KV4["Softmax across<br/>all blocks"]
+            KV4 --> KV5["Weighted sum<br/>of V blocks"]
+        end
+
+        BM1 --- BM2
+        BM2 --- BM3
+    end
+
+    subgraph DECODE["4. Decode Loop"]
+        direction TB
+        D1["Last Token ID<br/>current position"] --> D2["Embedding<br/>token → d_model"]
+        D2 --> D3["TransformerBlock × N<br/>RMSNorm → GQA → RMSNorm → SwiGLU"]
+        D3 --> D4["Final RMSNorm"]
+        D4 --> D5["LM Head<br/>→ logits (1, vocab)"]
+        D5 --> D6["Sample Token<br/>top-k / top-p / temp"]
+
+        subgraph KV_UPDATE["KV Cache Update"]
+            D3 --> KV_UP1["Compute K, V<br/>for new token"]
+            KV_UP1 --> KV_UP2{"Need new<br/>block?"}
+            KV_UP2 -->|Yes| KV_UP3["Allocate Block<br/>from free pool"]
+            KV_UP2 -->|No| KV_UP4["Append to<br/>last block"]
+            KV_UP3 --> KV_UP5["Update Block Table<br/>add mapping"]
+        end
+    end
+
+    subgraph SPEC_DECODE["5. Speculative Decoding (optional)"]
+        direction TB
+        SD1["Draft Model<br/>small ~150M params<br/>fast autoregressive"] --> SD2["Propose k tokens<br/>(k = 4-8 typically)"]
+        SD2 --> SD3["Target Model<br/>full model forward<br/>(k tokens in parallel)"]
+        SD3 --> SD4["Verify k candidates<br/>compare distributions"]
+        SD4 --> SD5{"Accept count<br/>n <= k?"}
+        SD5 --> SD6["Accept n tokens<br/>append to output"]
+        SD6 --> SD7["Reject rest<br/>sample from target<br/>at position n+1"]
+    end
+
+    subgraph PREFIX["6. Prefix Caching (optional)"]
+        direction TB
+        P1["New Request<br/>tokenized prompt"] --> P2["Radix Tree<br/>match longest prefix"]
+        P2 --> P3{"Prefix Hit?"}
+        P3 -->|Full Hit| P4["Copy KV Cache<br/>from cached blocks<br/>skip prefill!"]
+        P3 -->|Partial Hit| P5["Prefill only<br/>mismatched suffix"]
+        P3 -->|Miss| P6["Full Prefill<br/>no reuse"]
+    end
+
+    subgraph METRICS["7. Metrics Collection"]
+        direction TB
+        M1["TTFT<br/>Time To First Token<br/>(prefill latency)"] --> M4["Dashboard<br/>Prometheus + Grafana"]
+        M2["TPOT<br/>Time Per Output Token<br/>(decode latency)"] --> M4
+        M3["Throughput<br/>tokens/s overall<br/>QPS (queries/sec)"] --> M4
+    end
+
+    %% Flow
+    A5 --> S1
+    S7 --> DECODE
+    BLOCK_MGR --> KV_CACHE
+    KV_CACHE --> D3
+    D6 --> D1
+    KV_UPDATE --> D1
+    D1 --> METRICS
+
+    %% Optional paths
+    D6 -.->|optional| SPEC_DECODE
+    A5 -.->|optional| PREFIX
+    PREFIX -.-> DECODE
+    SPEC_DECODE -.-> D5
+
+    style ADMISSION fill:#e3f2fd,stroke:#1565c0
+    style SCHEDULER fill:#fff3e0,stroke:#ef6c00
+    style KV_CACHE fill:#fce4ec,stroke:#c62828
+    style DECODE fill:#e8f5e9,stroke:#2e7d32
+    style SPEC_DECODE fill:#f3e5f5,stroke:#7b1fa2
+    style PREFIX fill:#fffde7,stroke:#f9a825
+    style METRICS fill:#e0f7fa,stroke:#00695c
