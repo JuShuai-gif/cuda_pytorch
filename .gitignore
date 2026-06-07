@@ -57,3 +57,5 @@ dist
 .venv
 .cache
 .ruff_cachedata/
+
+data/
