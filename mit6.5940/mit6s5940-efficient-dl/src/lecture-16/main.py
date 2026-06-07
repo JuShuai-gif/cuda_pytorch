@@ -1,28 +1,27 @@
 """
-Vision Transformer Efficiency Analysis (Lecture 16)
+第 16 讲：Vision Transformer 效率分析
 
-Builds a Vision Transformer (ViT) and a comparable ResNet-style CNN from
-scratch, then profiles them across different patch/image sizes to
-understand the efficiency trade-offs between convolution and self-attention.
+从零构建 Vision Transformer (ViT) 和可比较的 ResNet 风格 CNN，
+并在不同 patch/图像尺寸下分析它们的计算效率，从而理解
+卷积与自注意力之间的效率权衡。
 
-Modules implemented:
-  - PatchEmbedding: splits an image into non-overlapping patches and
-    projects each to a d_model-dimensional vector.
-  - TransformerBlock: standard pre-LN block with Multi-Head Self-Attention
-    and a two-layer MLP (GELU activation).
-  - VisionTransformer: stacks PatchEmbedding, learned positional embeddings,
-    N transformer blocks, and a linear classification head.
-  - SimpleCNN: a ResNet-style convolutional backbone with three stages
-    (each containing a residual block) followed by GAP + FC.
+实现的模块：
+  - PatchEmbedding：将图像分割成不重叠的 patch，
+    并将每个 patch 投影到 d_model 维向量。
+  - TransformerBlock：标准 pre-LN 块，包含多头自注意力 (MHA)
+    和两层 MLP（GELU 激活）。
+  - VisionTransformer：堆叠 PatchEmbedding、可学习的位置嵌入、
+    N 个 Transformer 块以及线性分类头。
+  - SimpleCNN：ResNet 风格的卷积骨干网络，包含三个阶段
+    （每个阶段含残差块），后接全局平均池化 + 全连接层。
 
-The script also:
-  - Counts parameters and estimates FLOPs (MACs) for both models.
-  - Compares ViT and CNN across {4, 8, 16} patch sizes and
-    {32, 64, 96} image sizes.
-  - Extracts and visualises attention maps from the last transformer block.
-  - Outputs a structured summary table to stdout.
+本脚本还会：
+  - 统计两个模型的参数量并估算 FLOPs (MACs)。
+  - 在 {4, 8, 16} 的 patch 尺寸和 {32, 64, 96} 的图像尺寸下比较 ViT 与 CNN。
+  - 提取并可视化最后一个 Transformer 块的注意力图。
+  - 向 stdout 输出结构化的汇总表格。
 
-Dependencies: torch, numpy, matplotlib (all CPU-only; no CUDA required).
+依赖：torch、numpy、matplotlib（均为 CPU 版本；不需要 CUDA）。
 """
 
 from __future__ import annotations
@@ -38,18 +37,18 @@ import torch.nn.functional as F
 
 
 # ===========================================================================
-# Utility: Parameter Counting
+# 工具函数：参数统计
 # ===========================================================================
 
 
 def count_parameters(model: nn.Module) -> Tuple[int, int]:
-    """Return (total_params, trainable_params) for *model*.
+    """返回 *model* 的 (总参数量, 可训练参数量)。
 
     Args:
-        model: A PyTorch nn.Module.
+        model: PyTorch nn.Module 实例。
 
     Returns:
-        A tuple of (total_parameters, trainable_parameters).
+        元组 (total_parameters, trainable_parameters)。
     """
     total = sum(p.numel() for p in model.parameters())
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -57,26 +56,26 @@ def count_parameters(model: nn.Module) -> Tuple[int, int]:
 
 
 # ===========================================================================
-# Utility: FLOPs (MACs) Counter via Forward Hooks
+# 工具函数：通过前向钩子统计 FLOPs (MACs)
 # ===========================================================================
 
 
 class _FlopsHook:
-    """Accumulates Conv2d and Linear MACs during a single forward pass.
+    """在单次前向传播中累加 Conv2d 和 Linear 的 MACs。
 
-    Conventions (matching common ML literature usage where "FLOPs" ≈ MACs):
+    约定（与常见 ML 文献中 "FLOPs" ≈ MACs 的用法一致）：
         - Conv2d:  out_c * out_h * out_w * (in_c / groups) * k_h * k_w
-        - Linear:  in_features * out_features  (per row of the last dim)
+        - Linear:  in_features * out_features  （最后一维的每一行）
 
-    BatchNorm, LayerNorm, activation, pooling, and residual-add operations
-    are *not* counted -- they contribute < 1 % of total compute.
+    BatchNorm、LayerNorm、激活、池化和残差相加操作
+    不计入 —— 它们在总计算量中占比 < 1 %。
     """
 
     def __init__(self) -> None:
         self.total_macs: int = 0
         self._handles: List[torch.utils.hooks.RemovableHandle] = []
 
-    # -- hook callbacks ---------------------------------------------------
+    # -- 钩子回调函数 -------------------------------------------------------
 
     def _conv_hook(
         self,
@@ -84,6 +83,7 @@ class _FlopsHook:
         inp: Tuple[torch.Tensor, ...],
         out: torch.Tensor,
     ) -> None:
+        """Conv2d 前向钩子：统计卷积 MACs。"""
         x = inp[0]  # (N, C_in, H_in, W_in)
         in_c = x.shape[1]
         out_c = module.out_channels  # type: ignore[union-attr]
@@ -98,16 +98,19 @@ class _FlopsHook:
         inp: Tuple[torch.Tensor, ...],
         out: torch.Tensor,
     ) -> None:
+        """Linear 前向钩子：统计全连接 MACs。
+
+        x 形状为 (*prefix, in_features)，
+        末尾维度的每一"行"执行一次 [in_f, out_f] 矩阵乘。
+        """
         x = inp[0]
-        # x shape: (*prefix, in_features)
-        # Each "row" in the suffix dim does a [in_f, out_f] matmul.
         rows = x.numel() // module.in_features  # type: ignore[union-attr]
         self.total_macs += rows * module.in_features * module.out_features  # type: ignore[union-attr]
 
-    # -- public API -------------------------------------------------------
+    # -- 公开 API -----------------------------------------------------------
 
     def register(self, model: nn.Module) -> None:
-        """Attach forward hooks to every Conv2d / Linear inside *model*."""
+        """将前向钩子绑定到 *model* 中的每个 Conv2d / Linear 层。"""
         for m in model.modules():
             if isinstance(m, nn.Conv2d):
                 self._handles.append(m.register_forward_hook(self._conv_hook))
@@ -115,21 +118,21 @@ class _FlopsHook:
                 self._handles.append(m.register_forward_hook(self._linear_hook))
 
     def remove(self) -> None:
-        """Detach all registered hooks."""
+        """移除所有已注册的钩子。"""
         for h in self._handles:
             h.remove()
         self._handles.clear()
 
 
 def estimate_macs(model: nn.Module, input_tensor: torch.Tensor) -> int:
-    """Run one forward pass through *model* and return total estimated MACs.
+    """在 *model* 上运行一次前向传播，返回估算的总 MACs。
 
     Args:
-        model:        PyTorch module (will be set to eval mode).
-        input_tensor: A single-sample tensor with batch dim (1, C, H, W).
+        model:        PyTorch 模块（将被设为 eval 模式）。
+        input_tensor: 单样本张量，带 batch 维度 (1, C, H, W)。
 
     Returns:
-        Estimated multiply-accumulate count for the forward pass.
+        前向传播的估算乘加操作次数。
     """
     model.eval()
     hook = _FlopsHook()
@@ -141,15 +144,15 @@ def estimate_macs(model: nn.Module, input_tensor: torch.Tensor) -> int:
 
 
 # ===========================================================================
-# ViT Building Blocks
+# ViT 构建模块
 # ===========================================================================
 
 
 class PatchEmbedding(nn.Module):
-    """Split an image into non-overlapping patches and project to *d_model*.
+    """将图像分割成不重叠的 patch 并投影到 *d_model* 维。
 
-    Uses a strided Conv2d as an efficient equivalent of the common
-    "unfold + Linear" pattern.
+    使用步长等于 patch 尺寸的 Conv2d 来实现，
+    等价于常见的 "unfold + Linear" 模式，但更高效。
     """
 
     def __init__(
@@ -164,6 +167,7 @@ class PatchEmbedding(nn.Module):
         self.patch_size = patch_size
         self.num_patches = (img_size // patch_size) ** 2
 
+        # 使用 strided Conv2d 实现 patch 分割与投影
         self.proj = nn.Conv2d(
             in_channels,
             d_model,
@@ -172,13 +176,13 @@ class PatchEmbedding(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Project image patches to embedding vectors.
+        """将图像 patch 投影为嵌入向量。
 
         Args:
-            x: (B, C, H, W) input image.
+            x: (B, C, H, W) 输入图像。
 
         Returns:
-            Tensor of shape (B, num_patches, d_model).
+            形状为 (B, num_patches, d_model) 的张量。
         """
         x = self.proj(x)  # (B, d_model, H', W')
         x = x.flatten(2).transpose(1, 2)  # (B, num_patches, d_model)
@@ -186,10 +190,10 @@ class PatchEmbedding(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    """Pre-LN Transformer block: MHA + 2-layer MLP, each with residual.
+    """Pre-LN Transformer 块：MHA + 两层 MLP，各自带残差连接。
 
-    Follows the ViT paper (Dosovitskiy et al., 2021) which uses pre-norm
-    and GELU activations.
+    遵循 ViT 论文（Dosovitskiy 等, 2021）的做法，使用 pre-norm
+    和 GELU 激活函数。
     """
 
     def __init__(
@@ -209,6 +213,7 @@ class TransformerBlock(nn.Module):
         )
         self.norm2 = nn.LayerNorm(d_model)
 
+        # MLP 隐藏层维度 = d_model * mlp_ratio
         mlp_hidden = int(d_model * mlp_ratio)
         self.mlp = nn.Sequential(
             nn.Linear(d_model, mlp_hidden),
@@ -224,29 +229,28 @@ class TransformerBlock(nn.Module):
         *,
         return_attention: bool = False,
     ) -> Any:
-        """Apply one transformer block.
+        """执行一个 Transformer 块。
 
         Args:
-            x:               (B, seq_len, d_model) input.
-            return_attention: If True, also return the attention weights from
-                              the self-attention layer.
+            x:               (B, seq_len, d_model) 输入。
+            return_attention: 如果为 True，还返回自注意力层的注意力权重。
 
         Returns:
-            If return_attention=False: (B, seq_len, d_model).
-            If return_attention=True:  ((B, seq_len, d_model), attn_weights).
+            如果 return_attention=False： (B, seq_len, d_model)。
+            如果 return_attention=True：  ((B, seq_len, d_model), attn_weights)。
         """
-        # Self-attention sub-block (pre-norm)
+        # 自注意力子块（pre-norm）
         normed = self.norm1(x)
         attn_out, attn_weights = self.attn(
             normed,
             normed,
             normed,
             need_weights=return_attention,
-            average_attn_weights=False,  # per-head weights for visualisation
+            average_attn_weights=False,  # 保留每个头的权重以便可视化
         )
         x = x + attn_out
 
-        # MLP sub-block (pre-norm)
+        # MLP 子块（pre-norm）
         x = x + self.mlp(self.norm2(x))
 
         if return_attention:
@@ -255,11 +259,11 @@ class TransformerBlock(nn.Module):
 
 
 class VisionTransformer(nn.Module):
-    """A small Vision Transformer (ViT) for tiny image classification.
+    """用于小尺寸图像分类的简易 Vision Transformer (ViT)。
 
-    Architecture:
+    架构：
         PatchEmbedding -> [CLS] token + pos_embed ->
-        N x TransformerBlock -> LayerNorm -> extract [CLS] -> Linear head
+        N x TransformerBlock -> LayerNorm -> 提取 [CLS] -> 线性分类头
     """
 
     def __init__(
@@ -278,12 +282,13 @@ class VisionTransformer(nn.Module):
         self.patch_embed = PatchEmbedding(img_size, patch_size, in_channels, d_model)
         self.num_patches = self.patch_embed.num_patches
 
-        # Learned [CLS] token + positional embeddings
+        # 可学习的 [CLS] token 和位置嵌入
         self.cls_token = nn.Parameter(torch.zeros(1, 1, d_model))
         self.pos_embed = nn.Parameter(
             torch.zeros(1, self.num_patches + 1, d_model),
         )
 
+        # 堆叠多个 Transformer 块
         self.blocks = nn.ModuleList(
             [
                 TransformerBlock(d_model, n_heads, mlp_ratio, dropout)
@@ -296,10 +301,10 @@ class VisionTransformer(nn.Module):
         self._init_weights()
 
     def _init_weights(self) -> None:
-        # Truncated normal init for pos/CLS embeddings, following the ViT paper
+        """对位置嵌入和 CLS token 使用截断正态初始化，遵循 ViT 论文。"""
         nn.init.trunc_normal_(self.pos_embed, std=0.02)
         nn.init.trunc_normal_(self.cls_token, std=0.02)
-        # Linear / Conv layers use default PyTorch init which is fine
+        # Linear / Conv 层使用 PyTorch 默认初始化即可
 
     def forward(
         self,
@@ -307,39 +312,39 @@ class VisionTransformer(nn.Module):
         *,
         return_attention: bool = False,
     ) -> Any:
-        """Forward pass through the Vision Transformer.
+        """Vision Transformer 前向传播。
 
         Args:
-            x:               (B, C, H, W) input image batch.
-            return_attention: If True, return attention weights from the
-                              *last* transformer block.
+            x:               (B, C, H, W) 输入图像批次。
+            return_attention: 如果为 True，返回 *最后一个* Transformer 块的注意力权重。
 
         Returns:
-            If return_attention=False: (B, num_classes) logits.
-            If return_attention=True:
-                ((B, num_classes) logits, (B, n_heads, S, S) attn weights).
+            如果 return_attention=False： (B, num_classes) logits。
+            如果 return_attention=True：
+                ((B, num_classes) logits, (B, n_heads, S, S) 注意力权重)。
         """
         B = x.shape[0]
 
-        # Patch embedding
+        # Patch 嵌入
         x = self.patch_embed(x)  # (B, N, d_model)
 
-        # Prepend [CLS] token
+        # 在序列最前面添加 [CLS] token
         cls_tokens = self.cls_token.expand(B, -1, -1)
         x = torch.cat([cls_tokens, x], dim=1)  # (B, N+1, d_model)
 
-        # Add positional encoding
+        # 加上位置编码
         x = x + self.pos_embed
 
-        # Transformer blocks
+        # 依次经过每个 Transformer 块
         attn_weights = None
         for i, block in enumerate(self.blocks):
             if return_attention and i == len(self.blocks) - 1:
+                # 仅在最后一个块返回注意力权重
                 x, attn_weights = block(x, return_attention=True)
             else:
                 x = block(x)
 
-        # Final normalisation and classification (use [CLS] token)
+        # 最终归一化并使用 [CLS] token 进行分类
         x = self.norm(x)
         logits = self.head(x[:, 0])  # (B, num_classes)
 
@@ -349,17 +354,17 @@ class VisionTransformer(nn.Module):
 
     @property
     def d_model(self) -> int:
-        """Convenience accessor for the embedding dimension."""
+        """便捷属性：获取嵌入维度。"""
         return self.patch_embed.proj.out_channels
 
     @property
     def num_heads(self) -> int:
-        """Convenience accessor for the number of attention heads."""
+        """便捷属性：获取注意力头数。"""
         return self.blocks[0].attn.num_heads
 
     @property
     def depth(self) -> int:
-        """Convenience accessor for the number of transformer blocks."""
+        """便捷属性：获取 Transformer 块的数量。"""
         return len(self.blocks)
 
     def estimate_attention_macs(
@@ -367,24 +372,24 @@ class VisionTransformer(nn.Module):
         batch_size: int = 1,
         seq_len: int | None = None,
     ) -> int:
-        """Return the MACs contributed by Q@K^T and softmax(QK^T)@V matmuls.
+        """返回 Q@K^T 和 softmax(QK^T)@V 矩阵乘法的 MACs。
 
-        These operations happen inside nn.MultiheadAttention and are *not*
-        captured by linear-layer hooks, so we add them separately.
+        这些操作发生在 nn.MultiheadAttention 内部，
+        线性层钩子无法捕获，因此我们单独计算。
 
-        Two matmuls per head per block:
+        每个块每个头有两个矩阵乘：
             Q @ K^T  :  seq_len * d_head * seq_len   MACs
             attn @ V :  seq_len * seq_len * d_head   MACs
 
-        Summed over heads:  2 * seq_len^2 * d_model  MACs per block.
+        对所有头求和：每个块 2 * seq_len^2 * d_model  MACs。
 
         Args:
-            batch_size: Number of samples in the batch.
-            seq_len:    Sequence length (patches + 1 CLS token).  If None,
-                        computed from img_size / patch_size.
+            batch_size: 批次中的样本数。
+            seq_len:    序列长度（patch 数 + 1 个 CLS token）。
+                        如果为 None，则根据 img_size / patch_size 计算。
 
         Returns:
-            Total MACs from attention matmuls across all blocks.
+            所有块中注意力矩阵乘的总 MACs。
         """
         if seq_len is None:
             seq_len = self.num_patches + 1
@@ -392,14 +397,14 @@ class VisionTransformer(nn.Module):
 
 
 # ===========================================================================
-# ResNet-style CNN for Comparison
+# 用于对比的 ResNet 风格 CNN
 # ===========================================================================
 
 
 class ResidualBlock(nn.Module):
-    """A basic residual block with two 3x3 convolutions."""
+    """基础残差块，包含两个 3x3 卷积。"""
 
-    expansion: int = 1  # for compatibility with bottleneck variants
+    expansion: int = 1  # 与 bottleneck 变体保持兼容
 
     def __init__(
         self,
@@ -428,7 +433,7 @@ class ResidualBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(out_channels)
         self.relu = nn.ReLU(inplace=True)
 
-        # 1x1 shortcut when dimensions change
+        # 当维度发生变化时使用 1x1 快捷连接
         self.shortcut: nn.Module = nn.Identity()
         if stride != 1 or in_channels != out_channels:
             self.shortcut = nn.Sequential(
@@ -439,6 +444,14 @@ class ResidualBlock(nn.Module):
             )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """残差块前向传播。
+
+        Args:
+            x: (B, C, H, W) 输入张量。
+
+        Returns:
+            形状相同的输出张量。
+        """
         identity = self.shortcut(x)
 
         out = self.conv1(x)
@@ -454,12 +467,12 @@ class ResidualBlock(nn.Module):
 
 
 class SimpleCNN(nn.Module):
-    """ResNet-style convolutional backbone for small-image classification.
+    """用于小图像分类的 ResNet 风格卷积骨干网络。
 
-    Three stages, each doubling the channel count and halving spatial
-    resolution (stride-2 in the first residual block of stages 2 and 3).
-    Global average pooling reduces to a single feature vector before the
-    final fully-connected classification head.
+    三个阶段，每个阶段都使通道数翻倍并使空间分辨率
+    减半（阶段 2 和 3 的第一个残差块使用 stride=2）。
+    全局平均池化将特征图压缩为单个特征向量，
+    然后输入最终的全连接分类头。
     """
 
     def __init__(
@@ -468,38 +481,41 @@ class SimpleCNN(nn.Module):
         num_classes: int = 10,
         base_width: int = 24,
     ) -> None:
-        """Initialise SimpleCNN.
+        """初始化 SimpleCNN。
 
         Args:
-            in_channels: Number of input image channels (3 for RGB).
-            num_classes: Number of output classes.
-            base_width:  Width of the first stage; doubles each subsequent
-                         stage (base_width -> 2x -> 4x -> 8x).
+            in_channels: 输入图像通道数（RGB 为 3）。
+            num_classes: 输出类别数。
+            base_width:  第一阶段宽度；后续阶段依次翻倍
+                         (base_width -> 2x -> 4x -> 8x)。
         """
         super().__init__()
         w = base_width
 
+        # 输入 stem 层
         self.stem = nn.Sequential(
             nn.Conv2d(in_channels, w, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(w),
             nn.ReLU(inplace=True),
         )
 
+        # 三个残差阶段，空间分辨率逐阶段减半
         self.layer1 = ResidualBlock(w, w * 2, stride=2)
         self.layer2 = ResidualBlock(w * 2, w * 4, stride=2)
         self.layer3 = ResidualBlock(w * 4, w * 8, stride=2)
 
+        # 全局平均池化 + 分类头
         self.gap = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Linear(w * 8, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass.
+        """前向传播。
 
         Args:
-            x: (B, C, H, W) input image.
+            x: (B, C, H, W) 输入图像。
 
         Returns:
-            (B, num_classes) logits.
+            (B, num_classes) logits。
         """
         x = self.stem(x)
         x = self.layer1(x)
@@ -512,7 +528,7 @@ class SimpleCNN(nn.Module):
 
 
 # ===========================================================================
-# Visualisation: Attention Map
+# 可视化：注意力图
 # ===========================================================================
 
 
@@ -521,22 +537,22 @@ def visualise_attention(
     input_tensor: torch.Tensor,
     save_path: str = "/tmp/vit_attention_map.png",
 ) -> None:
-    """Extract attention weights from the last block and save a heatmap.
+    """从最后一个块提取注意力权重并保存为热力图。
 
-    The figure shows two panels:
-      (a) Average attention over all heads (S x S).
-      (b) Per-head attention maps in a grid.
+    图中包含两个面板：
+      (a) 所有头的平均注意力 (S x S)。
+      (b) 每个头的注意力图，以网格排列。
 
     Args:
-        model:        A VisionTransformer instance.
-        input_tensor: (1, C, H, W) input image tensor.
-        save_path:    File-system path for the output PNG.
+        model:        VisionTransformer 实例。
+        input_tensor: (1, C, H, W) 输入图像张量。
+        save_path:    输出 PNG 文件的文件系统路径。
     """
     model.eval()
     with torch.no_grad():
         _, attn_weights = model(input_tensor, return_attention=True)
 
-    # attn_weights shape: (B, n_heads, seq_len, seq_len)
+    # attn_weights 形状: (B, n_heads, seq_len, seq_len)
     if attn_weights is None:
         raise RuntimeError(
             "Attention weights were not returned.  "
@@ -546,9 +562,9 @@ def visualise_attention(
     n_heads, S, _ = attn.shape
     avg_attn = attn.mean(axis=0)  # (S, S)
 
-    # Build the figure
+    # 构建子图网格
     cols = min(4, n_heads)
-    rows = math.ceil((n_heads + 1) / cols)  # +1 for the average panel
+    rows = math.ceil((n_heads + 1) / cols)  # +1 给平均面板留位置
     fig, axes = plt.subplots(
         rows,
         cols,
@@ -556,7 +572,7 @@ def visualise_attention(
         squeeze=False,
     )
 
-    # Panel 1/row 1: average over heads
+    # 第 1 行第 1 列面板：所有头的平均注意力
     ax = axes[0, 0]
     im = ax.imshow(avg_attn, cmap="viridis", aspect="auto")
     ax.set_title("Average over heads")
@@ -564,11 +580,11 @@ def visualise_attention(
     ax.set_ylabel("Query position")
     plt.colorbar(im, ax=ax, fraction=0.046)
 
-    # Hide unused subplots in the first row
+    # 隐藏第一行的其余子图
     for c in range(1, cols):
         axes[0, c].set_visible(False)
 
-    # Remaining panels: one per head
+    # 其余面板：每个头一张
     for h in range(n_heads):
         r = (h + 1) // cols
         c = (h + 1) % cols
@@ -579,12 +595,13 @@ def visualise_attention(
         ax.set_ylabel("Query")
         plt.colorbar(im, ax=ax, fraction=0.046)
 
-    # Hide any trailing empty subplots
+    # 隐藏多余的空白子图
     total_panels = 1 + n_heads
     for idx in range(total_panels, rows * cols):
         r, c = divmod(idx, cols)
         axes[r, c].set_visible(False)
 
+    # 设置总标题
     fig.suptitle(
         f"ViT Attention Maps  (patch={model.patch_embed.patch_size}, "
         f"img={model.patch_embed.img_size},  "
@@ -599,19 +616,19 @@ def visualise_attention(
 
 
 # ===========================================================================
-# Comparison Table Printer
+# 比较表格打印
 # ===========================================================================
 
 
 def print_comparison_table(
     results: List[Dict[str, Any]],
 ) -> None:
-    """Format and print a params / FLOPs summary table.
+    """格式化并打印参数/FLOPs 汇总表格。
 
     Args:
-        results: List of dicts, each with keys:
+        results: 字典列表，每个字典包含以下键：
             img_size, patch_size, vit_params, vit_macs,
-            cnn_params, cnn_macs.
+            cnn_params, cnn_macs。
     """
     header = (
         f"{'Img':>4}  {'Patch':>5}  "
@@ -637,24 +654,24 @@ def print_comparison_table(
 
 
 # ===========================================================================
-# Main
+# 主函数
 # ===========================================================================
 
 
 def main() -> None:
-    # ---- Config ----------------------------------------------------------
+    # ---- 配置参数 ----------------------------------------------------------
     PATCH_SIZES = [4, 8, 16]
     IMG_SIZES = [32, 64, 96]
     NUM_CLASSES = 10
     IN_CHANNELS = 3
 
-    # ViT hyper-parameters (small model for CPU-friendly profiling)
+    # ViT 超参数（小模型，适合 CPU 分析）
     VIT_D_MODEL = 128
     VIT_DEPTH = 4
     VIT_N_HEADS = 4
     VIT_MLP_RATIO = 4.0
 
-    # CNN hyper-parameters (chosen to give ~same param count as the ViT)
+    # CNN 超参数（选择使得参数量与 ViT 大致相同）
     CNN_BASE_WIDTH = 24
 
     # ----------------------------------------------------------------------
@@ -668,12 +685,12 @@ def main() -> None:
     print(f"  CNN config:  base_width={CNN_BASE_WIDTH} (ResNet-style, 3 stages)")
     print()
 
-    # ---- 1. Build models and count params once per (img_size) ------------
+    # ---- 1. 构建模型并统计参数量 --------------------------------------------
     results: List[Dict[str, Any]] = []
 
-    # CNN params are independent of patch_size (but vary slightly with
-    # image size due to BN running stats which are not counted).
-    # We build one CNN per image size for clarity.
+    # CNN 的参数量与 patch_size 无关（但因 BN 运行统计量会随图像尺寸略有变化，
+    # 此处不统计这些统计量）。
+    # 为清晰起见，每个图像尺寸构建一个 CNN。
     cnn_cache: Dict[int, Tuple[nn.Module, int]] = {}
     for img_size in IMG_SIZES:
         cnn = SimpleCNN(
@@ -684,16 +701,16 @@ def main() -> None:
         cnn_total, _ = count_parameters(cnn)
         cnn_cache[img_size] = (cnn, cnn_total)
 
-    # ---- 2. Loop over all configurations ---------------------------------
+    # ---- 2. 遍历所有配置 ---------------------------------------------------
     for img_size in IMG_SIZES:
         for patch_size in PATCH_SIZES:
-            # Skip if patch size does not divide image size
+            # 如果 patch 尺寸不能整除图像尺寸则跳过
             if img_size % patch_size != 0:
                 continue
 
             print(f"  Profiling: img={img_size}, patch={patch_size} ...")
 
-            # ---- Build ViT -----------------------------------------------
+            # ---- 构建 ViT -------------------------------------------------
             vit = VisionTransformer(
                 img_size=img_size,
                 patch_size=patch_size,
@@ -706,20 +723,19 @@ def main() -> None:
             )
             vit_total, _ = count_parameters(vit)
 
-            # ---- Count ViT FLOPs -----------------------------------------
+            # ---- 统计 ViT FLOPs -------------------------------------------
             dummy = torch.randn(1, IN_CHANNELS, img_size, img_size)
             vit_macs = estimate_macs(vit, dummy)
 
-            # Add the attention matmul MACs (Q@K^T + attn@V) that are not
-            # captured by Linear-hooks.
-            seq_len = vit.num_patches + 1  # +1 for [CLS] token
+            # 加上线性钩子无法捕获的注意力矩阵乘 MACs（Q@K^T + attn@V）
+            seq_len = vit.num_patches + 1  # +1 是 [CLS] token
             attn_matmul_macs = vit.estimate_attention_macs(
                 batch_size=1,
                 seq_len=seq_len,
             )
             vit_macs += attn_matmul_macs
 
-            # ---- Count CNN FLOPs -----------------------------------------
+            # ---- 统计 CNN FLOPs -------------------------------------------
             cnn, cnn_total = cnn_cache[img_size]
             cnn_macs = estimate_macs(cnn, dummy)
 
@@ -734,10 +750,10 @@ def main() -> None:
                 }
             )
 
-    # ---- 3. Print comparison table ---------------------------------------
+    # ---- 3. 打印比较表格 ---------------------------------------------------
     print_comparison_table(results)
 
-    # ---- 4. Attention map visualisation ----------------------------------
+    # ---- 4. 注意力图可视化 -------------------------------------------------
     print("  Generating attention map visualisation ...")
     demo_img_size = 64
     demo_patch_size = 8
@@ -754,9 +770,9 @@ def main() -> None:
     demo_input = torch.randn(1, IN_CHANNELS, demo_img_size, demo_img_size)
     visualise_attention(vit_demo, demo_input)
 
-    # ---- 5. Summary comparison -------------------------------------------
-    # Pick one representative config for the summary
-    rep = results[0]  # first entry (e.g., img=32, patch=4)
+    # ---- 5. 汇总比较 -------------------------------------------------------
+    # 选一个代表性配置做汇总展示
+    rep = results[0]  # 第一项（例如 img=32, patch=4）
     print()
     print("=" * 64)
     print("  SUMMARY: ViT vs CNN")

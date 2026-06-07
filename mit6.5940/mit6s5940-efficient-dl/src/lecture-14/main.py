@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
 """
-Lecture 14: Parameter Efficient Fine-Tuning (PEFT) -- LoRA from Scratch
-======================================================================
+第 14 讲：参数高效微调（PEFT）—— 从零实现 LoRA
+======================================================
 
-This script demonstrates Low-Rank Adaptation (LoRA) for fine-tuning
-large pre-trained models efficiently.  It covers:
+本脚本演示了用于高效微调大型预训练模型的低秩适应（LoRA）方法。
+内容包括：
 
-  1. A custom ``LoRALinear`` layer that wraps a frozen ``nn.Linear``
-     weight with two low-rank matrices A and B.
-  2. Pre-training a small MLP on MNIST.
-  3. Applying LoRA to selected layers and fine-tuning on a MNIST subset.
-  4. Comparing trainable-parameter counts between full fine-tuning
-     and LoRA at various ranks.
-  5. Merging LoRA weights back into the original weights.
+  1. 自定义 ``LoRALinear`` 层，用两个低秩矩阵 A 和 B
+     包装一个冻结的 ``nn.Linear`` 权重。
+  2. 在 MNIST 上预训练一个小型 MLP。
+  3. 对选定层应用 LoRA，并在 MNIST 子集上进行微调。
+  4. 比较全量微调和不同秩下 LoRA 的可训练参数数量。
+  5. 将 LoRA 权重合并回原始权重。
 
-All computation runs on CPU -- no CUDA required.
+所有计算在 CPU 上运行 —— 无需 CUDA。
 """
 
 import copy
@@ -31,36 +30,35 @@ from torchvision import datasets, transforms
 
 
 # ---------------------------------------------------------------------------
-# 1.  Custom LoRA Linear Layer
+# 1. 自定义 LoRA 线性层
 # ---------------------------------------------------------------------------
 
 
 class LoRALinear(nn.Module):
     """
-    A linear layer augmented with Low-Rank Adaptation (LoRA).
+    一个用低秩适应（LoRA）增强的线性层。
 
-    The original weight ``W`` (shape: ``out_features x in_features``) is
-    frozen (``requires_grad = False``).  Two trainable low-rank matrices
-    ``A`` (``r x in_features``) and ``B`` (``out_features x r``) are
-    introduced so that the effective forward pass becomes::
+    原始权重 ``W``（形状：``out_features x in_features``）被冻结
+    （``requires_grad = False``）。引入两个可训练的低秩矩阵
+    ``A``（``r x in_features``）和 ``B``（``out_features x r``），
+    使得有效的前向传播变为：
 
         h = x @ W^T + (x @ A^T @ B^T) * (alpha / r)
 
-    where:
-        - ``r``      : rank of the low-rank decomposition,
-        - ``alpha``  : scaling factor that controls the magnitude of the
-                       LoRA update relative to the frozen weights.
+    其中：
+        - ``r``      ：低秩分解的秩，
+        - ``alpha``  ：缩放因子，控制 LoRA 更新相对于冻结权重的幅度。
 
-    Initialisation:
-        ``A`` is initialised with ``kaiming_uniform`` for stable gradient
-        flow; ``B`` is initialised to **zeros** so that the LoRA branch
-        initially contributes nothing (``delta_W = 0``).
+    初始化：
+        ``A`` 使用 ``kaiming_uniform`` 初始化以保证稳定的梯度流；
+        ``B`` 被初始化为**零**，使得 LoRA 分支最初不贡献任何内容
+        （``delta_W = 0``）。
 
-    Merge / Unmerge:
-        ``merge()`` folds the LoRA weights into the original weight:
+    合并 / 取消合并：
+        ``merge()`` 将 LoRA 权重折叠到原始权重中：
             ``W_merged = W + (alpha / r) * (B @ A)``
-        After merging the LoRA branch can be bypassed with a standard
-        linear forward.  ``unmerge()`` reverses the operation.
+        合并后，可以使用标准的线性前向传播绕过 LoRA 分支。
+        ``unmerge()`` 反转该操作。
     """
 
     def __init__(
@@ -73,9 +71,9 @@ class LoRALinear(nn.Module):
     ) -> None:
         super().__init__()
 
-        # --- frozen original weight ---
+        # --- 冻结的原始权重 ---
         self.linear = nn.Linear(in_features, out_features, bias=bias)
-        # Freeze the base weight and bias immediately.
+        # 立即冻结基础权重和偏置，使其在前向传播中不可训练。
         self.linear.weight.requires_grad = False
         if self.linear.bias is not None:
             self.linear.bias.requires_grad = False
@@ -84,58 +82,58 @@ class LoRALinear(nn.Module):
         self.alpha = alpha
         self.in_features = in_features
         self.out_features = out_features
-        self.scaling = alpha / r  # cached for forward
+        self.scaling = alpha / r  # 缓存用于前向传播的缩放因子
 
-        # --- low-rank matrices ---
-        # A: (r, in_features)  -- projects input down to rank r
-        # B: (out_features, r) -- projects rank-r representation back up
+        # --- 低秩矩阵 ---
+        # A：(r, in_features)  -- 将输入投影到秩 r
+        # B：(out_features, r) -- 将秩 r 的表示投影回高维
         self.A = nn.Parameter(torch.empty(r, in_features))
-        self.B = nn.Parameter(torch.zeros(out_features, r))  # zero-init
+        self.B = nn.Parameter(torch.zeros(out_features, r))  # 零初始化
         nn.init.kaiming_uniform_(self.A, a=math.sqrt(5))
 
-        # Track whether LoRA weights have been merged into the original.
+        # 跟踪 LoRA 权重是否已合并到原始权重中。
         self._merged = False
-        # Backup of the original weight for unmerge.
+        # 备份原始权重用于取消合并。
         self._orig_weight: Optional[torch.Tensor] = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Compute ``x @ W^T + (x @ A^T @ B^T) * (alpha / r)``.
+        计算 ``x @ W^T + (x @ A^T @ B^T) * (alpha / r)``。
 
-        When merged, falls back to a plain linear forward.
+        当已合并时，退回到普通的线性前向传播。
         """
         if self._merged:
             return self.linear(x)
 
-        # Frozen base output:   x @ W^T  (batch, out_features)
+        # 冻结的基础输出：x @ W^T  （batch, out_features）
         base = self.linear(x)
 
-        # LoRA delta:  (x @ A^T) @ B^T  (batch, out_features)
+        # LoRA 增量部分：(x @ A^T) @ B^T  （batch, out_features）
         lora = (x @ self.A.T) @ self.B.T
 
         return base + lora * self.scaling
 
-    # -- merge / unmerge utilities ----------------------------------------
+    # -- 合并 / 取消合并实用方法 ----------------------------------------
 
     def merge(self) -> None:
         """
-        Fold LoRA weights into the frozen weight:
+        将 LoRA 权重折叠到冻结权重中：
 
             W := W + (alpha / r) * (B @ A)
 
-        After this call the LoRA matrices are no longer needed for
-        inference and the layer behaves like a standard ``nn.Linear``.
+        调用此方法后，LoRA 矩阵在推理时不再需要，该层表现为标准的
+        ``nn.Linear``。
         """
         if self._merged:
-            return  # already merged
+            return  # 已经合并，无需重复操作
 
         delta = (self.B @ self.A) * self.scaling  # (out_features, in_features)
-        self._orig_weight = self.linear.weight.data.clone()
-        self.linear.weight.data.add_(delta)
+        self._orig_weight = self.linear.weight.data.clone()  # 备份原始权重
+        self.linear.weight.data.add_(delta)  # 将 LoRA 增量加回
         self._merged = True
 
     def unmerge(self) -> None:
-        """Restore the original weight (undo ``merge()``)."""
+        """恢复原始权重（撤销 ``merge()``）。"""
         if not self._merged or self._orig_weight is None:
             return
 
@@ -143,11 +141,11 @@ class LoRALinear(nn.Module):
         self._orig_weight = None
         self._merged = False
 
-    # -- convenience properties -------------------------------------------
+    # -- 便捷属性 -------------------------------------------
 
     @property
     def trainable_params(self) -> int:
-        """Number of trainable parameters in A and B."""
+        """A 和 B 中可训练参数的数量。"""
         return self.A.numel() + self.B.numel()
 
     def extra_repr(self) -> str:
@@ -158,17 +156,17 @@ class LoRALinear(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# 2.  MLP Model (simple classifier)
+# 2. MLP 模型（简单分类器）
 # ---------------------------------------------------------------------------
 
 
 class SimpleMLP(nn.Module):
     """
-    A three-layer MLP for MNIST digit classification.
+    用于 MNIST 数字分类的三层 MLP。
 
-        Layer 1:  784 -> 256  + ReLU
-        Layer 2:  256 -> 128  + ReLU
-        Layer 3:  128 -> 10   (logits)
+        第 1 层：784 -> 256  + ReLU
+        第 2 层：256 -> 128  + ReLU
+        第 3 层：128 -> 10   （logits）
     """
 
     def __init__(self) -> None:
@@ -178,7 +176,7 @@ class SimpleMLP(nn.Module):
         self.fc3 = nn.Linear(128, 10)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x.view(x.size(0), -1)  # flatten
+        x = x.view(x.size(0), -1)  # 展平为 (batch, 784)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
@@ -186,7 +184,7 @@ class SimpleMLP(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# 3.  Data helpers
+# 3. 数据辅助函数
 # ---------------------------------------------------------------------------
 
 
@@ -195,16 +193,15 @@ def get_mnist_loaders(
     subset_size: Optional[int] = None,
 ) -> Tuple[DataLoader, DataLoader]:
     """
-    Return train and test DataLoaders for MNIST.
+    返回 MNIST 的训练和测试 DataLoader。
 
-    If ``subset_size`` is given the training dataset is trimmed to that
-    many samples (useful for demonstrating LoRA fine-tuning on a tiny
-    dataset).
+    如果提供了 ``subset_size``，训练数据集将被裁剪到该数量的样本
+    （适用于在微型数据集上演示 LoRA 微调）。
     """
     transform = transforms.Compose(
         [
-            transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,)),
+            transforms.ToTensor(),  # 转换为张量并缩放到 [0, 1]
+            transforms.Normalize((0.1307,), (0.3081,)),  # MNIST 标准化
         ]
     )
 
@@ -222,6 +219,7 @@ def get_mnist_loaders(
     )
 
     if subset_size is not None:
+        # 随机采样子集，固定种子以确保可重复性
         indices = np.random.default_rng(42).choice(
             len(train_ds),
             size=min(subset_size, len(train_ds)),
@@ -235,7 +233,7 @@ def get_mnist_loaders(
 
 
 # ---------------------------------------------------------------------------
-# 4.  Training & evaluation loops
+# 4. 训练 & 评估循环
 # ---------------------------------------------------------------------------
 
 
@@ -245,17 +243,17 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
 ) -> float:
-    """Train the model for one epoch.  Returns average loss."""
+    """训练模型一个 epoch。返回平均损失。"""
     model.train()
     total_loss = 0.0
     n_batches = 0
 
     for x, y in loader:
         x, y = x.to(device), y.to(device)
-        optimizer.zero_grad()
-        loss = F.cross_entropy(model(x), y)
-        loss.backward()
-        optimizer.step()
+        optimizer.zero_grad()  # 清零梯度
+        loss = F.cross_entropy(model(x), y)  # 交叉熵损失
+        loss.backward()  # 反向传播
+        optimizer.step()  # 更新参数
         total_loss += loss.item()
         n_batches += 1
 
@@ -264,25 +262,26 @@ def train_one_epoch(
 
 @torch.no_grad()
 def evaluate(model: nn.Module, loader: DataLoader, device: torch.device) -> float:
-    """Return classification accuracy on the given data loader."""
+    """返回给定数据加载器上的分类准确率。"""
     model.eval()
     correct = 0
     total = 0
     for x, y in loader:
         x, y = x.to(device), y.to(device)
         logits = model(x)
+        # 取 argmax 获取预测类别，与真实标签比较
         correct += (logits.argmax(dim=1) == y).sum().item()
         total += y.size(0)
     return correct / total if total > 0 else 0.0
 
 
 def count_trainable_params(model: nn.Module) -> int:
-    """Count trainable parameters (requires_grad=True)."""
+    """统计可训练参数的数量（requires_grad=True）。"""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
 # ---------------------------------------------------------------------------
-# 5.  LoRA application helper
+# 5. LoRA 应用辅助函数
 # ---------------------------------------------------------------------------
 
 
@@ -293,31 +292,31 @@ def apply_lora_to_model(
     target_layers: List[str],
 ) -> nn.Module:
     """
-    Replace the linear layers named in ``target_layers`` with
-    ``LoRALinear`` wrappers that share the original frozen weight.
+    将 ``target_layers`` 中命名的线性层替换为共享原始冻结权重的
+    ``LoRALinear`` 包装层。
 
-    Parameters
+    参数
     ----------
     base_model : nn.Module
-        Pre-trained model (weights will be frozen in the process).
+        预训练模型（权重将在过程中被冻结）。
     r : int
-        LoRA rank.
+        LoRA 秩。
     alpha : float
-        LoRA scaling factor.
+        LoRA 缩放因子。
     target_layers : List[str]
-        Attribute names of ``nn.Linear`` layers to augment (e.g.
-        ``["fc1", "fc2"]``).
+        要增强的 ``nn.Linear`` 层的属性名（例如 ``["fc1", "fc2"]``）。
 
-    Returns
+    返回
     -------
     nn.Module
-        The same model with LoRA layers in place.
+        已安装 LoRA 层的相同模型。
     """
     for name in target_layers:
         original: nn.Linear = getattr(base_model, name)
         if not isinstance(original, nn.Linear):
-            raise TypeError(f"{name} is not nn.Linear")
+            raise TypeError(f"{name} 不是 nn.Linear 类型")
 
+        # 创建包装原始权重的 LoRA 线性层
         lora = LoRALinear(
             in_features=original.in_features,
             out_features=original.out_features,
@@ -326,7 +325,7 @@ def apply_lora_to_model(
             bias=original.bias is not None,
         )
 
-        # Copy the pre-trained weight (and bias) into the LoRA wrapper.
+        # 将预训练权重（和偏置）复制到 LoRA 包装层中。
         with torch.no_grad():
             lora.linear.weight.copy_(original.weight)
             if original.bias is not None:
@@ -338,30 +337,30 @@ def apply_lora_to_model(
 
 
 # ---------------------------------------------------------------------------
-# 6.  Main demonstration
+# 6. 主演示
 # ---------------------------------------------------------------------------
 
 
 def main() -> None:
     # ------------------------------------------------------------------
-    # 6.0  Setup
+    # 6.0 环境设置
     # ------------------------------------------------------------------
     device = torch.device("cpu")
-    print("Device:", device)
+    print("设备：", device)
     print()
 
     # ------------------------------------------------------------------
-    # 6.1  Pre-train a simple MLP on full MNIST
+    # 6.1 在完整 MNIST 上预训练一个简单 MLP
     # ------------------------------------------------------------------
     print("=" * 65)
-    print("Phase 1: Pre-training MLP on MNIST (full dataset)")
+    print("阶段 1：在完整 MNIST 数据集上预训练 MLP")
     print("=" * 65)
 
     pretrain_loader, full_test_loader = get_mnist_loaders(batch_size=128)
 
     model = SimpleMLP().to(device)
     total_params = sum(p.numel() for p in model.parameters())
-    print(f"Model parameters (total): {total_params:,}")
+    print(f"模型参数（总计）：{total_params:,}")
     print()
 
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -378,57 +377,57 @@ def main() -> None:
         )
 
     pretrain_acc = evaluate(model, full_test_loader, device)
-    print(f"\nPre-training final accuracy: {pretrain_acc:.4f}")
+    print(f"\n预训练最终准确率：{pretrain_acc:.4f}")
     print()
 
-    # Save a frozen copy of the pre-trained weights for later re-use.
+    # 保存预训练权重的冻结副本以备后续重用。
     base_state = copy.deepcopy(model.state_dict())
 
     # ------------------------------------------------------------------
-    # 6.2  Show full fine-tuning parameter count
+    # 6.2 显示全量微调的可训练参数数量
     # ------------------------------------------------------------------
-    full_ft_params = total_params  # every weight gets updated
-    print(f"Full fine-tuning would train: {full_ft_params:,} parameters")
+    full_ft_params = total_params  # 全量微调时每个权重都会被更新
+    print(f"全量微调将训练：{full_ft_params:,} 个参数")
     print()
 
     # ------------------------------------------------------------------
-    # 6.3  LoRA fine-tuning across different ranks
+    # 6.3 在不同秩下进行 LoRA 微调
     # ------------------------------------------------------------------
     print("=" * 65)
-    print("Phase 2: LoRA fine-tuning on a small MNIST subset (2048 samples)")
+    print("阶段 2：在小型 MNIST 子集（2048 个样本）上进行 LoRA 微调")
     print("=" * 65)
 
-    ranks = [2, 4, 8, 16]
-    lora_alphas = {2: 2.0, 4: 4.0, 8: 8.0, 16: 16.0}
-    subset_size = 2048
+    ranks = [2, 4, 8, 16]  # 测试不同的 LoRA 秩
+    lora_alphas = {2: 2.0, 4: 4.0, 8: 8.0, 16: 16.0}  # alpha 通常设为与 rank 相等
+    subset_size = 2048  # 用于微调的子集大小
     lora_epochs = 5
     lora_lr = 5e-4
 
-    results: List[Tuple[int, int, float]] = []  # (rank, trainable_params, accuracy)
+    results: List[Tuple[int, int, float]] = []  # (秩, 可训练参数数, 准确率)
 
     for r in ranks:
-        print(f"\n--- LoRA rank r = {r} ---")
+        print(f"\n--- LoRA 秩 r = {r} ---")
 
-        # Re-load pre-trained base every time to start fresh.
+        # 每次重新加载预训练基础模型，从头开始。
         model = SimpleMLP().to(device)
         model.load_state_dict(base_state)
 
-        # Apply LoRA to the first two linear layers.
+        # 对前两个线性层应用 LoRA。
         alpha = lora_alphas[r]
         apply_lora_to_model(model, r=r, alpha=alpha, target_layers=["fc1", "fc2"])
 
-        # Count trainable parameters (only A and B matrices).
+        # 统计可训练参数（仅 A 和 B 矩阵）。
         trainable = count_trainable_params(model)
         frozen = total_params - trainable
         print(
-            f"  Trainable params: {trainable:,} / {total_params:,} "
-            f"({trainable / total_params * 100:.2f}%)"
+            f"  可训练参数：{trainable:,} / {total_params:,} "
+            f"（{trainable / total_params * 100:.2f}%）"
         )
 
-        # Create a subset loader.
+        # 创建一个子集数据加载器。
         subset_loader, _ = get_mnist_loaders(batch_size=64, subset_size=subset_size)
 
-        # Only optimise parameters that require gradients (A, B).
+        # 仅优化需要梯度的参数（A, B）。
         optimizer_lora = torch.optim.Adam(
             [p for p in model.parameters() if p.requires_grad],
             lr=lora_lr,
@@ -438,29 +437,27 @@ def main() -> None:
             avg_loss = train_one_epoch(model, subset_loader, optimizer_lora, device)
 
         acc = evaluate(model, full_test_loader, device)
-        print(f"  LoRA test accuracy (rank={r}): {acc:.4f}")
+        print(f"  LoRA 测试准确率（rank={r}）：{acc:.4f}")
 
         results.append((r, trainable, acc))
 
     # ------------------------------------------------------------------
-    # 6.4  Comparison table
+    # 6.4 比较表
     # ------------------------------------------------------------------
     print("\n" + "=" * 65)
-    print("Phase 3: Results Summary")
+    print("阶段 3：结果汇总")
     print("=" * 65)
 
-    header = (
-        f"{'Method':>22}  {'Trainable Params':>17}  {'Accuracy':>9}  {'% of Full':>10}"
-    )
+    header = f"{'方法':>22}  {'可训练参数':>17}  {'准确率':>9}  {'% 占全量':>10}"
     print(header)
     print("-" * len(header))
 
-    # Baseline: full fine-tuning (all params, accuracy from pre-training)
+    # 基线：全量微调（所有参数，准确率来自预训练）
     print(
-        f"{'Full Fine-Tuning':>22}  {full_ft_params:>17,}  {pretrain_acc:>9.4f}  {'100.00%':>10}"
+        f"{'全量微调':>22}  {full_ft_params:>17,}  {pretrain_acc:>9.4f}  {'100.00%':>10}"
     )
 
-    # LoRA rows
+    # LoRA 行
     for r, tp, acc in results:
         pct = tp / full_ft_params * 100
         print(
@@ -470,71 +467,71 @@ def main() -> None:
     print()
 
     # ------------------------------------------------------------------
-    # 6.5  Rank effect analysis
+    # 6.5 秩效应分析
     # ------------------------------------------------------------------
     print("=" * 65)
-    print("Phase 4: Rank Effect Analysis")
+    print("阶段 4：秩效应分析")
     print("=" * 65)
     print(
-        f"{'Rank':>5}  {'Trainable':>10}  {'Accuracy':>9}  {'Δ Acc (LoRA - Pretrain)':>25}"
+        f"{'秩':>5}  {'可训练参数':>10}  {'准确率':>9}  {'Δ 准确率（LoRA - 预训练）':>25}"
     )
     print("-" * 65)
     for r, tp, acc in results:
-        delta = acc - pretrain_acc
+        delta = acc - pretrain_acc  # LoRA 微调后的准确率变化
         print(f"{r:>5}  {tp:>10,}  {acc:>9.4f}  {delta:>+25.4f}")
     print()
 
     # ------------------------------------------------------------------
-    # 6.6  Merge demonstration
+    # 6.6 合并演示
     # ------------------------------------------------------------------
     print("=" * 65)
-    print("Phase 5: Weight Merge Demonstration (rank=8)")
+    print("阶段 5：权重合并演示（rank=8）")
     print("=" * 65)
 
-    # Create a fresh model with LoRA (rank=8) and quickly train.
+    # 创建一个带有 LoRA（rank=8）的新模型并快速训练。
     model_merge = SimpleMLP().to(device)
     model_merge.load_state_dict(base_state)
     apply_lora_to_model(model_merge, r=8, alpha=8.0, target_layers=["fc1", "fc2"])
 
-    # Quick train to get distinct LoRA weights.
+    # 快速训练以获得清晰的 LoRA 权重。
     merge_loader, _ = get_mnist_loaders(batch_size=64, subset_size=2048)
     opt_merge = torch.optim.Adam(
         [p for p in model_merge.parameters() if p.requires_grad],
         lr=5e-4,
     )
-    for _ in range(3):  # short training
+    for _ in range(3):  # 短期训练
         train_one_epoch(model_merge, merge_loader, opt_merge, device)
 
-    # Compare predictions before and after merge (should be identical).
+    # 比较合并前后的预测（应该完全相同）。
     x_sample, _ = next(iter(full_test_loader))
-    x_sample = x_sample[:16].to(device)  # first 16 images
+    x_sample = x_sample[:16].to(device)  # 取前 16 张图片
 
     model_merge.eval()
     with torch.no_grad():
-        pred_before = model_merge(x_sample)
+        pred_before = model_merge(x_sample)  # 合并前的预测
 
-    # Merge and compare.
+    # 合并并比较。
     for name in ["fc1", "fc2"]:
         layer = getattr(model_merge, name)
         if isinstance(layer, LoRALinear):
             layer.merge()
 
     with torch.no_grad():
-        pred_after = model_merge(x_sample)
+        pred_after = model_merge(x_sample)  # 合并后的预测
 
     max_diff = (pred_before - pred_after).abs().max().item()
     agreement = (
         (pred_before.argmax(dim=1) == pred_after.argmax(dim=1)).float().mean().item()
     )
 
-    print(f"  Max logit difference (before vs after merge): {max_diff:.2e}")
-    print(f"  Prediction agreement: {agreement:.1%}")
+    print(f"  合并前后的最大 logit 差异：{max_diff:.2e}")
+    print(f"  预测一致性：{agreement:.1%}")
     if max_diff < 1e-5:
-        print("  ✓ Merge is numerically stable -- outputs are identical.")
+        print("  ✓ 合并在数值上是稳定的 -- 输出完全相同。")
     else:
-        print("  ⚠ Small numerical differences exist (expected with fp32).")
+        print("  ⚠ 存在微小的数值差异（在 fp32 下是正常的）。")
 
-    # Unmerge and verify old behaviour restored.
+    # 取消合并并验证旧行为已恢复。
     for name in ["fc1", "fc2"]:
         layer = getattr(model_merge, name)
         if isinstance(layer, LoRALinear):
@@ -544,17 +541,18 @@ def main() -> None:
         pred_unmerged = model_merge(x_sample)
 
     max_diff2 = (pred_before - pred_unmerged).abs().max().item()
-    print(f"  Max logit diff (original vs after unmerge): {max_diff2:.2e}")
+    print(f"  原始与取消合并后的最大 logit 差异：{max_diff2:.2e}")
     print()
 
     # ------------------------------------------------------------------
-    # 6.7  Final summary
+    # 6.7 最终总结
     # ------------------------------------------------------------------
     print("=" * 65)
-    print("Done!  Key takeaways:")
-    print("  - LoRA dramatically reduces trainable parameters (1-5% of full FT).")
-    print("  - Higher rank can improve accuracy, with diminishing returns.")
-    print("  - Merging LoRA back into the base weights is lossless (up to fp32).")
+    print("完成！ 关键要点：")
+    print("  - LoRA 显著减少了可训练参数数量（仅占全量微调的 1-5%）。")
+    print("  - 更高的秩可以提升准确率，但收益递减。")
+    print("  - 将 LoRA 合并回基础权重是无损的（在 fp32 精度下）。")
+    print("  - 冻结基础权重 + 仅训练低秩矩阵 = 内存高效微调。")
     print("=" * 65)
 
 

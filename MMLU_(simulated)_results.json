@@ -1,0 +1,104 @@
+{
+  "benchmark_name": "MMLU (simulated)",
+  "model_name": "DemoModel-7B",
+  "timestamp": "2026-06-07T16:38:18.491953",
+  "aggregate_score": 0.4998584550873432,
+  "task_results": [
+    {
+      "task_name": "mmlu_anatomy",
+      "status": "completed",
+      "score": 0.6518518518518519,
+      "num_correct": 88,
+      "num_total": 135,
+      "latency_seconds": 0.135,
+      "extra_metrics": {
+        "macro_accuracy": 0.6611653377009321
+      },
+      "error_message": ""
+    },
+    {
+      "task_name": "mmlu_astronomy",
+      "status": "completed",
+      "score": 0.6052631578947368,
+      "num_correct": 92,
+      "num_total": 152,
+      "latency_seconds": 0.152,
+      "extra_metrics": {
+        "macro_accuracy": 0.6043395210867286
+      },
+      "error_message": ""
+    },
+    {
+      "task_name": "mmlu_college_math",
+      "status": "completed",
+      "score": 0.34,
+      "num_correct": 34,
+      "num_total": 100,
+      "latency_seconds": 0.1,
+      "extra_metrics": {
+        "macro_accuracy": 0.369162954975625
+      },
+      "error_message": ""
+    },
+    {
+      "task_name": "mmlu_computer_science",
+      "status": "completed",
+      "score": 0.63,
+      "num_correct": 63,
+      "num_total": 100,
+      "latency_seconds": 0.1,
+      "extra_metrics": {
+        "macro_accuracy": 0.6288133630033245
+      },
+      "error_message": ""
+    },
+    {
+      "task_name": "mmlu_econometrics",
+      "status": "completed",
+      "score": 0.4298245614035088,
+      "num_correct": 49,
+      "num_total": 114,
+      "latency_seconds": 0.114,
+      "extra_metrics": {
+        "macro_accuracy": 0.4303679657431184
+      },
+      "error_message": ""
+    },
+    {
+      "task_name": "mmlu_high_school_math",
+      "status": "completed",
+      "score": 0.3592592592592593,
+      "num_correct": 97,
+      "num_total": 270,
+      "latency_seconds": 0.27,
+      "extra_metrics": {
+        "macro_accuracy": 0.34323591250485697
+      },
+      "error_message": ""
+    },
+    {
+      "task_name": "mmlu_moral_reasoning",
+      "status": "completed",
+      "score": 0.51,
+      "num_correct": 102,
+      "num_total": 200,
+      "latency_seconds": 0.2,
+      "extra_metrics": {
+        "macro_accuracy": 0.530929518847319
+      },
+      "error_message": ""
+    },
+    {
+      "task_name": "mmlu_philosophy",
+      "status": "completed",
+      "score": 0.47266881028938906,
+      "num_correct": 147,
+      "num_total": 311,
+      "latency_seconds": 0.311,
+      "extra_metrics": {
+        "macro_accuracy": 0.49227668626961574
+      },
+      "error_message": ""
+    }
+  ]
+}

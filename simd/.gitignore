@@ -80,8 +80,13 @@ benchmarks/latest_results.txt
 benchmarks/profile_output/
 
 # perf data files
-perf.data
-perf.data.old
+perf.data*
+
+# Nsight profiling
+*.nsys-rep
+*.ncu-rep
+*.qdrep
+*.qdstrm
 
 # Core dumps
 core

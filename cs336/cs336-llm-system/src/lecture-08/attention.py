@@ -1,13 +1,13 @@
 """
-Attention variants implemented from scratch using only PyTorch tensor operations.
+仅使用 PyTorch 张量操作从零实现的注意力变体。
 
-Implementations:
-  - scaled_dot_product_attention: Naive SDPA
-  - Multi-Head Attention (MHA): Standard transformer attention
-  - Causal Attention: With causal (upper triangular) mask
-  - Grouped Query Attention (GQA): Fewer KV heads than Q heads
-  - Multi-Query Attention (MQA): Single KV head for all Q heads
-  - Sliding Window Attention: Each token attends to a local window
+具体实现：
+  - scaled_dot_product_attention：朴素 SDPA
+  - Multi-Head Attention (MHA)：标准 transformer 注意力
+  - Causal Attention：带因果（上三角）mask
+  - Grouped Query Attention (GQA)：KV 头的数量少于 Q 头
+  - Multi-Query Attention (MQA)：所有 Q 头共享单个 KV 头
+  - Sliding Window Attention：每个 token 只关注局部窗口
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import torch.nn.functional as F
 
 
 # =========================================================================
-# Scaled Dot-Product Attention (naive)
+# Scaled Dot-Product Attention（朴素实现）
 # =========================================================================
 
 
@@ -32,37 +32,37 @@ def scaled_dot_product_attention(
     dropout_p: float = 0.0,
 ) -> torch.Tensor:
     """
-    Naive scaled dot-product attention.
+    朴素 scaled dot-product attention。
 
-    Computes: softmax(Q @ K^T / sqrt(d_k)) @ V
+    计算公式：softmax(Q @ K^T / sqrt(d_k)) @ V
 
     Args:
-        q: Query tensor, shape (..., seq_len_q, d_k)
-        k: Key tensor,   shape (..., seq_len_k, d_k)
-        v: Value tensor, shape (..., seq_len_k, d_v)
-        mask: Optional mask, shape (..., seq_len_q, seq_len_k).
-              -inf entries will be masked out
-        dropout_p: Dropout probability
+        q: Query 张量，shape 为 (..., seq_len_q, d_k)
+        k: Key 张量，  shape 为 (..., seq_len_k, d_k)
+        v: Value 张量，shape 为 (..., seq_len_k, d_v)
+        mask: 可选的 mask，shape 为 (..., seq_len_q, seq_len_k)。
+              值为 -inf 的位置将被遮蔽
+        dropout_p: Dropout 概率
 
     Returns:
-        Output tensor of shape (..., seq_len_q, d_v)
+        输出张量，shape 为 (..., seq_len_q, d_v)
     """
     d_k = q.size(-1)
-    # Compute attention scores: Q @ K^T / sqrt(d_k)
+    # 计算注意力分数：Q @ K^T / sqrt(d_k)
     scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(d_k)
 
-    # Apply mask (add -inf to masked positions before softmax)
+    # 应用 mask（在 softmax 之前将被遮蔽的位置设为 -inf）
     if mask is not None:
         scores = scores.masked_fill(mask == 0, float("-inf"))
 
-    # Softmax over the key dimension
+    # 在 key 维度上做 softmax
     attn_weights = F.softmax(scores, dim=-1)
 
-    # Apply dropout
+    # 应用 dropout
     if dropout_p > 0.0:
         attn_weights = F.dropout(attn_weights, p=dropout_p, training=True)
 
-    # Weighted sum of values
+    # 对 value 加权求和
     output = torch.matmul(attn_weights, v)
     return output
 
@@ -74,13 +74,13 @@ def scaled_dot_product_attention(
 
 class MultiHeadAttention(nn.Module):
     """
-    Standard Multi-Head Attention (MHA).
+    标准 Multi-Head Attention (MHA)。
 
-    All heads have same dimension. Q, K, V are projected from input,
-    split into heads, then attention is computed independently per head.
+    所有头的维度相同。Q、K、V 从输入投影后，
+    分割为多个头，然后每个头独立计算注意力。
 
-    The default setup (num_kv_heads == num_heads) produces standard MHA.
-    Setting num_kv_heads < num_heads enables GQA/MQA.
+    默认设置（num_kv_heads == num_heads）产生标准 MHA。
+    设置 num_kv_heads < num_heads 可以启用 GQA/MQA。
     """
 
     def __init__(
@@ -104,7 +104,7 @@ class MultiHeadAttention(nn.Module):
         )
         self.num_queries_per_kv = self.num_heads // self.num_kv_heads
 
-        # Projections
+        # 投影层
         q_dim = self.num_heads * self.head_dim
         kv_dim = self.num_kv_heads * self.head_dim
         self.q_proj = nn.Linear(hidden_size, q_dim, bias=bias)
@@ -119,15 +119,15 @@ class MultiHeadAttention(nn.Module):
     ) -> torch.Tensor:
         """
         Args:
-            x: Input tensor, shape (batch, seq_len, hidden_size)
-            mask: Optional attention mask
+            x: 输入张量，shape 为 (batch, seq_len, hidden_size)
+            mask: 可选的注意力 mask
 
         Returns:
-            Output tensor, shape (batch, seq_len, hidden_size)
+            输出张量，shape 为 (batch, seq_len, hidden_size)
         """
         batch, seq_len, _ = x.shape
 
-        # Project and reshape
+        # 投影并重塑
         q = (
             self.q_proj(x)
             .view(batch, seq_len, self.num_heads, self.head_dim)
@@ -144,18 +144,18 @@ class MultiHeadAttention(nn.Module):
             .transpose(1, 2)
         )
 
-        # Expand KV heads if GQA/MQA (repeat each KV head for its query group)
+        # 若为 GQA/MQA，则扩展 KV 头（为每个 query 组重复对应的 KV 头）
         if self.num_kv_heads != self.num_heads:
             k = k.repeat_interleave(self.num_queries_per_kv, dim=1)
             v = v.repeat_interleave(self.num_queries_per_kv, dim=1)
 
-        # Compute attention
+        # 计算注意力
         attn_output = scaled_dot_product_attention(
             q, k, v, mask=mask, dropout_p=self.dropout
         )
         # attn_output: (batch, num_heads, seq_len, head_dim)
 
-        # Merge heads back
+        # 将头合并回去
         attn_output = attn_output.transpose(1, 2).contiguous().view(batch, seq_len, -1)
         return self.o_proj(attn_output)
 
@@ -169,10 +169,10 @@ def create_causal_mask(
     seq_len: int, device: torch.device | str = "cpu"
 ) -> torch.Tensor:
     """
-    Create a causal (lower triangular) attention mask.
+    创建因果（下三角）注意力 mask。
 
-    Returns a boolean mask where True = allowed to attend.
-    Shape: (1, 1, seq_len, seq_len) for broadcasting.
+    返回一个布尔 mask，True 表示允许关注。
+    Shape 为 (1, 1, seq_len, seq_len)，方便广播。
     """
     mask = torch.tril(torch.ones(seq_len, seq_len, device=device, dtype=torch.bool))
     return mask.view(1, 1, seq_len, seq_len)
@@ -180,8 +180,8 @@ def create_causal_mask(
 
 class CausalAttention(MultiHeadAttention):
     """
-    Multi-head attention with a causal mask.
-    Each token i can only attend to tokens j <= i.
+    带因果 mask 的 multi-head attention。
+    每个 token i 只能关注 j <= i 的 token。
     """
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -197,10 +197,10 @@ class CausalAttention(MultiHeadAttention):
 
 class GroupedQueryAttention(MultiHeadAttention):
     """
-    Grouped Query Attention: Q heads are grouped, each group shares one KV head.
+    Grouped Query Attention：Q 头分组，每组共享一个 KV 头。
 
-    Typical config: num_kv_heads = num_heads // group_size.
-    For example: num_heads=32, num_kv_heads=8 → 4 query heads share one KV pair.
+    典型配置：num_kv_heads = num_heads // group_size。
+    例如：num_heads=32, num_kv_heads=8 → 4 个 query 头共享一对 KV。
     """
 
     def __init__(
@@ -228,9 +228,9 @@ class GroupedQueryAttention(MultiHeadAttention):
 
 class MultiQueryAttention(MultiHeadAttention):
     """
-    Multi-Query Attention: All Q heads share a single KV head.
+    Multi-Query Attention：所有 Q 头共享单个 KV 头。
 
-    This is the extreme case of GQA with num_kv_heads = 1.
+    这是 GQA 在 num_kv_heads = 1 时的极端情况。
     """
 
     def __init__(
@@ -261,20 +261,20 @@ def create_sliding_window_mask(
     device: torch.device | str = "cpu",
 ) -> torch.Tensor:
     """
-    Create a sliding window attention mask.
+    创建 sliding window 注意力 mask。
 
-    Each token i can attend to tokens in [max(0, i-window+1), i] (if causal).
-    For non-causal, window is centered: [i-window//2, i+window//2].
+    若为 causal，每个 token i 可以关注 [max(0, i-window+1), i] 范围内的 token。
+    若为非 causal，窗口居中：[i-window//2, i+window//2]。
 
     Returns:
-        Boolean mask, shape (1, 1, seq_len, seq_len).
+        布尔 mask，shape 为 (1, 1, seq_len, seq_len)。
     """
     mask = torch.zeros(seq_len, seq_len, device=device, dtype=torch.bool)
 
     for i in range(seq_len):
         if is_causal:
             start = max(0, i - window_size + 1)
-            end = i + 1  # inclusive
+            end = i + 1  # 包含
         else:
             start = max(0, i - window_size // 2)
             end = min(seq_len, i + window_size // 2 + 1)
@@ -285,9 +285,9 @@ def create_sliding_window_mask(
 
 class SlidingWindowAttention(MultiHeadAttention):
     """
-    Sliding window attention: each token only attends to tokens within a local window.
+    Sliding window attention：每个 token 只关注局部窗口内的 token。
 
-    Commonly used in architectures like Mistral and Longformer.
+    常见于 Mistral 和 Longformer 等架构中。
     """
 
     def __init__(
@@ -315,7 +315,7 @@ class SlidingWindowAttention(MultiHeadAttention):
 
 
 # =========================================================================
-# Helper: create attention from config
+# 辅助函数：根据配置创建注意力模块
 # =========================================================================
 
 
@@ -326,16 +326,16 @@ def create_attention(
     **kwargs: object,
 ) -> nn.Module:
     """
-    Factory to create the requested attention variant.
+    工厂函数，创建指定的注意力变体。
 
     Args:
-        variant: One of 'mha', 'causal', 'gqa', 'mqa', 'sliding_window'
-        hidden_size: Model hidden size
-        num_heads: Number of attention heads
-        **kwargs: Additional arguments for specific variants
+        variant: 可选 'mha'、'causal'、'gqa'、'mqa'、'sliding_window' 之一
+        hidden_size: 模型隐藏层大小
+        num_heads: 注意力头数
+        **kwargs: 特定变体的额外参数
 
     Returns:
-        Initialized attention module
+        初始化好的注意力模块
     """
     variant = variant.lower()
     if variant == "mha":
@@ -355,7 +355,7 @@ def create_attention(
 
 
 # =========================================================================
-# Demo
+# 演示
 # =========================================================================
 
 
@@ -387,7 +387,7 @@ def main() -> None:
         print(f"  Output shape: {out.shape}")
         print(f"  Parameters:   {params:,}")
 
-    # Demonstrate raw SDPA
+    # 演示原始 SDPA
     print("\n--- Raw Scaled Dot-Product Attention ---")
     q = torch.randn(1, 8, 16, 64)  # (batch, heads, seq, head_dim)
     k = torch.randn(1, 8, 16, 64)

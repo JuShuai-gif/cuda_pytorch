@@ -1,33 +1,29 @@
 """
-Evolutionary Search with Latency-Aware NAS on CIFAR-10 (Lecture 08)
-====================================================================
-Implements an evolutionary Neural Architecture Search (NAS) algorithm
-that optimises for both accuracy and inference latency.  The search
-space is the same CNN space as Lecture 07.  A **simulated latency
-lookup table** provides per-layer latency estimates (in milliseconds)
-that mimic real-hardware behaviour where larger kernels, more channels,
-and higher resolutions increase cost non-linearly.
+在 CIFAR-10 上使用进化搜索的延迟感知 NAS (第 08 讲)
+======================================================================
+实现一种进化神经网络架构搜索 (NAS) 算法，同时优化准确率和推理延迟。
+搜索空间与第 07 讲相同（CNN 搜索空间）。使用 **模拟延迟查找表**
+提供每层延迟估计（以毫秒为单位），模拟真实硬件行为——更大的卷积核、
+更多的通道数和更高的分辨率会非线性地增加计算开销。
 
-The script consists of three stages:
+脚本包含三个阶段:
 
-    1. **Random search baseline** -- 20 random architectures, each
-       proxy-trained for 3 epochs on CIFAR-10.
-    2. **Evolutionary search** -- population of 10 individuals evolved
-       over 5 generations using tournament selection, one-point
-       crossover, and three mutation operators (kernel, channel, depth).
-       Multi-objective fitness uses non-dominated sorting (NSGA-II
-       style) so the algorithm naturally explores the Pareto frontier.
-    3. **Comparison + visualisation** -- Accuracy-vs-latency scatter
-       plot with both random and evolutionary results superimposed,
-       plus a summary table comparing the two strategies.
+    1. **随机搜索基线** -- 20 个随机架构，每个在 CIFAR-10 上
+       进行 3 个 epoch 的代理训练。
+    2. **进化搜索** -- 10 个个体的种群，经过 5 代进化，使用
+       锦标赛选择、单点交叉和三种变异算子（卷积核、通道、深度）。
+       多目标适应度使用非支配排序（NSGA-II 风格），
+       使算法自然地探索帕累托前沿。
+    3. **比较与可视化** -- 准确率-延迟散点图，叠加显示随机搜索和
+       进化搜索结果，以及两种策略的汇总比较表。
 
-Key concepts:
-  - Evolutionary NAS with population / mutation / crossover
-  - Latency-aware search via simulated lookup table
-  - Pareto-frontier visualisation (accuracy vs latency)
-  - Random search vs evolutionary search comparison
+核心概念:
+  - 带种群/变异/交叉的进化 NAS
+  - 通过模拟查找表进行延迟感知搜索
+  - 帕累托前沿可视化（准确率 vs 延迟）
+  - 随机搜索 vs 进化搜索对比
 
-All computations run on CPU; no GPU required.
+所有计算在 CPU 上运行；无需 GPU。
 """
 
 from __future__ import annotations
@@ -48,58 +44,58 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 
-# Non-interactive backend so plots can be saved without a display
+# 使用非交互式后端，以便在没有显示器的情况下保存图像
 matplotlib.use("Agg")
 
 # =============================================================================
-# Constants
+# 常量定义
 # =============================================================================
 
-# --- Search space ------------------------------------------------------------
-KERNEL_SIZES: List[int] = [3, 5, 7]
-CHANNEL_CHOICES: List[int] = [16, 32, 64, 128]
-DEPTHS: List[int] = [1, 2, 3, 4]
+# --- 搜索空间 ----------------------------------------------------------------
+KERNEL_SIZES: List[int] = [3, 5, 7]  # 允许的卷积核大小
+CHANNEL_CHOICES: List[int] = [16, 32, 64, 128]  # 允许的输出通道数
+DEPTHS: List[int] = [1, 2, 3, 4]  # 允许的网络深度
 
-# --- Evolutionary algorithm --------------------------------------------------
-POPULATION_SIZE: int = 10  # individuals per generation
-NUM_GENERATIONS: int = 5  # evolutionary generations
-TOURNAMENT_SIZE: int = 3  # tournament selection size
-CROSSOVER_PROB: float = 0.7  # probability of crossover
-MUTATION_PROB: float = 0.3  # probability of mutation per individual
+# --- 进化算法参数 ------------------------------------------------------------
+POPULATION_SIZE: int = 10  # 每代种群中的个体数
+NUM_GENERATIONS: int = 5  # 进化代数
+TOURNAMENT_SIZE: int = 3  # 锦标赛选择的候选数
+CROSSOVER_PROB: float = 0.7  # 交叉概率
+MUTATION_PROB: float = 0.3  # 每个个体的变异概率
 
-# --- NAS experiment ----------------------------------------------------------
-NUM_RANDOM_SAMPLES: int = 20  # random search baseline size
-NAS_EPOCHS: int = 3  # proxy-training epochs per architecture
+# --- NAS 实验参数 ------------------------------------------------------------
+NUM_RANDOM_SAMPLES: int = 20  # 随机搜索基线大小
+NAS_EPOCHS: int = 3  # 每个架构的代理训练 epoch 数
 BATCH_SIZE: int = 128
 LEARNING_RATE: float = 0.01
 
-# --- CIFAR-10 data -----------------------------------------------------------
+# --- CIFAR-10 数据参数 -------------------------------------------------------
 CIFAR10_MEAN = (0.4914, 0.4822, 0.4465)
 CIFAR10_STD = (0.2470, 0.2435, 0.2616)
-TRAIN_SUBSET: int = 5000  # train subset for fast proxy evaluation
-VAL_SUBSET: int = 2000  # fixed validation subset
+TRAIN_SUBSET: int = 5000  # 训练子集，用于快速代理评估
+VAL_SUBSET: int = 2000  # 固定验证子集
 
-# --- Reproducibility ---------------------------------------------------------
+# --- 可复现性 ---------------------------------------------------------------
 SEED: int = 42
 
-# --- Device & output ---------------------------------------------------------
+# --- 设备与输出 --------------------------------------------------------------
 DEVICE = torch.device("cpu")
 OUTPUT_PLOT: str = "nas_accuracy_vs_latency.png"
 
 
 # =============================================================================
-# Data Structures
+# 数据结构
 # =============================================================================
 
 
 @dataclass
 class ArchSpec:
-    """Specification of a single CNN architecture.
+    """单个 CNN 架构的规格说明。
 
-    Attributes:
-        depth: Number of convolutional layers (1--4).
-        kernel_sizes: Per-layer kernel sizes, length == depth.
-        out_channels: Per-layer output channel counts, length == depth.
+    属性:
+        depth: 卷积层数 (1--4)。
+        kernel_sizes: 每层的卷积核大小，长度等于 depth。
+        out_channels: 每层的输出通道数，长度等于 depth。
     """
 
     depth: int
@@ -107,26 +103,27 @@ class ArchSpec:
     out_channels: List[int]
 
     def __post_init__(self) -> None:
+        """初始化后验证：确保 kernel_sizes 和 out_channels 的长度与 depth 一致。"""
         if len(self.kernel_sizes) != self.depth:
             raise ValueError(
-                f"kernel_sizes length {len(self.kernel_sizes)} != depth {self.depth}"
+                f"kernel_sizes 长度 {len(self.kernel_sizes)} 与 depth {self.depth} 不匹配"
             )
         if len(self.out_channels) != self.depth:
             raise ValueError(
-                f"out_channels length {len(self.out_channels)} != depth {self.depth}"
+                f"out_channels 长度 {len(self.out_channels)} 与 depth {self.depth} 不匹配"
             )
 
 
 @dataclass
 class EvalResult:
-    """Evaluation result for one architecture.
+    """单个架构的评估结果。
 
-    Attributes:
-        arch: The architecture specification.
-        accuracy: Validation top-1 accuracy in (0, 1).
-        latency_ms: Total estimated inference latency in milliseconds.
-        train_time_s: Training wall-clock time in seconds.
-        source: "random" or "evolutionary" label for plotting.
+    属性:
+        arch: 架构规格说明。
+        accuracy: 验证集 top-1 准确率，取值范围 (0, 1)。
+        latency_ms: 估计的总推理延迟（毫秒）。
+        train_time_s: 训练实际耗时（秒）。
+        source: 绘图标签："random" 或 "evolutionary"。
     """
 
     arch: ArchSpec
@@ -137,34 +134,31 @@ class EvalResult:
 
 
 # =============================================================================
-# Simulated Latency Lookup Table
+# 模拟延迟查找表
 # =============================================================================
 #
-# In real hardware-aware NAS (e.g., ProxylessNAS, MNasNet, FBNet), latency
-# is measured on the target device and stored in a lookup table keyed by
-# (kernel_size, in_channels, out_channels, height, width).  Here we simulate
-# this with a parametric model that captures the key trends:
+# 在真实的硬件感知 NAS（例如 ProxylessNAS、MNasNet、FBNet）中，延迟
+# 在目标设备上测量并存储在按 (kernel_size, in_channels, out_channels, height, width)
+# 索引的查找表中。这里我们使用一个参数化模型来模拟这一点，该模型捕捉了关键趋势：
 #
-#   latency ~ (kernel_size^2 * in_c * out_c * H_out * W_out) / peak_ops
+#   延迟 ~ (kernel_size^2 * in_c * out_c * H_out * W_out) / peak_ops
 #
-# plus a small penalty for small tensors (launch-overhead effects) and
-# a non-linear ceiling for very large layers (memory-bound behaviour).
+# 再加上对小张量的小惩罚（启动开销效应）和对非常大的层的非线性上限
+# （内存带宽受限行为）。
 #
-# The table is lazily populated so we only compute entries that are
-# actually queried during the search.
+# 该表采用惰性填充，只有搜索期间实际查询的条目才会被计算。
 
 
 class LatencyLookupTable:
-    """Simulated latency lookup table for hardware-aware NAS.
+    """用于硬件感知 NAS 的模拟延迟查找表。
 
-    Models per-layer latency (ms) as a function of kernel size, input/output
-    channels, and spatial resolution.  Results are cached so repeated queries
-    for the same key return instantly.
+    将每层延迟（毫秒）建模为卷积核大小、输入/输出通道数和
+    空间分辨率的函数。结果会被缓存，因此对相同键的重复查询会立即返回。
 
-    Attributes:
-        peak_ops_per_ms: Peak throughput in operations per millisecond.
-        overhead_ms: Fixed launch overhead per Conv2d layer (ms).
-        cache: Internal dict mapping (k, in_c, out_c, h, w) -> latency_ms.
+    属性:
+        peak_ops_per_ms: 每秒百万次操作的峰值吞吐量。
+        overhead_ms:     每个 Conv2d 层的固定启动开销（毫秒）。
+        cache:           内部字典，映射 (k, in_c, out_c, h, w) -> latency_ms。
     """
 
     def __init__(
@@ -172,6 +166,12 @@ class LatencyLookupTable:
         peak_ops_per_ms: float = 1e5,
         overhead_ms: float = 0.02,
     ) -> None:
+        """初始化延迟查找表。
+
+        参数:
+            peak_ops_per_ms: 峰值吞吐量（每秒百万次操作）。
+            overhead_ms:     每个 Conv2d 层的固定启动开销（毫秒）。
+        """
         self.peak_ops_per_ms = peak_ops_per_ms
         self.overhead_ms = overhead_ms
         self._cache: Dict[Tuple[int, int, int, int, int], float] = {}
@@ -186,47 +186,48 @@ class LatencyLookupTable:
         stride: int = 1,
         padding: int = 0,
     ) -> float:
-        """Return simulated latency (ms) for one Conv2d layer.
+        """返回一个 Conv2d 层的模拟延迟（毫秒）。
 
-        Args:
-            kernel:  Square kernel size.
-            in_c:    Input channels.
-            out_c:   Output channels.
-            h:       Input spatial height.
-            w:       Input spatial width.
-            stride:  Stride (default 1).
-            padding: Padding (default 0).
+        参数:
+            kernel:  方形卷积核大小。
+            in_c:    输入通道数。
+            out_c:   输出通道数。
+            h:       输入空间高度。
+            w:       输入空间宽度。
+            stride:  步长（默认 1）。
+            padding: 填充（默认 0）。
 
-        Returns:
-            Simulated latency in milliseconds.
+        返回:
+            模拟延迟（毫秒）。
         """
         key = (kernel, in_c, out_c, h, w)
+        # 如果缓存命中，直接返回
         if key in self._cache:
             return self._cache[key]
 
-        # Output spatial size
+        # 计算输出空间尺寸
         h_out = (h + 2 * padding - kernel) // stride + 1
         w_out = (w + 2 * padding - kernel) // stride + 1
 
-        # Total MACs for this layer
+        # 该层的总 MACs
         macs = out_c * h_out * w_out * in_c * kernel * kernel
 
-        # Base latency: compute-bound portion
+        # 基础延迟：计算受限部分
         latency_compute = macs / self.peak_ops_per_ms
 
-        # Memory-bound penalty for very large layers
+        # 对非常大的层施加内存带宽惩罚
         elements = out_c * h_out * w_out
         if elements > 100_000:
-            latency_compute *= 1.3  # +30% penalty due to memory bandwidth
+            latency_compute *= 1.3  # 因内存带宽限制 +30% 惩罚
 
-        # Launch overhead + compute
+        # 启动开销 + 计算开销
         latency_ms = self.overhead_ms + latency_compute
 
-        # Small non-linear scaling to simulate hardware pipeline effects
+        # 小型非线性缩放以模拟硬件流水线效应
         if kernel >= 5:
-            latency_ms *= 1.15  # extra cost for larger kernels on real hardware
+            latency_ms *= 1.15  # 在真实硬件上大卷积核的额外开销
 
-        self._cache[key] = latency_ms
+        self._cache[key] = latency_ms  # 缓存结果
         return latency_ms
 
     def estimate_model_latency(
@@ -234,26 +235,27 @@ class LatencyLookupTable:
         spec: ArchSpec,
         input_shape: Tuple[int, int, int] = (3, 32, 32),
     ) -> float:
-        """Estimate total inference latency for a full architecture.
+        """估算整个架构的总推理延迟。
 
-        Simulates a forward pass through the VGG-style backbone (Conv2d ->
-        MaxPool2d(2) per layer) and sums the per-layer Conv2d latencies.
+        模拟通过 VGG 风格骨干网络的前向传播（每层 Conv2d -> MaxPool2d(2)），
+        并将每层 Conv2d 的延迟求和。
 
-        Args:
-            spec:        Architecture specification.
-            input_shape: (C, H, W) of the input image.
+        参数:
+            spec:        架构规格说明。
+            input_shape: 输入图像的 (C, H, W)。
 
-        Returns:
-            Total simulated latency in milliseconds.
+        返回:
+            总模拟延迟（毫秒）。
         """
         in_c, h, w = input_shape
         total_ms = 0.0
 
+        # 逐层累加延迟，并模拟 MaxPool2d(2) 后的空间尺寸减半
         for i in range(spec.depth):
             out_c = spec.out_channels[i]
             k = spec.kernel_sizes[i]
             total_ms += self.query(k, in_c, out_c, h, w, stride=1, padding=k // 2)
-            # After MaxPool2d(2): spatial halves, channels stay
+            # MaxPool2d(2) 后：空间尺寸减半，通道数不变
             h //= 2
             w //= 2
             in_c = out_c
@@ -262,23 +264,23 @@ class LatencyLookupTable:
 
 
 # =============================================================================
-# NAS CNN Builder (shared with Lecture 07)
+# NAS CNN 构建器（与第 07 讲共用）
 # =============================================================================
 
 
 class NasCNN(nn.Module):
-    """A VGG-style CNN built from an ArchSpec.
+    """根据 ArchSpec 构建的 VGG 风格 CNN 网络。
 
-    Each layer consists of:
+    每一层由以下模块组成:
         Conv2d -> BatchNorm2d -> ReLU -> MaxPool2d(2)
 
-    After the convolutional backbone, features are reduced via
-    AdaptiveAvgPool2d(1) and classified by a single Linear layer.
+    在卷积骨干网络之后，通过 AdaptiveAvgPool2d(1) 进行特征降维，
+    最后使用一个 Linear 层进行分类。
 
-    Args:
-        spec:        Architecture specification (depth, kernels, channels).
-        in_channels: Number of input image channels (3 for CIFAR-10).
-        num_classes: Number of output classes (10 for CIFAR-10).
+    参数:
+        spec:        架构规格说明（深度、卷积核、通道数）。
+        in_channels: 输入图像的通道数（CIFAR-10 为 3）。
+        num_classes: 输出类别数（CIFAR-10 为 10）。
     """
 
     def __init__(
@@ -292,21 +294,25 @@ class NasCNN(nn.Module):
         layers: List[nn.Module] = []
         in_ch = in_channels
 
+        # 根据 spec 逐层构建 Conv2d -> BN -> ReLU -> MaxPool 块
         for i in range(spec.depth):
             out_ch = spec.out_channels[i]
             k = spec.kernel_sizes[i]
-            layers.append(nn.Conv2d(in_ch, out_ch, k, padding=k // 2))
-            layers.append(nn.BatchNorm2d(out_ch))
-            layers.append(nn.ReLU(inplace=True))
-            layers.append(nn.MaxPool2d(2))
-            in_ch = out_ch
+            layers.append(
+                nn.Conv2d(in_ch, out_ch, k, padding=k // 2)
+            )  # 卷积层，保持空间尺寸
+            layers.append(nn.BatchNorm2d(out_ch))  # 批归一化
+            layers.append(nn.ReLU(inplace=True))  # 激活函数
+            layers.append(nn.MaxPool2d(2))  # 2倍下采样
+            in_ch = out_ch  # 更新输入通道数供下一层使用
 
-        self.backbone = nn.Sequential(*layers)
-        self.gap = nn.AdaptiveAvgPool2d(1)
-        self.flatten = nn.Flatten(1)
-        self.classifier = nn.Linear(in_ch, num_classes)
+        self.backbone = nn.Sequential(*layers)  # 卷积骨干网络
+        self.gap = nn.AdaptiveAvgPool2d(1)  # 全局平均池化
+        self.flatten = nn.Flatten(1)  # 展平操作
+        self.classifier = nn.Linear(in_ch, num_classes)  # 分类头
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """前向传播：骨干网络 -> 全局平均池化 -> 展平 -> 分类器。"""
         x = self.backbone(x)
         x = self.gap(x)
         x = self.flatten(x)
@@ -315,7 +321,7 @@ class NasCNN(nn.Module):
 
 
 # =============================================================================
-# CIFAR-10 Data Loading
+# CIFAR-10 数据加载
 # =============================================================================
 
 
@@ -324,19 +330,20 @@ def get_cifar10_subset(
     num_val: int = VAL_SUBSET,
     seed: int = SEED,
 ) -> Tuple[DataLoader, DataLoader]:
-    """Load CIFAR-10 and create fixed training and validation subsets.
+    """加载 CIFAR-10 并创建固定的训练和验证子集。
 
-    Using smaller subsets keeps NAS search fast on CPU while still providing
-    a meaningful accuracy signal for architecture ranking.
+    使用较小的子集可以保持 NAS 搜索在 CPU 上的速度，同时仍然
+    为架构排序提供有意义的准确率信号。
 
-    Args:
-        num_train: Number of training samples.
-        num_val:   Number of validation samples.
-        seed:      Random seed for deterministic subset selection.
+    参数:
+        num_train: 训练样本数量。
+        num_val:   验证样本数量。
+        seed:      随机种子，用于保证子集选择的确定性。
 
-    Returns:
-        Tuple of (train_loader, val_loader).
+    返回:
+        (train_loader, val_loader) 元组。
     """
+    # 训练集数据增强：随机裁剪 + 随机水平翻转 + 归一化
     transform_train = transforms.Compose(
         [
             transforms.RandomCrop(32, padding=4),
@@ -345,6 +352,7 @@ def get_cifar10_subset(
             transforms.Normalize(mean=CIFAR10_MEAN, std=CIFAR10_STD),
         ]
     )
+    # 验证集仅做归一化
     transform_val = transforms.Compose(
         [
             transforms.ToTensor(),
@@ -352,6 +360,7 @@ def get_cifar10_subset(
         ]
     )
 
+    # 下载并加载 CIFAR-10 数据集
     train_dataset = datasets.CIFAR10(
         root="./data", train=True, download=True, transform=transform_train
     )
@@ -359,17 +368,20 @@ def get_cifar10_subset(
         root="./data", train=False, download=True, transform=transform_val
     )
 
+    # 固定验证子集（确定性选择，保证公平比较）
     rng = np.random.RandomState(seed)
     val_indices = rng.choice(
         len(val_dataset), size=min(num_val, len(val_dataset)), replace=False
     )
     val_subset = Subset(val_dataset, val_indices)
 
+    # 训练子集（同样确定性）
     train_indices = rng.choice(
         len(train_dataset), size=min(num_train, len(train_dataset)), replace=False
     )
     train_subset = Subset(train_dataset, train_indices)
 
+    # 创建 DataLoader
     train_loader = DataLoader(
         train_subset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0
     )
@@ -381,7 +393,7 @@ def get_cifar10_subset(
 
 
 # =============================================================================
-# Training & Evaluation Utilities
+# 训练与评估工具函数
 # =============================================================================
 
 
@@ -391,16 +403,16 @@ def train_one_epoch(
     optimizer: optim.Optimizer,
     criterion: nn.Module,
 ) -> float:
-    """Train the model for one epoch.
+    """训练模型一个 epoch。
 
-    Args:
-        model:     A PyTorch nn.Module on the correct device.
-        loader:    DataLoader yielding (images, labels) batches.
-        optimizer: Optimizer instance.
-        criterion: Loss function.
+    参数:
+        model:     已放置在正确设备上的 PyTorch nn.Module。
+        loader:    产生 (images, labels) 批次的 DataLoader。
+        optimizer: 优化器实例。
+        criterion: 损失函数。
 
-    Returns:
-        Average training loss over the epoch.
+    返回:
+        该 epoch 的平均训练损失。
     """
     model.train()
     running_loss = 0.0
@@ -410,13 +422,13 @@ def train_one_epoch(
         images = images.to(DEVICE)
         labels = labels.to(DEVICE)
 
-        optimizer.zero_grad()
-        outputs = model(images)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
+        optimizer.zero_grad()  # 清空梯度
+        outputs = model(images)  # 前向传播
+        loss = criterion(outputs, labels)  # 计算损失
+        loss.backward()  # 反向传播
+        optimizer.step()  # 更新参数
 
-        running_loss += loss.item() * images.size(0)
+        running_loss += loss.item() * images.size(0)  # 累加加权损失
         total_samples += images.size(0)
 
     return running_loss / max(total_samples, 1)
@@ -424,14 +436,14 @@ def train_one_epoch(
 
 @torch.no_grad()
 def evaluate_accuracy(model: nn.Module, loader: DataLoader) -> float:
-    """Evaluate top-1 accuracy.
+    """评估 top-1 准确率。
 
-    Args:
-        model:  A PyTorch nn.Module on the correct device.
-        loader: DataLoader yielding (images, labels) batches.
+    参数:
+        model:  已放置在正确设备上的 PyTorch nn.Module。
+        loader: 产生 (images, labels) 批次的 DataLoader。
 
-    Returns:
-        Accuracy as a float in [0.0, 1.0].
+    返回:
+        准确率，取值范围 [0.0, 1.0]。
     """
     model.eval()
     correct = 0
@@ -441,8 +453,8 @@ def evaluate_accuracy(model: nn.Module, loader: DataLoader) -> float:
         images = images.to(DEVICE)
         labels = labels.to(DEVICE)
         outputs = model(images)
-        preds = outputs.argmax(dim=1)
-        correct += (preds == labels).sum().item()
+        preds = outputs.argmax(dim=1)  # 取预测得分最高的类别
+        correct += (preds == labels).sum().item()  # 统计正确预测数
         total += labels.size(0)
 
     return correct / max(total, 1)
@@ -455,27 +467,29 @@ def train_and_evaluate(
     epochs: int = NAS_EPOCHS,
     lr: float = LEARNING_RATE,
 ) -> Tuple[float, float]:
-    """Build, train, and evaluate a single architecture.
+    """构建、训练并评估单个架构。
 
-    Args:
-        spec:         Architecture specification.
-        train_loader: Training DataLoader.
-        val_loader:   Validation DataLoader.
-        epochs:       Number of training epochs.
-        lr:           Learning rate.
+    参数:
+        spec:         架构规格说明。
+        train_loader: 训练 DataLoader。
+        val_loader:   验证 DataLoader。
+        epochs:       训练 epoch 数。
+        lr:           学习率。
 
-    Returns:
-        Tuple of (validation_accuracy, training_wall_time_seconds).
+    返回:
+        (验证准确率, 训练实际耗时_秒) 元组。
     """
     model = NasCNN(spec, in_channels=3, num_classes=10).to(DEVICE)
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=epochs
+    )  # 余弦退火学习率
     criterion = nn.CrossEntropyLoss()
 
     t_start = time.time()
     for _epoch in range(epochs):
         train_one_epoch(model, train_loader, optimizer, criterion)
-        scheduler.step()
+        scheduler.step()  # 更新学习率
 
     acc = evaluate_accuracy(model, val_loader)
     elapsed = time.time() - t_start
@@ -484,7 +498,7 @@ def train_and_evaluate(
 
 
 # =============================================================================
-# Search Space: Random Sampler
+# 搜索空间：随机采样器
 # =============================================================================
 
 
@@ -494,29 +508,33 @@ def random_sample_architecture(
     depth_choices: Sequence[int] = DEPTHS,
     rng: random.Random | None = None,
 ) -> ArchSpec:
-    """Randomly sample an architecture from the search space.
+    """从搜索空间中随机采样一个架构。
 
-    Args:
-        kernel_choices:  Allowed kernel sizes.
-        channel_choices: Allowed output channel counts.
-        depth_choices:   Allowed network depths.
-        rng:             Optional seeded random.Random instance.
+    参数:
+        kernel_choices:  允许的卷积核大小。
+        channel_choices: 允许的输出通道数。
+        depth_choices:   允许的网络深度。
+        rng:             可选带种子的 random.Random 实例。
 
-    Returns:
-        A randomly-sampled ArchSpec.
+    返回:
+        一个随机采样的 ArchSpec。
     """
     if rng is None:
         rng = random.Random()
 
-    depth = rng.choice(list(depth_choices))
-    kernel_sizes = [rng.choice(list(kernel_choices)) for _ in range(depth)]
-    out_channels = [rng.choice(list(channel_choices)) for _ in range(depth)]
+    depth = rng.choice(list(depth_choices))  # 随机选择深度
+    kernel_sizes = [
+        rng.choice(list(kernel_choices)) for _ in range(depth)
+    ]  # 每层随机选择卷积核大小
+    out_channels = [
+        rng.choice(list(channel_choices)) for _ in range(depth)
+    ]  # 每层随机选择输出通道数
 
     return ArchSpec(depth=depth, kernel_sizes=kernel_sizes, out_channels=out_channels)
 
 
 # =============================================================================
-# Evolutionary Operators: Mutation
+# 进化算子：变异
 # =============================================================================
 
 
@@ -525,22 +543,23 @@ def mutate_kernel(
     kernel_choices: Sequence[int] = KERNEL_SIZES,
     rng: random.Random | None = None,
 ) -> ArchSpec:
-    """Mutate the kernel size of one randomly-chosen layer.
+    """变异随机选择的一层的卷积核大小。
 
-    Args:
-        spec:           Original architecture.
-        kernel_choices: Allowed kernel sizes.
-        rng:            Optional seeded Random.
+    参数:
+        spec:           原始架构。
+        kernel_choices: 允许的卷积核大小。
+        rng:            可选带种子的 Random。
 
-    Returns:
-        A new ArchSpec with one kernel mutated.
+    返回:
+        新 ArchSpec，其中一个卷积核发生了变异。
     """
     if rng is None:
         rng = random.Random()
 
     new_kernels = list(spec.kernel_sizes)
-    idx = rng.randint(0, spec.depth - 1)
+    idx = rng.randint(0, spec.depth - 1)  # 随机选择要变异的位置
     old_k = new_kernels[idx]
+    # 选择一个不同于当前值的卷积核大小
     choices = [k for k in kernel_choices if k != old_k]
     if not choices:
         choices = list(kernel_choices)
@@ -558,22 +577,23 @@ def mutate_channels(
     channel_choices: Sequence[int] = CHANNEL_CHOICES,
     rng: random.Random | None = None,
 ) -> ArchSpec:
-    """Mutate the channel count of one randomly-chosen layer.
+    """变异随机选择的一层的通道数。
 
-    Args:
-        spec:            Original architecture.
-        channel_choices: Allowed output channel counts.
-        rng:             Optional seeded Random.
+    参数:
+        spec:            原始架构。
+        channel_choices: 允许的输出通道数。
+        rng:             可选带种子的 Random。
 
-    Returns:
-        A new ArchSpec with one channel mutated.
+    返回:
+        新 ArchSpec，其中一个通道数发生了变异。
     """
     if rng is None:
         rng = random.Random()
 
     new_channels = list(spec.out_channels)
-    idx = rng.randint(0, spec.depth - 1)
+    idx = rng.randint(0, spec.depth - 1)  # 随机选择要变异的位置
     old_ch = new_channels[idx]
+    # 选择一个不同于当前值的通道数
     choices_ch = [c for c in channel_choices if c != old_ch]
     if not choices_ch:
         choices_ch = list(channel_choices)
@@ -593,41 +613,42 @@ def mutate_depth(
     channel_choices: Sequence[int] = CHANNEL_CHOICES,
     rng: random.Random | None = None,
 ) -> ArchSpec:
-    """Mutate the depth of the architecture (add or remove one layer).
+    """变异架构的深度（添加或删除一层）。
 
-    - If depth is at the minimum, force add.
-    - If depth is at the maximum, force remove.
-    - Otherwise randomly add or remove.
+    - 如果深度已经是最小值，强制添加。
+    - 如果深度已经是最大值，强制删除。
+    - 否则随机选择添加或删除。
 
-    When adding, the new layer inherits kernel/channel from a random
-    existing layer.  When removing, a random layer is dropped.
+    添加时，新层的卷积核/通道从现有层中随机继承。
+    删除时，随机丢弃一层。
 
-    Args:
-        spec:            Original architecture.
-        depth_choices:   Allowed depths.
-        kernel_choices:  Allowed kernel sizes (for new layers).
-        channel_choices: Allowed channel counts (for new layers).
-        rng:             Optional seeded Random.
+    参数:
+        spec:            原始架构。
+        depth_choices:   允许的深度范围。
+        kernel_choices:  允许的卷积核大小（用于新层）。
+        channel_choices: 允许的通道数（用于新层）。
+        rng:             可选带种子的 Random。
 
-    Returns:
-        A new ArchSpec with depth changed by +/- 1.
+    返回:
+        深度变化 +/- 1 的新 ArchSpec。
     """
     if rng is None:
         rng = random.Random()
 
     current_depth = spec.depth
-    can_add = current_depth < max(depth_choices)
-    can_remove = current_depth > min(depth_choices)
+    can_add = current_depth < max(depth_choices)  # 是否还能增加深度
+    can_remove = current_depth > min(depth_choices)  # 是否还能减少深度
 
+    # 根据边界条件决定是添加还是删除
     if can_add and can_remove:
-        add_layer = rng.random() < 0.5
+        add_layer = rng.random() < 0.5  # 50% 概率添加
     elif can_add:
         add_layer = True
     else:
-        add_layer = False  # must remove
+        add_layer = False  # 必须删除
 
     if add_layer:
-        # Insert a new layer at a random position
+        # 在随机位置插入新层
         insert_pos = rng.randint(0, current_depth)
         new_kernel = rng.choice(list(kernel_choices))
         new_channel = rng.choice(list(channel_choices))
@@ -643,7 +664,7 @@ def mutate_depth(
             out_channels=new_channels,
         )
     else:
-        # Remove a random layer
+        # 删除随机位置的一层
         remove_pos = rng.randint(0, current_depth - 1)
         new_kernels = list(spec.kernel_sizes)
         new_channels = list(spec.out_channels)
@@ -664,25 +685,24 @@ def mutate(
     depth_choices: Sequence[int] = DEPTHS,
     rng: random.Random | None = None,
 ) -> ArchSpec:
-    """Apply one random mutation operator to an architecture.
+    """对架构应用一种随机变异算子。
 
-    Picks uniformly among kernel mutation, channel mutation, and depth
-    mutation.
+    在卷积核变异、通道变异和深度变异之间均匀随机选择。
 
-    Args:
-        spec:            Original architecture.
-        kernel_choices:  Allowed kernel sizes.
-        channel_choices: Allowed output channel counts.
-        depth_choices:   Allowed depths.
-        rng:             Optional seeded Random.
+    参数:
+        spec:            原始架构。
+        kernel_choices:  允许的卷积核大小。
+        channel_choices: 允许的输出通道数。
+        depth_choices:   允许的深度范围。
+        rng:             可选带种子的 Random。
 
-    Returns:
-        A mutated ArchSpec.
+    返回:
+        变异后的 ArchSpec。
     """
     if rng is None:
         rng = random.Random()
 
-    op = rng.choice(["kernel", "channel", "depth"])
+    op = rng.choice(["kernel", "channel", "depth"])  # 随机选择变异类型
     if op == "kernel":
         return mutate_kernel(spec, kernel_choices, rng)
     elif op == "channel":
@@ -692,7 +712,7 @@ def mutate(
 
 
 # =============================================================================
-# Evolutionary Operators: Crossover
+# 进化算子：交叉
 # =============================================================================
 
 
@@ -701,20 +721,19 @@ def crossover(
     parent2: ArchSpec,
     rng: random.Random | None = None,
 ) -> Tuple[ArchSpec, ArchSpec]:
-    """One-point crossover on the layer lists of two parent architectures.
+    """对两个父架构的层列表进行单点交叉。
 
-    Both parents must have the same depth for crossover to be meaningful.
-    If depths differ, the longer parent is truncated to the shorter length
-    and a random layer is appended so children have the same depth as the
-    longer parent.
+    两个父代必须具有相同的深度，交叉才有意义。
+    如果深度不同，则较长的父代被截断为较短的长度，
+    并附加一个随机层，使得子代与较长父代具有相同的深度。
 
-    Args:
-        parent1: First parent ArchSpec.
-        parent2: Second parent ArchSpec.
-        rng:     Optional seeded Random.
+    参数:
+        parent1: 第一个父代 ArchSpec。
+        parent2: 第二个父代 ArchSpec。
+        rng:     可选带种子的 Random。
 
-    Returns:
-        Tuple of two child ArchSpecs (child1, child2).
+    返回:
+        两个子代 ArchSpec 的元组 (child1, child2)。
     """
     if rng is None:
         rng = random.Random()
@@ -722,8 +741,8 @@ def crossover(
     d1, d2 = parent1.depth, parent2.depth
     min_depth = min(d1, d2)
 
+    # 深度为 1 时交叉没有意义；直接返回克隆
     if min_depth < 2:
-        # Crossover not meaningful for depth 1; return clones
         return (
             ArchSpec(
                 depth=d1,
@@ -737,23 +756,23 @@ def crossover(
             ),
         )
 
-    # Align to the same depth for crossover
+    # 对齐到相同深度以进行交叉
     k1 = list(parent1.kernel_sizes[:min_depth])
     k2 = list(parent2.kernel_sizes[:min_depth])
     ch1 = list(parent1.out_channels[:min_depth])
     ch2 = list(parent2.out_channels[:min_depth])
 
-    # Pick a crossover point (1..min_depth-1)
+    # 随机选择交叉点 (1..min_depth-1)
     point = rng.randint(1, min_depth - 1)
 
-    # Swap tails
+    # 交换尾部
     child1_k = k1[:point] + k2[point:]
     child1_ch = ch1[:point] + ch2[point:]
     child2_k = k2[:point] + k1[point:]
     child2_ch = ch2[:point] + ch1[point:]
 
-    # If parents had different depths, preserve the longer one's shape
-    # by appending the excess layers from the original parents
+    # 如果父代深度不同，保留较长父代的形状
+    # 通过追加原始父代的额外层来实现
     if d1 > min_depth:
         child1_k.extend(parent1.kernel_sizes[min_depth:])
         child2_k.extend(parent1.kernel_sizes[min_depth:])
@@ -773,39 +792,38 @@ def crossover(
 
 
 # =============================================================================
-# Evolutionary Operators: Selection
+# 进化算子：选择
 # =============================================================================
 
 
 def non_dominated_sorting(
     results: List[EvalResult],
 ) -> List[List[int]]:
-    """NSGA-II non-dominated sorting on accuracy and latency.
+    """基于准确率和延迟的 NSGA-II 非支配排序。
 
-    Returns a list of fronts, where the first front contains indices of
-    all non-dominated individuals, the second front contains indices
-    of individuals dominated only by the first front, etc.
+    返回一个前沿列表，其中第一个前沿包含所有非支配个体的索引，
+    第二个前沿包含仅被第一个前沿支配的个体的索引，依此类推。
 
-    We maximise accuracy and minimise latency.
+    我们最大化准确率并最小化延迟。
 
-    Args:
-        results: List of EvalResult for the population.
+    参数:
+        results: 种群的 EvalResult 列表。
 
-    Returns:
-        List of fronts; each front is a list of indices into ``results``.
+    返回:
+        前沿列表；每个前沿是一个指向 ``results`` 的索引列表。
     """
     n = len(results)
-    # domination: S[i] = set of indices that i dominates
+    # dominates: S[i] = i 支配的索引集合
     dominates: List[List[int]] = [[] for _ in range(n)]
-    # dominated_by_count[i] = how many dominate i
+    # dominated_by_count[i] = 支配 i 的个体数量
     dominated_by_count: List[int] = [0] * n
 
+    # 两两比较，确定支配关系
     for i in range(n):
         for j in range(n):
             if i == j:
                 continue
-            # i dominates j if i has >= accuracy AND <= latency
-            # with strict inequality on at least one
+            # i 支配 j，当 i 的准确率 >= j 且延迟 <= j，且至少一个严格占优
             better_acc = results[i].accuracy >= results[j].accuracy
             better_lat = results[i].latency_ms <= results[j].latency_ms
             strictly_better = (
@@ -817,7 +835,7 @@ def non_dominated_sorting(
                 dominated_by_count[j] += 1
 
     fronts: List[List[int]] = []
-    # First front: individuals with dominated_by_count == 0
+    # 第一个前沿：dominated_by_count == 0 的个体（不被任何其他个体支配）
     current_front = [i for i in range(n) if dominated_by_count[i] == 0]
     while current_front:
         fronts.append(current_front)
@@ -825,6 +843,7 @@ def non_dominated_sorting(
         for i in current_front:
             for j in dominates[i]:
                 dominated_by_count[j] -= 1
+                # 如果 j 不再被任何未处理的前沿支配，则加入下一个前沿
                 if dominated_by_count[j] == 0:
                     next_front.append(j)
         current_front = next_front
@@ -839,39 +858,39 @@ def tournament_select(
     tournament_size: int = TOURNAMENT_SIZE,
     rng: random.Random | None = None,
 ) -> ArchSpec:
-    """Tournament selection based on Pareto rank (from non-dominated sorting).
+    """基于帕累托等级（来自非支配排序）的锦标赛选择。
 
-    Randomly selects ``tournament_size`` candidates from the population.
-    Returns the one with the best (lowest) Pareto rank, breaking ties
-    by preferring higher accuracy.
+    从种群中随机选择 ``tournament_size`` 个候选个体。
+    返回帕累托等级最好（最低）的一个，等级相同时优先选择准确率更高的。
 
-    Args:
-        population:      Current population (list of ArchSpec).
-        pop_results:     Corresponding EvalResult for each individual.
-        fronts:          Non-dominated sorting fronts (list of index lists).
-        tournament_size: Number of individuals in each tournament.
-        rng:             Optional seeded Random.
+    参数:
+        population:       当前种群（ArchSpec 列表）。
+        pop_results:      每个个体的对应 EvalResult。
+        fronts:           非支配排序前沿列表（索引列表的列表）。
+        tournament_size:  每个锦标赛中的个体数。
+        rng:              可选带种子的 Random。
 
-    Returns:
-        The selected ArchSpec.
+    返回:
+        被选中的 ArchSpec。
     """
     if rng is None:
         rng = random.Random()
 
-    # Pre-compute rank for each individual
+    # 预计算每个个体的等级
     rank_of: Dict[int, int] = {}
     for rank, front in enumerate(fronts):
         for idx in front:
             rank_of[idx] = rank
 
     n = len(population)
-    # Pick tournament_size random candidates
+    # 随机选择 tournament_size 个候选
     candidates = [rng.randint(0, n - 1) for _ in range(tournament_size)]
 
     best_idx = candidates[0]
     best_rank = rank_of.get(best_idx, 999999)
     best_acc = pop_results[best_idx].accuracy
 
+    # 遍历其余候选，找出等级最低（准确率最高打破平局）的个体
     for idx in candidates[1:]:
         r = rank_of.get(idx, 999999)
         acc = pop_results[idx].accuracy
@@ -884,7 +903,7 @@ def tournament_select(
 
 
 # =============================================================================
-# Evolutionary Algorithm Main Loop
+# 进化算法主循环
 # =============================================================================
 
 
@@ -896,32 +915,32 @@ def run_evolutionary_search(
     generations: int = NUM_GENERATIONS,
     rng: random.Random | None = None,
 ) -> List[EvalResult]:
-    """Run the full evolutionary NAS search.
+    """运行完整的进化 NAS 搜索。
 
-    1. Initialise a random population of ``population_size`` architectures.
-    2. Evaluate fitness (accuracy + latency) for each individual.
-    3. For each generation:
-       a. Perform non-dominated sorting on the current population.
-       b. Create offspring via tournament selection, crossover, mutation.
-       c. Evaluate offspring.
-       d. Combine parents + offspring, select top ``population_size``
-          using Pareto rank + accuracy tie-breaker.
+    1. 初始化 ``population_size`` 个架构的随机种群。
+    2. 评估每个个体的适应度（准确率 + 延迟）。
+    3. 每一代:
+       a. 对当前种群执行非支配排序。
+       b. 通过锦标赛选择、交叉、变异创建子代。
+       c. 评估子代。
+       d. 合并父代 + 子代，使用帕累托等级 + 准确率打破平局，
+          选择前 ``population_size`` 个个体。
 
-    Args:
-        train_loader:  Training DataLoader.
-        val_loader:    Validation DataLoader.
-        latency_table: Latency lookup table.
-        population_size: Size of the population.
-        generations:     Number of generations to evolve.
-        rng:             Optional seeded Random.
+    参数:
+        train_loader:    训练 DataLoader。
+        val_loader:      验证 DataLoader。
+        latency_table:   延迟查找表。
+        population_size: 种群大小。
+        generations:     进化代数。
+        rng:             可选带种子的 Random。
 
-    Returns:
-        List of EvalResult for the final population.
+    返回:
+        最终种群的 EvalResult 列表。
     """
     if rng is None:
         rng = random.Random()
 
-    # --- 1. Initialise random population -------------------------------------
+    # --- 1. 初始化随机种群 ---------------------------------------------------
     population: List[ArchSpec] = []
     for _ in range(population_size):
         population.append(random_sample_architecture(rng=rng))
@@ -930,7 +949,7 @@ def run_evolutionary_search(
     print(f"\n  Evaluating initial population ({population_size} architectures) ...")
     for i, spec in enumerate(population):
         acc, train_time = train_and_evaluate(spec, train_loader, val_loader)
-        lat = latency_table.estimate_model_latency(spec)
+        lat = latency_table.estimate_model_latency(spec)  # 估算模型延迟
         pop_results.append(
             EvalResult(
                 arch=spec,
@@ -946,34 +965,34 @@ def run_evolutionary_search(
             f"acc={acc * 100:.2f}%  lat={lat:.3f}ms"
         )
 
-    # --- 2. Evolution loop ---------------------------------------------------
+    # --- 2. 进化循环 ---------------------------------------------------------
     for gen in range(generations):
         print(
             f"\n  --- Generation {gen + 1}/{generations} "
             f"(population {population_size}) ---"
         )
 
-        # Non-dominated sorting of current population
+        # 对当前种群进行非支配排序
         fronts = non_dominated_sorting(pop_results)
         print(
             f"    Pareto fronts: {len(fronts)}  (front 0: {len(fronts[0])} individuals)"
         )
 
-        # Create offspring
+        # 创建子代
         offspring: List[ArchSpec] = []
         while len(offspring) < population_size:
-            # Selection
+            # 锦标赛选择：从种群中选择两个父代
             p1 = tournament_select(population, pop_results, fronts, rng=rng)
             p2 = tournament_select(population, pop_results, fronts, rng=rng)
 
-            # Crossover
+            # 交叉：以一定概率对两个父代进行单点交叉
             if rng.random() < CROSSOVER_PROB and p1.depth >= 2 and p2.depth >= 2:
                 c1, c2 = crossover(p1, p2, rng)
             else:
                 c1 = copy.deepcopy(p1)
                 c2 = copy.deepcopy(p2)
 
-            # Mutation
+            # 变异：以一定概率对子代应用随机变异
             if rng.random() < MUTATION_PROB:
                 c1 = mutate(c1, rng=rng)
             if rng.random() < MUTATION_PROB:
@@ -983,12 +1002,12 @@ def run_evolutionary_search(
             if len(offspring) < population_size:
                 offspring.append(c2)
 
-        # Evaluate offspring
+        # 评估子代
         offspring_results: List[EvalResult] = []
         print(f"    Evaluating offspring ({len(offspring)} architectures) ...")
         for i, spec in enumerate(offspring):
             acc, train_time = train_and_evaluate(spec, train_loader, val_loader)
-            lat = latency_table.estimate_model_latency(spec)
+            lat = latency_table.estimate_model_latency(spec)  # 估算模型延迟
             offspring_results.append(
                 EvalResult(
                     arch=spec,
@@ -999,31 +1018,31 @@ def run_evolutionary_search(
                 )
             )
 
-        # --- Environmental selection: keep best population_size individuals ---
+        # --- 环境选择：保留最优的 population_size 个个体 -----------------------
         combined_pop = population + offspring
         combined_results = pop_results + offspring_results
 
-        # Rank all combined individuals
+        # 对所有合并个体进行排序
         combined_fronts = non_dominated_sorting(combined_results)
 
-        # Select top population_size by Pareto rank (then accuracy tie-break)
+        # 按帕累托等级选择前 population_size 个（等级相同时按准确率打破平局）
         rank_of: Dict[int, int] = {}
         for rank, front in enumerate(combined_fronts):
             for idx in front:
                 rank_of[idx] = rank
 
-        # Sort by (rank, -accuracy) -- best first
+        # 按 (rank, -accuracy) 排序——最优的排在前面
         ranked_indices = sorted(
             range(len(combined_results)),
             key=lambda i: (rank_of.get(i, 999999), -combined_results[i].accuracy),
         )
 
-        # Keep the best
+        # 保留最优个体
         kept_indices = ranked_indices[:population_size]
         population = [combined_pop[i] for i in kept_indices]
         pop_results = [combined_results[i] for i in kept_indices]
 
-        # Print generation summary
+        # 打印该代的汇总信息
         gen_accs = [r.accuracy * 100 for r in pop_results]
         gen_lats = [r.latency_ms for r in pop_results]
         print(
@@ -1038,7 +1057,7 @@ def run_evolutionary_search(
 
 
 # =============================================================================
-# Plotting: Pareto Frontier (Accuracy vs Latency)
+# 绘图：帕累托前沿（准确率 vs 延迟）
 # =============================================================================
 
 
@@ -1047,20 +1066,19 @@ def plot_pareto_frontier(
     evo_results: List[EvalResult],
     save_path: str = OUTPUT_PLOT,
 ) -> None:
-    """Scatter plot of accuracy vs latency with both random and evolutionary results.
+    """绘制包含随机搜索和进化搜索结果的准确率 vs 延迟散点图。
 
-    Random search results are shown as blue circles; evolutionary search
-    results are shown as red triangles.  The combined Pareto frontier is
-    highlighted with a connecting line and filled markers.
+    随机搜索结果用蓝色圆圈表示；进化搜索结果用红色三角形表示。
+    合并后的帕累托前沿用连接线和填充标记高亮显示。
 
-    Args:
-        random_results: EvalResult list from random search.
-        evo_results:    EvalResult list from evolutionary search.
-        save_path:      File path for the output PNG.
+    参数:
+        random_results: 随机搜索的 EvalResult 列表。
+        evo_results:    进化搜索的 EvalResult 列表。
+        save_path:      输出 PNG 文件的保存路径。
     """
     fig, ax = plt.subplots(figsize=(12, 7))
 
-    # --- Random search points ------------------------------------------------
+    # --- 随机搜索点 ----------------------------------------------------------
     rand_acc = [r.accuracy * 100 for r in random_results]
     rand_lat = [r.latency_ms for r in random_results]
     ax.scatter(
@@ -1076,7 +1094,7 @@ def plot_pareto_frontier(
         zorder=3,
     )
 
-    # --- Evolutionary search points -------------------------------------------
+    # --- 进化搜索点 -----------------------------------------------------------
     evo_acc = [r.accuracy * 100 for r in evo_results]
     evo_lat = [r.latency_ms for r in evo_results]
     ax.scatter(
@@ -1092,13 +1110,13 @@ def plot_pareto_frontier(
         zorder=4,
     )
 
-    # --- Pareto frontier (combined) -------------------------------------------
+    # --- 帕累托前沿（合并后）-------------------------------------------------
     all_results = random_results + evo_results
-    pareto = compute_pareto_frontier(all_results)
+    pareto = compute_pareto_frontier(all_results)  # 计算合并后的帕累托前沿
     pareto_acc = [r.accuracy * 100 for r in pareto]
     pareto_lat = [r.latency_ms for r in pareto]
 
-    # Sort by latency for connecting line
+    # 按延迟排序以绘制连接线
     pareto_sorted = sorted(pareto, key=lambda r: r.latency_ms)
     sorted_acc = [r.accuracy * 100 for r in pareto_sorted]
     sorted_lat = [r.latency_ms for r in pareto_sorted]
@@ -1134,16 +1152,16 @@ def plot_pareto_frontier(
 
 
 def compute_pareto_frontier(results: List[EvalResult]) -> List[EvalResult]:
-    """Identify the Pareto frontier (non-dominated set) for accuracy vs latency.
+    """识别准确率 vs 延迟的帕累托前沿（非支配集合）。
 
-    We maximise accuracy and minimise latency.  An architecture A dominates
-    B if A has >= accuracy AND <= latency with at least one strict inequality.
+    我们最大化准确率并最小化延迟。架构 A 支配 B，当且仅当
+    A 的准确率 >= B 且延迟 <= B，且至少一个为严格不等。
 
-    Args:
-        results: List of EvalResult.
+    参数:
+        results: EvalResult 列表。
 
-    Returns:
-        List of non-dominated EvalResult.
+    返回:
+        非支配的 EvalResult 列表。
     """
     pareto: List[EvalResult] = []
     for r in results:
@@ -1151,7 +1169,9 @@ def compute_pareto_frontier(results: List[EvalResult]) -> List[EvalResult]:
         for other in results:
             if other is r:
                 continue
+            # 如果 other 在准确率上不差于 r 且在延迟上不多于 r
             if other.accuracy >= r.accuracy and other.latency_ms <= r.latency_ms:
+                # 至少有一个严格占优
                 if other.accuracy > r.accuracy or other.latency_ms < r.latency_ms:
                     dominated = True
                     break
@@ -1161,18 +1181,18 @@ def compute_pareto_frontier(results: List[EvalResult]) -> List[EvalResult]:
 
 
 # =============================================================================
-# Utilities
+# 工具函数
 # =============================================================================
 
 
 def arch_summary(spec: ArchSpec) -> str:
-    """Return a compact one-line string describing the architecture.
+    """返回描述架构的紧凑单行字符串。
 
-    Args:
-        spec: Architecture specification.
+    参数:
+        spec: 架构规格说明。
 
-    Returns:
-        String like "D3_C[32,64,128]_K[5,3,7]".
+    返回:
+        类似 "D3_C[32,64,128]_K[5,3,7]" 的字符串。
     """
     ch_str = ",".join(str(c) for c in spec.out_channels)
     k_str = ",".join(str(k) for k in spec.kernel_sizes)
@@ -1180,13 +1200,13 @@ def arch_summary(spec: ArchSpec) -> str:
 
 
 def format_latency(ms: float) -> str:
-    """Format a latency value with appropriate unit.
+    """将延迟值格式化为带适当单位的字符串。
 
-    Args:
-        ms: Latency in milliseconds.
+    参数:
+        ms: 延迟（毫秒）。
 
-    Returns:
-        Formatted string like "2.345ms" or "0.123ms".
+    返回:
+        格式化的字符串，如 "2.345ms" 或 "0.123ms"。
     """
     if ms < 0.01:
         return f"{ms * 1000:.2f}us"
@@ -1194,12 +1214,13 @@ def format_latency(ms: float) -> str:
 
 
 # =============================================================================
-# Main Pipeline
+# 主流程
 # =============================================================================
 
 
 def main() -> None:
-    """Run the full evolutionary NAS pipeline."""
+    """运行完整的进化 NAS 流程。"""
+    # 设置随机种子以保证可复现性
     torch.manual_seed(SEED)
     np.random.seed(SEED)
     rng = random.Random(SEED)
@@ -1208,11 +1229,12 @@ def main() -> None:
     print("  LECTURE 08: Evolutionary Search with Latency-Aware NAS")
     print("=" * 72)
 
-    # ---- 1. Search space & latency table ------------------------------------
+    # ---- 1. 搜索空间与延迟表 -----------------------------------------------
     print(f"\n[1] Search space definition:")
     print(f"  Kernel sizes  : {KERNEL_SIZES}")
     print(f"  Channels      : {CHANNEL_CHOICES}")
     print(f"  Depths        : {DEPTHS}")
+    # 计算搜索空间中所有可能的架构组合总数
     total_configs = sum(
         len(CHANNEL_CHOICES) ** d * len(KERNEL_SIZES) ** d for d in DEPTHS
     )
@@ -1226,14 +1248,14 @@ def main() -> None:
         f"\n  Latency lookup table initialised ({len(latency_table._cache)} entries in cache)"
     )
 
-    # ---- 2. Load CIFAR-10 data ----------------------------------------------
+    # ---- 2. 加载 CIFAR-10 数据 ---------------------------------------------
     print(
         f"\n[2] Loading CIFAR-10 (train subset={TRAIN_SUBSET}, val subset={VAL_SUBSET}) ..."
     )
     train_loader, val_loader = get_cifar10_subset()
     print(f"  Train batches: {len(train_loader)},  Val batches: {len(val_loader)}")
 
-    # ---- 3. Random search baseline ------------------------------------------
+    # ---- 3. 随机搜索基线 ---------------------------------------------------
     print(
         f"\n[3] Running RANDOM SEARCH baseline ({NUM_RANDOM_SAMPLES} architectures) ..."
     )
@@ -1246,7 +1268,7 @@ def main() -> None:
     for i in range(NUM_RANDOM_SAMPLES):
         spec = random_sample_architecture(rng=rng)
         acc, train_time = train_and_evaluate(spec, train_loader, val_loader)
-        lat = latency_table.estimate_model_latency(spec)
+        lat = latency_table.estimate_model_latency(spec)  # 估算模型延迟
         result = EvalResult(
             arch=spec,
             accuracy=acc,
@@ -1261,7 +1283,7 @@ def main() -> None:
             f"{acc * 100:>7.2f}% {format_latency(lat):>9}  {train_time:>6.1f}s"
         )
 
-    # Random search summary
+    # 随机搜索汇总
     rand_accs = [r.accuracy * 100 for r in random_results]
     rand_lats = [r.latency_ms for r in random_results]
     rand_pareto = compute_pareto_frontier(random_results)
@@ -1276,7 +1298,7 @@ def main() -> None:
     )
     print(f"    Pareto frontier:  {len(rand_pareto)} candidates")
 
-    # ---- 4. Evolutionary search ---------------------------------------------
+    # ---- 4. 进化搜索 -------------------------------------------------------
     print(f"\n[4] Running EVOLUTIONARY SEARCH ...")
     t_evo_start = time.time()
     evo_results = run_evolutionary_search(
@@ -1289,7 +1311,7 @@ def main() -> None:
     )
     t_evo_elapsed = time.time() - t_evo_start
 
-    # Evolutionary search summary
+    # 进化搜索汇总
     evo_accs = [r.accuracy * 100 for r in evo_results]
     evo_lats = [r.latency_ms for r in evo_results]
     evo_pareto = compute_pareto_frontier(evo_results)
@@ -1307,7 +1329,7 @@ def main() -> None:
     print(f"    Pareto frontier:  {len(evo_pareto)} candidates")
     print(f"    Latency lookup table: {len(latency_table._cache)} entries cached")
 
-    # ---- 5. Comparison: Random Search vs Evolutionary Search -----------------
+    # ---- 5. 比较：随机搜索 vs 进化搜索 -------------------------------------
     print(f"\n[5] COMPARISON: Random Search vs Evolutionary Search")
     print(f"  {'=' * 60}")
     print(f"  {'Metric':<25} {'Random Search':>16} {'Evolutionary':>16}")
@@ -1333,11 +1355,11 @@ def main() -> None:
         f"  {'Pareto Frontier Size':<25} {len(rand_pareto):>16d} {len(evo_pareto):>16d}"
     )
 
-    # ---- 6. Plot Pareto frontier --------------------------------------------
+    # ---- 6. 绘制帕累托前沿 --------------------------------------------------
     print(f"\n[6] Plotting accuracy vs latency Pareto frontier ...")
     plot_pareto_frontier(random_results, evo_results, save_path=OUTPUT_PLOT)
 
-    # ---- 7. Done ------------------------------------------------------------
+    # ---- 7. 结束 ------------------------------------------------------------
     print("\n" + "=" * 72)
     print("  SUMMARY")
     print("=" * 72)

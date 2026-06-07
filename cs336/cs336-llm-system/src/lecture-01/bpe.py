@@ -1,18 +1,18 @@
 """
-Byte-Pair Encoding (BPE) tokenizer from scratch.
+从零实现 Byte-Pair Encoding (BPE) tokenizer。
 
-Implements the BPE algorithm as described in:
+实现了以下论文中描述的 BPE 算法：
   Sennrich et al. (2016) "Neural Machine Translation of Rare Words with Subword Units"
 
-The tokenizer works at the byte level:
-  - Base vocabulary: 256 single-byte tokens (0-255)
-  - Training: iteratively merges the most frequent adjacent pair of tokens
-  - Encoding: applies learned merges in order to produce token IDs
-  - Decoding: maps token IDs back to bytes, then decodes as UTF-8
+该 tokenizer 在字节层面工作：
+  - 基础词汇表：256 个单字节 token（0-255）
+  - 训练：迭代地合并最频繁的相邻 token 对
+  - 编码：按顺序应用学到的合并规则，生成 token ID 序列
+  - 解码：将 token ID 映射回字节，然后解码为 UTF-8 字符串
 
-Includes self-contained test cases that run when the file is executed directly.
+包含自包含的测试用例，可在直接执行该文件时运行。
 
-Usage:
+用法：
     from bpe import BPETokenizer
     tokenizer = BPETokenizer()
     tokenizer.train(corpus_text, vocab_size=300)
@@ -29,78 +29,77 @@ from __future__ import annotations
 
 
 class BPETokenizer:
-    """Byte-Pair Encoding tokenizer with byte-level base vocabulary.
+    """基于字节级基础词汇表的 Byte-Pair Encoding tokenizer。
 
     Attributes:
-        vocab: Mapping from token ID to its byte representation.
-        merges: Ordered mapping from token pair to merged token ID.
-                Order matters: earlier merges are applied first during encoding.
+        vocab: 从 token ID 到其字节表示的映射。
+        merges: 从 token 对到合并后 token ID 的有序映射。
+                顺序很重要：编码时先应用较早的合并规则。
     """
 
     def __init__(self) -> None:
-        # Base vocabulary: one entry per byte value (0-255)
+        # 基础词汇表：每个字节值（0-255）对应一个条目
         self.vocab: dict[int, bytes] = {i: bytes([i]) for i in range(256)}
-        # Learned merges: (id_a, id_b) -> new_merged_id
+        # 学到的合并规则：(id_a, id_b) -> new_merged_id
         self.merges: dict[tuple[int, int], int] = {}
 
     # ------------------------------------------------------------------
-    # Training
+    # 训练
     # ------------------------------------------------------------------
 
     def train(self, text: str, vocab_size: int) -> None:
-        """Train the BPE tokenizer on `text` to reach `vocab_size` tokens.
+        """在 `text` 上训练 BPE tokenizer，使其达到 `vocab_size` 个 token。
 
-        Starting from 256 single-byte tokens, performs `vocab_size - 256`
-        merge operations. Each iteration:
-          1. Count frequencies of all adjacent token pairs in the current sequence.
-          2. Select the most frequent pair.
-          3. Merge that pair into a new token ID and update vocab/merges.
+        从 256 个单字节 token 开始，执行 `vocab_size - 256` 次合并操作。
+        每次迭代：
+          1. 统计当前序列中所有相邻 token 对的频率。
+          2. 选择频率最高的 token 对。
+          3. 将该对合并为一个新的 token ID，并更新 vocab/merges。
 
         Args:
-            text: Training corpus (UTF-8 string).
-            vocab_size: Target vocabulary size. Must be >= 256.
+            text: 训练语料（UTF-8 字符串）。
+            vocab_size: 目标词汇表大小，必须 >= 256。
         """
         if vocab_size < 256:
             raise ValueError(f"vocab_size must be >= 256, got {vocab_size}")
 
-        # Work with integer IDs (byte values initially)
+        # 使用整数 ID 来表示（初始时为字节值）
         ids: list[int] = list(text.encode("utf-8"))
         num_merges: int = vocab_size - 256
 
         for i in range(num_merges):
-            # Count adjacent pair frequencies
+            # 统计相邻 token 对的频率
             pair_counts = self._count_adjacent_pairs(ids)
             if not pair_counts:
-                break  # No more pairs to merge
+                break  # 没有更多可合并的 token 对
 
-            # Pick the most frequent pair
+            # 选出频率最高的 token 对
             best_pair = max(pair_counts, key=lambda p: pair_counts[p])
 
-            # Create a new token ID for the merged pair
+            # 为合并后的 token 对创建新的 token ID
             new_id = 256 + i
             self.merges[best_pair] = new_id
             self.vocab[new_id] = self.vocab[best_pair[0]] + self.vocab[best_pair[1]]
 
-            # Apply the merge to the current ID sequence
+            # 将合并应用到当前 ID 序列
             ids = self._merge(ids, best_pair, new_id)
 
     # ------------------------------------------------------------------
-    # Encoding / Decoding
+    # 编码 / 解码
     # ------------------------------------------------------------------
 
     def encode(self, text: str) -> list[int]:
-        """Encode a UTF-8 string into a list of token IDs.
+        """将 UTF-8 字符串编码为 token ID 列表。
 
-        Starts from individual bytes, then iteratively applies learned
-        merges. At each step, picks the merge with the **lowest** new
-        token ID (i.e., the earliest merge learned during training),
-        which is canonical in BPE.
+        从单个字节开始，然后迭代地应用学到的合并规则。
+        每一步选择具有**最小**新 token ID 的合并（即训练期间最早学到的合并），
+        这在 BPE 中是标准做法。
 
         Args:
-            text: Input string to tokenize.
+            text: 要分词的输入字符串。
 
         Returns:
-            List of token IDs.
+            token ID 列表。
         """
         ids: list[int] = list(text.encode("utf-8"))
 
@@ -108,7 +107,7 @@ class BPETokenizer:
             return ids
 
         while len(ids) >= 2:
-            # Find all adjacent pairs and pick the one whose merge ID is smallest
+            # 找到所有相邻 token 对，并选择其合并 ID 最小的那个
             best_pair: tuple[int, int] | None = None
             best_merge_id: int = float("inf")  # type: ignore[assignment]
 
@@ -120,32 +119,32 @@ class BPETokenizer:
                     best_merge_id = merge_id
 
             if best_pair is None:
-                break  # No more applicable merges
+                break  # 没有更多可应用的合并规则
 
             ids = self._merge(ids, best_pair, self.merges[best_pair])
 
         return ids
 
     def decode(self, ids: list[int]) -> str:
-        """Decode a list of token IDs back into a UTF-8 string.
+        """将 token ID 列表解码回 UTF-8 字符串。
 
         Args:
-            ids: List of token IDs to decode.
+            ids: 要解码的 token ID 列表。
 
         Returns:
-            Decoded UTF-8 string. Uses 'replace' error handling for
-            invalid byte sequences.
+            解码后的 UTF-8 字符串。对于无效的字节序列，
+            使用 'replace' 错误处理方式。
         """
         tokens: bytes = b"".join(self.vocab[idx] for idx in ids)
         return tokens.decode("utf-8", errors="replace")
 
     # ------------------------------------------------------------------
-    # Static helpers
+    # 静态辅助方法
     # ------------------------------------------------------------------
 
     @staticmethod
     def _count_adjacent_pairs(ids: list[int]) -> dict[tuple[int, int], int]:
-        """Count occurrences of each adjacent pair in a token ID sequence."""
+        """统计 token ID 序列中每个相邻 token 对的出现次数。"""
         counts: dict[tuple[int, int], int] = {}
         for i in range(len(ids) - 1):
             pair = (ids[i], ids[i + 1])
@@ -154,7 +153,7 @@ class BPETokenizer:
 
     @staticmethod
     def _merge(ids: list[int], pair: tuple[int, int], new_id: int) -> list[int]:
-        """Replace every occurrence of `pair` with `new_id` in the ID sequence."""
+        """将 ID 序列中的每个 `pair` 出现替换为 `new_id`。"""
         new_ids: list[int] = []
         i = 0
         while i < len(ids):
@@ -167,18 +166,18 @@ class BPETokenizer:
         return new_ids
 
     # ------------------------------------------------------------------
-    # Convenience
+    # 便捷方法
     # ------------------------------------------------------------------
 
     @property
     def vocab_size(self) -> int:
-        """Current vocabulary size."""
+        """当前词汇表大小。"""
         return len(self.vocab)
 
     def compression_ratio(self, text: str) -> float:
-        """Return UTF-8 bytes per token for the given text.
+        """返回给定文本的 UTF-8 字节数与 token 数之比。
 
-        Higher values mean better compression (fewer tokens per byte).
+        值越高表示压缩效果越好（每个字节对应更少的 token）。
         """
         ids = self.encode(text)
         num_bytes = len(text.encode("utf-8"))
@@ -189,20 +188,20 @@ class BPETokenizer:
 
 
 # ---------------------------------------------------------------------------
-# Test cases (run with: python bpe.py)
+# 测试用例（运行方式：python bpe.py）
 # ---------------------------------------------------------------------------
 
 
 def run_tests() -> None:
-    """Run all test cases for the BPETokenizer class."""
+    """运行 BPETokenizer 类的所有测试用例。"""
 
     # ------------------------------------------------------------------
-    # Test 1: Basic round-trip with small vocab
+    # 测试 1：小词汇表的基本往返测试
     # ------------------------------------------------------------------
     print("Test 1: Basic encode/decode round-trip ...", end=" ")
     tokenizer = BPETokenizer()
     corpus = "the cat in the hat the cat on the mat"
-    tokenizer.train(corpus, vocab_size=270)  # 256 + 14 merges
+    tokenizer.train(corpus, vocab_size=270)  # 256 + 14 次合并
 
     test_strings = [
         "the",
@@ -217,7 +216,7 @@ def run_tests() -> None:
     print("PASSED")
 
     # ------------------------------------------------------------------
-    # Test 2: Empty string
+    # 测试 2：空字符串
     # ------------------------------------------------------------------
     print("Test 2: Empty string encoding ...", end=" ")
     tokenizer = BPETokenizer()
@@ -229,7 +228,7 @@ def run_tests() -> None:
     print("PASSED")
 
     # ------------------------------------------------------------------
-    # Test 3: Unicode handling (emojis, Chinese, accented chars)
+    # 测试 3：Unicode 处理（Emoji、中文、带重音字符）
     # ------------------------------------------------------------------
     print("Test 3: Unicode handling ...", end=" ")
     tokenizer = BPETokenizer()
@@ -247,11 +246,11 @@ def run_tests() -> None:
     for s in unicode_strings:
         ids = tokenizer.encode(s)
         decoded = tokenizer.decode(ids)
-    # All should decode without raising exceptions
+    # 所有字符串都应能成功解码，不抛出异常
     print("PASSED")
 
     # ------------------------------------------------------------------
-    # Test 4: Round-trip for Unicode strings
+    # 测试 4：Unicode 字符串往返测试
     # ------------------------------------------------------------------
     print("Test 4: Unicode round-trip ...", end=" ")
     tokenizer = BPETokenizer()
@@ -271,7 +270,7 @@ def run_tests() -> None:
     print("PASSED")
 
     # ------------------------------------------------------------------
-    # Test 5: Compression ratio improves with larger vocab
+    # 测试 5：更大词汇表能提高压缩比
     # ------------------------------------------------------------------
     print("Test 5: Compression ratio improves ...", end=" ")
     corpus = (
@@ -281,7 +280,7 @@ def run_tests() -> None:
     ) * 10
 
     tokenizer = BPETokenizer()
-    tokenizer.train(corpus, vocab_size=256)  # No merges
+    tokenizer.train(corpus, vocab_size=256)  # 不进行合并
     ratio_baseline = tokenizer.compression_ratio(corpus)
     assert ratio_baseline == 1.0, f"Baseline ratio should be 1.0, got {ratio_baseline}"
 
@@ -294,7 +293,7 @@ def run_tests() -> None:
     print("PASSED")
 
     # ------------------------------------------------------------------
-    # Test 6: Vocabulary size is correct
+    # 测试 6：词汇表大小正确
     # ------------------------------------------------------------------
     print("Test 6: Vocabulary size ...", end=" ")
     tokenizer = BPETokenizer()
@@ -303,27 +302,27 @@ def run_tests() -> None:
     )
 
     tokenizer.train("hello world", vocab_size=300)
-    # Should be >= 256 and <= 300 (may be less if text is too short)
+    # 应在 256 到 300 之间（如果文本太短，可能小于 300）
     assert 256 <= tokenizer.vocab_size <= 300, (
         f"Trained vocab should be in [256, 300], got {tokenizer.vocab_size}"
     )
     print("PASSED")
 
     # ------------------------------------------------------------------
-    # Test 7: Repetitive text produces meaningful merges
+    # 测试 7：重复文本能产生有意义的合并
     # ------------------------------------------------------------------
     print("Test 7: Repetitive text merges ...", end=" ")
     tokenizer = BPETokenizer()
     tokenizer.train("abababab cdcdcdcd abababab cdcdcdcd", vocab_size=260)
-    # Should have merged some patterns
+    # 应该已经合并了一些模式
     assert tokenizer.vocab_size > 256, "Expected merges to increase vocabulary"
     ids = tokenizer.encode("abab")
-    # With ab merged, should produce fewer tokens than bytes
+    # 如果 'ab' 已被合并，产生的 token 数应少于字节数
     assert len(ids) < 4, f"Expected <4 tokens for 'abab', got {len(ids)}"
     print("PASSED")
 
     # ------------------------------------------------------------------
-    # Test 8: Special characters (newlines, tabs, etc.)
+    # 测试 8：特殊字符（换行符、制表符等）
     # ------------------------------------------------------------------
     print("Test 8: Special characters ...", end=" ")
     tokenizer = BPETokenizer()
@@ -337,7 +336,7 @@ def run_tests() -> None:
     print("PASSED")
 
     # ------------------------------------------------------------------
-    # Test 9: Large vocab on realistic text
+    # 测试 9：在真实文本上使用较大词汇表
     # ------------------------------------------------------------------
     print("Test 9: Large vocab ...", end=" ")
     tokenizer = BPETokenizer()
@@ -359,7 +358,7 @@ def run_tests() -> None:
     print("PASSED")
 
     # ------------------------------------------------------------------
-    # Test 10: Deterministic behavior
+    # 测试 10：确定性行为
     # ------------------------------------------------------------------
     print("Test 10: Deterministic encoding ...", end=" ")
     tokenizer = BPETokenizer()

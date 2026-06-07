@@ -1,9 +1,8 @@
 """
-Text cleaning pipeline for LLM training data.
+LLM 训练数据的文本清洗管道。
 
-Provides a composable `TextCleaner` class that chains individual cleaning
-steps (HTML tag removal, Unicode normalization, whitespace normalization)
-into a single pass over raw text.
+提供一个可组合的 `TextCleaner` 类，将各个清洗步骤（HTML 标签移除、Unicode 规范化、空白字符规范化）
+串联成对原始文本的单次处理流程。
 """
 
 import re
@@ -12,66 +11,64 @@ from typing import Callable, List
 
 
 # ---------------------------------------------------------------------------
-# Individual cleaning functions
+# 单独的清洗函数
 # ---------------------------------------------------------------------------
 
 
 def remove_html_tags(text: str) -> str:
-    """Remove HTML tags from *text* using a simple regex.
+    """使用简单正则表达式移除 *text* 中的 HTML 标签。
 
-    This is a best-effort clean and does not attempt to parse HTML
-    structurally.  It handles self-closing tags, attributes with quotes,
-    and nested <script>/<style> blocks.
+    这是一个尽力而为的清洗方案，不会对 HTML 进行结构性解析。
+    它处理自闭合标签、带引号的属性以及嵌套的 <script>/<style> 块。
     """
-    # Remove script and style blocks including their content
+    # 移除 script 和 style 块及其内容
     text = re.sub(
         r"<(script|style)\b[^>]*>.*?</\1>",
         "",
         text,
         flags=re.DOTALL | re.IGNORECASE,
     )
-    # Remove HTML comments
+    # 移除 HTML 注释
     text = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
-    # Remove remaining HTML tags
+    # 移除剩余的 HTML 标签
     text = re.sub(r"<[^>]+>", " ", text)
     return text
 
 
 def normalize_unicode(text: str) -> str:
-    """Apply NFKC Unicode normalization to *text*.
+    """对 *text* 应用 NFKC Unicode 规范化。
 
-    NFKC (Compatibility Composition) decomposes characters and recomposes
-    them, which helps unify visually-similar forms (e.g. fullwidth Latin
-    letters -> halfwidth, ligatures -> individual characters).
+    NFKC（兼容性组合）会分解字符并重新组合，有助于统一视觉上相似的形态
+    （例如全角拉丁字母 -> 半角，连字 -> 独立字符）。
     """
     return unicodedata.normalize("NFKC", text)
 
 
 def normalize_whitespace(text: str) -> str:
-    """Collapse runs of whitespace to a single space and strip leading/trailing.
+    """将空白字符连续序列压缩为单个空格，并去除首尾空白。
 
-    This also normalises non-breaking spaces (U+00A0) and other Unicode
-    space characters to the standard ASCII space.
+    同时将不间断空格（U+00A0）及其他 Unicode 空格字符
+    规范化为标准 ASCII 空格。
     """
-    # Replace common Unicode whitespace with regular space
+    # 将常见的 Unicode 空白字符替换为普通空格
     text = re.sub(r"[\u00A0\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]+", " ", text)
-    # Collapse all whitespace runs
+    # 压缩所有空白字符序列
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 
 # ---------------------------------------------------------------------------
-# Composable cleaner
+# 可组合的清洗器
 # ---------------------------------------------------------------------------
 
 
 class TextCleaner:
-    """Chain cleaning functions into a pipeline.
+    """将清洗函数串联为管道。
 
-    Parameters
+    参数
     ----------
     steps : List[Callable[[str], str]]
-        Ordered list of functions (``str -> str``) to apply in sequence.
+        按顺序应用的有序函数列表（``str -> str``）。
     """
 
     def __init__(self, steps: List[Callable[[str], str]] | None = None) -> None:
@@ -80,28 +77,28 @@ class TextCleaner:
         self._steps: List[Callable[[str], str]] = steps
 
     def clean(self, text: str) -> str:
-        """Run *text* through every step in the pipeline."""
+        """将 *text* 逐一遍历管道中的每个步骤进行处理。"""
         for step in self._steps:
             text = step(text)
         return text
 
     @property
     def steps(self) -> List[Callable[[str], str]]:
-        """Return a copy of the current step list."""
+        """返回当前步骤列表的副本。"""
         return list(self._steps)
 
     def add_step(self, step: Callable[[str], str]) -> None:
-        """Append a cleaning function to the end of the pipeline."""
+        """将清洗函数追加到管道末尾。"""
         self._steps.append(step)
 
 
 # ---------------------------------------------------------------------------
-# Demonstration
+# 演示
 # ---------------------------------------------------------------------------
 
 
 def main() -> None:
-    """Demonstrate each cleaning step and the full pipeline."""
+    """演示每个清洗步骤和完整管道。"""
     dirty_text = (
         "<html><head><title>Hello</title></head>"
         "<body><p>This   is   <b>dirty</b> &amp; <i>noisy</i> text.</p>"
@@ -149,7 +146,7 @@ def main() -> None:
     print(f"Output: {result!r}")
     print()
 
-    # Custom pipeline: reverse order for demonstration
+    # 自定义管道：为了演示，先处理空白再处理 HTML
     print("=" * 60)
     print("CUSTOM PIPELINE (whitespace first, then HTML)")
     print("=" * 60)

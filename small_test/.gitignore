@@ -1,0 +1,6 @@
+# Compiled test binary
+/app
+# Build artifacts
+*.o
+*.ptx
+*.cubin

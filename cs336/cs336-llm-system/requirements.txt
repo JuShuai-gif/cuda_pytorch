@@ -1,0 +1,7 @@
+torch>=2.0.0
+einops
+tiktoken
+numpy
+matplotlib
+scipy
+triton>=2.0.0; platform_system == 'Linux'

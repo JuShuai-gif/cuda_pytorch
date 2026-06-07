@@ -1,13 +1,13 @@
 """
-Simplified CLIP (Contrastive Language-Image Pre-training) implementation.
+简化的 CLIP（对比语言-图像预训练）实现。
 
-Demonstrates contrastive learning between image and text modalities:
-  - Image encoder: small CNN (Conv2d + ReLU + MaxPool) → embedding
-  - Text encoder: 2-layer transformer with learned positional encoding → embedding
-  - Projection heads map both embeddings to a shared 128-dim space
-  - InfoNCE / symmetric cross-entropy loss with temperature scaling
-  - Training on synthetic image-text pairs
-  - Retrieval evaluation: image-to-text and text-to-image accuracy
+演示图像与文本模态之间的对比学习：
+  - 图像编码器：小型 CNN（Conv2d + ReLU + MaxPool）→ embedding
+  - 文本编码器：带可学习位置编码的 2 层 transformer → embedding
+  - 投影头将两个 embedding 映射到共享的 128 维空间
+  - 带温度缩放的 InfoNCE / 对称交叉熵损失
+  - 在合成图像-文本对上训练
+  - 检索评估：image-to-text 和 text-to-image 准确率
 """
 
 from __future__ import annotations
@@ -21,12 +21,12 @@ import torch.nn.functional as F
 
 
 # ---------------------------------------------------------------------------
-# Image Encoder: simple CNN
+# 图像编码器：简单 CNN
 # ---------------------------------------------------------------------------
 
 
 class ImageEncoder(nn.Module):
-    """Small CNN that maps images to a fixed-dimension embedding vector."""
+    """将图像映射到固定维度 embedding 向量的小型 CNN。"""
 
     def __init__(
         self,
@@ -36,7 +36,7 @@ class ImageEncoder(nn.Module):
     ) -> None:
         super().__init__()
         self.image_size = image_size
-        # Stack of Conv2d + ReLU + MaxPool2d layers
+        # Conv2d + ReLU + MaxPool2d 层的堆叠
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels, 32, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
@@ -49,43 +49,43 @@ class ImageEncoder(nn.Module):
             nn.MaxPool2d(2),  # 8 → 4
             nn.Conv2d(128, embed_dim, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.AdaptiveAvgPool2d(1),  # → (batch, embed_dim, 1, 1)
+            nn.AdaptiveAvgPool2d(1),  # → (batch, embed_dim, 1, 1) 输出形状
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass: (B, C, H, W) → (B, embed_dim)."""
+        """前向传播：(B, C, H, W) → (B, embed_dim)。"""
         out = self.conv(x)  # (B, embed_dim, 1, 1)
         return out.view(out.size(0), -1)
 
 
 # ---------------------------------------------------------------------------
-# Learned Positional Encoding
+# 可学习位置编码
 # ---------------------------------------------------------------------------
 
 
 class PositionalEncoding(nn.Module):
-    """Learned 1D positional encoding for text tokens."""
+    """文本 token 的可学习 1D 位置编码。"""
 
     def __init__(self, d_model: int, max_len: int = 64) -> None:
         super().__init__()
         self.pe = nn.Parameter(torch.randn(1, max_len, d_model) * 0.02)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Add learned positional encoding: (B, L, D) → (B, L, D)."""
+        """叠加可学习位置编码：(B, L, D) → (B, L, D)。"""
         return x + self.pe[:, : x.size(1), :]
 
 
 # ---------------------------------------------------------------------------
-# Text Encoder: small transformer
+# 文本编码器：小型 transformer
 # ---------------------------------------------------------------------------
 
 
 class TextEncoder(nn.Module):
-    """Small transformer encoder that maps token sequences to embeddings."""
+    """将 token 序列映射为 embedding 的小型 transformer 编码器。"""
 
     def __init__(
         self,
-        vocab_size: int = 256,  # synthetic vocabulary
+        vocab_size: int = 256,  # 合成词汇表
         d_model: int = 64,
         nhead: int = 4,
         num_layers: int = 2,
@@ -103,27 +103,27 @@ class TextEncoder(nn.Module):
             batch_first=True,
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        # Project from d_model to final embedding dimension
+        # 从 d_model 投影到最终的 embedding 维度
         self.proj = nn.Linear(d_model, embed_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass: (B, L) → (B, embed_dim)."""
+        """前向传播：(B, L) → (B, embed_dim)。"""
         x = self.token_embedding(x) * math.sqrt(self.token_embedding.embedding_dim)
         x = self.pos_encoding(x)
-        # causal mask for the text encoder is not needed; use no mask
+        # 文本编码器不需要 causal mask；不使用 mask
         x = self.transformer(x, mask=None, is_causal=False)
-        # Average pooling over sequence length
+        # 在序列长度维度上做平均池化
         x = x.mean(dim=1)  # (B, d_model)
         return self.proj(x)
 
 
 # ---------------------------------------------------------------------------
-# Full CLIP Model
+# 完整 CLIP 模型
 # ---------------------------------------------------------------------------
 
 
 class SimpleCLIP(nn.Module):
-    """Joint image-text model with contrastive training."""
+    """联合图像-文本模型，用于对比训练。"""
 
     def __init__(
         self,
@@ -133,34 +133,34 @@ class SimpleCLIP(nn.Module):
         super().__init__()
         self.image_encoder = ImageEncoder(embed_dim=embed_dim)
         self.text_encoder = TextEncoder(embed_dim=embed_dim)
-        # Learnable temperature parameter for softmax scaling
+        # 可学习的温度参数，用于 softmax 缩放
         self.logit_scale = nn.Parameter(torch.ones([]) * math.log(1 / temperature))
 
     def encode_image(self, image: torch.Tensor) -> torch.Tensor:
-        """Encode image and L2-normalize the embedding."""
+        """编码图像并对 embedding 做 L2 归一化。"""
         emb = self.image_encoder(image)
         return F.normalize(emb, dim=-1)
 
     def encode_text(self, text: torch.Tensor) -> torch.Tensor:
-        """Encode text and L2-normalize the embedding."""
+        """编码文本并对 embedding 做 L2 归一化。"""
         emb = self.text_encoder(text)
         return F.normalize(emb, dim=-1)
 
     def forward(
         self, image: torch.Tensor, text: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Return loss, image embeddings, text embeddings."""
+        """返回 loss、图像 embedding 和文本 embedding。"""
         img_emb = self.encode_image(image)
         txt_emb = self.encode_text(text)
 
-        # Cosine similarity matrix with temperature scaling
+        # 带温度缩放的余弦相似度矩阵
         logit_scale = self.logit_scale.exp()
         logits = logit_scale * (img_emb @ txt_emb.T)  # (B, B)
 
-        # Labels: diagonal elements are the positive pairs
+        # 标签：对角线元素为正样本对
         labels = torch.arange(logits.size(0), device=logits.device)
 
-        # Symmetric cross-entropy loss
+        # 对称交叉熵损失
         loss_img = F.cross_entropy(logits, labels)  # image → text
         loss_txt = F.cross_entropy(logits.T, labels)  # text → image
         loss = (loss_img + loss_txt) / 2.0
@@ -169,12 +169,12 @@ class SimpleCLIP(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# Synthetic dataset
+# 合成数据集
 # ---------------------------------------------------------------------------
 
 
 class SyntheticImageTextDataset(torch.utils.data.Dataset):
-    """Generates random images paired with class labels encoded as text tokens."""
+    """生成随机图像并与编码为文本 token 的类别标签配对。"""
 
     def __init__(
         self,
@@ -192,26 +192,26 @@ class SyntheticImageTextDataset(torch.utils.data.Dataset):
         return self.num_samples
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, int]:
-        """Return (image, text_tokens, label)."""
+        """返回 (image, text_tokens, label)。"""
         cls = idx % self.num_classes
-        # Images: class-specific patterns so the model can learn associations
+        # 图像：使用类别特定模式，使模型能学到关联
         torch.manual_seed(idx)
         image = torch.randn(3, self.image_size, self.image_size)
-        # Add a class-specific bias to make images distinguishable
+        # 添加类别特定偏置，使图像可区分
         image = image + (cls / self.num_classes) * 0.5
 
-        # Text: class label encoded as repeated token, padded to seq_len
-        # Token IDs: 0..255; use class-specific prefix
-        base_token = cls * 10 + 1  # shift by 1 so 0 is not the class signal
+        # 文本：类别标签编码为重复 token，填充到 seq_len
+        # Token ID 范围：0..255；使用类别特定的前缀
+        base_token = cls * 10 + 1  # 偏移 1，避免 0 作为类别信号
         text = torch.full((self.seq_len,), base_token, dtype=torch.long)
-        # Add small noise to make sequences slightly distinct
+        # 添加少量噪声，使序列略有不同
         text[1:] = torch.randint(0, 256, (self.seq_len - 1,))
 
         return image, text, cls
 
 
 # ---------------------------------------------------------------------------
-# Training utilities
+# 训练工具
 # ---------------------------------------------------------------------------
 
 
@@ -221,7 +221,7 @@ def compute_retrieval_accuracy(
     batch_size: int = 100,
     device: torch.device = torch.device("cpu"),
 ) -> Tuple[float, float]:
-    """Compute image-to-text and text-to-image retrieval accuracy."""
+    """计算 image-to-text 和 text-to-image 检索准确率。"""
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False)
     all_img_embs: list[torch.Tensor] = []
     all_txt_embs: list[torch.Tensor] = []
@@ -242,8 +242,8 @@ def compute_retrieval_accuracy(
     txt_embs = torch.cat(all_txt_embs, dim=0)
     labels_tensor = torch.tensor(all_labels)
 
-    # For retrieval, match by class (all samples of same class are "hits")
-    # Image-to-text: for each image, check top-1 text class
+    # 检索时按类别匹配（同一类别的所有样本视为"命中"）
+    # Image-to-text：对每张图像，检查 top-1 文本的类别
     sim = img_embs @ txt_embs.T
     i2t_pred = labels_tensor[sim.argmax(dim=1)]
     i2t_acc = (i2t_pred == labels_tensor).float().mean().item()
@@ -256,7 +256,7 @@ def compute_retrieval_accuracy(
 
 
 # ---------------------------------------------------------------------------
-# Demonstration
+# 演示
 # ---------------------------------------------------------------------------
 
 
@@ -267,20 +267,20 @@ def main() -> None:
     print("Simple CLIP: Contrastive Language-Image Pre-training")
     print("=" * 60)
 
-    # Hyperparameters
+    # 超参数
     embed_dim = 128
     batch_size = 64
     num_epochs = 25
     num_classes = 10
     lr = 3e-4
 
-    # Create synthetic dataset
+    # 创建合成数据集
     dataset = SyntheticImageTextDataset(
         num_samples=500, num_classes=num_classes, image_size=32, seq_len=8
     )
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-    # Build model
+    # 构建模型
     model = SimpleCLIP(embed_dim=embed_dim).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
@@ -288,7 +288,7 @@ def main() -> None:
     print(f"Dataset size: {len(dataset)} samples, {num_classes} classes")
     print(f"Training: {num_epochs} epochs, batch_size={batch_size}, lr={lr}\n")
 
-    # Training loop
+    # 训练循环
     losses: list[float] = []
     for epoch in range(1, num_epochs + 1):
         model.train()
@@ -318,7 +318,7 @@ def main() -> None:
         f"\nTraining complete. Initial loss: {losses[0]:.4f} → Final loss: {losses[-1]:.4f}"
     )
 
-    # Final retrieval evaluation
+    # 最终检索评估
     i2t_acc, t2i_acc = compute_retrieval_accuracy(model, dataset, device=device)
     print(f"\nFinal retrieval accuracy:")
     print(f"  Image-to-text: {i2t_acc:.2%}")

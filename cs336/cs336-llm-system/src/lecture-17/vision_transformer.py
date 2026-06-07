@@ -1,15 +1,15 @@
 """
-Vision Transformer (ViT) from scratch.
+从零实现的 Vision Transformer (ViT)。
 
-Implements the full ViT pipeline:
-  - Patch embedding: split image → linear projection
-  - Learned 1D positional encoding + CLS token
-  - Multi-head self-attention (from scratch)
-  - MLP with GELU activation
-  - Stacked transformer encoder blocks (N=4)
-  - Classification head on CLS token output
-  - Training on synthetic image data with accuracy tracking
-  - Attention map visualization saved as PNG
+实现完整的 ViT 流水线：
+  - Patch embedding：切分图像 → 线性投影
+  - 可学习 1D 位置编码 + CLS token
+  - 多头自注意力（从零实现）
+  - 带 GELU 激活的 MLP
+  - 堆叠的 transformer 编码器块（N=4）
+  - 基于 CLS token 输出的分类头
+  - 在合成图像数据上训练并跟踪准确率
+  - 注意力图可视化并保存为 PNG
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from typing import Tuple
 
 import matplotlib
 
-matplotlib.use("Agg")  # non-interactive backend for headless environments
+matplotlib.use("Agg")  # 无头环境下的非交互式后端
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -28,20 +28,19 @@ import torch.nn.functional as F
 
 
 # ---------------------------------------------------------------------------
-# Multi-Head Self-Attention (built from scratch)
+# 多头自注意力（从零实现）
 # ---------------------------------------------------------------------------
 
 
 class MultiHeadSelfAttention(nn.Module):
-    """Multi-head scaled dot-product self-attention.
+    """多头缩放点积自注意力。
 
-    No reliance on nn.MultiheadAttention — purely built from linear layers,
-    reshape, and matmul operations.
+    不依赖 nn.MultiheadAttention——完全由线性层、reshape 和 matmul 操作构建。
     """
 
     def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0.0) -> None:
         super().__init__()
-        assert embed_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
+        assert embed_dim % num_heads == 0, "embed_dim 必须能被 num_heads 整除"
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
@@ -54,29 +53,29 @@ class MultiHeadSelfAttention(nn.Module):
     def forward(
         self, x: torch.Tensor, return_attention: bool = False
     ) -> torch.Tensor | Tuple[torch.Tensor, torch.Tensor]:
-        """Self-attention forward pass.
+        """自注意力前向传播。
 
         Args:
-            x: (B, N, embed_dim) input sequence.
-            return_attention: if True, also return attention weights.
+            x: (B, N, embed_dim) 输入序列。
+            return_attention: 若为 True，同时返回注意力权重。
 
         Returns:
-            Output tensor (B, N, embed_dim), and optionally attention (B, H, N, N).
+            输出张量 (B, N, embed_dim)，以及可选的注意力权重 (B, H, N, N)。
         """
         B, N, D = x.shape
 
-        # Linear projection to Q, K, V and split across heads
+        # 线性投影到 Q、K、V 并拆分到多个头
         qkv = self.qkv(x)  # (B, N, 3 * D)
         qkv = qkv.reshape(B, N, 3, self.num_heads, self.head_dim)
         qkv = qkv.permute(2, 0, 3, 1, 4)  # (3, B, num_heads, N, head_dim)
         q, k, v = qkv[0], qkv[1], qkv[2]
 
-        # Scaled dot-product attention
+        # 缩放点积注意力
         attn_weights = (q @ k.transpose(-2, -1)) * self.scale  # (B, H, N, N)
         attn_weights = attn_weights.softmax(dim=-1)
         attn_weights = self.dropout(attn_weights)
 
-        # Weighted sum of values
+        # 加权求和 values
         attn_output = attn_weights @ v  # (B, H, N, head_dim)
         attn_output = attn_output.transpose(1, 2).reshape(B, N, D)
         out = self.out_proj(attn_output)
@@ -87,12 +86,12 @@ class MultiHeadSelfAttention(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# MLP Block with GELU
+# 带 GELU 的 MLP 块
 # ---------------------------------------------------------------------------
 
 
 class MLPBlock(nn.Module):
-    """Two-layer MLP with GELU activation and dropout."""
+    """两层 MLP，使用 GELU 激活和 dropout。"""
 
     def __init__(
         self, embed_dim: int, mlp_ratio: float = 4.0, dropout: float = 0.0
@@ -113,12 +112,12 @@ class MLPBlock(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# Transformer Encoder Block
+# Transformer 编码器块
 # ---------------------------------------------------------------------------
 
 
 class TransformerEncoderBlock(nn.Module):
-    """Single transformer encoder block: MHA → add&norm → MLP → add&norm."""
+    """单个 transformer 编码器块：MHA → add&norm → MLP → add&norm。"""
 
     def __init__(
         self,
@@ -153,7 +152,7 @@ class TransformerEncoderBlock(nn.Module):
 
 
 class PatchEmbedding(nn.Module):
-    """Split image into non-overlapping patches and project to embeddings."""
+    """将图像切分为不重叠的 patch 并投影为 embedding。"""
 
     def __init__(
         self,
@@ -163,14 +162,12 @@ class PatchEmbedding(nn.Module):
         embed_dim: int = 128,
     ) -> None:
         super().__init__()
-        assert image_size % patch_size == 0, (
-            "image_size must be divisible by patch_size"
-        )
+        assert image_size % patch_size == 0, "image_size 必须能被 patch_size 整除"
         self.image_size = image_size
         self.patch_size = patch_size
         self.num_patches = (image_size // patch_size) ** 2
 
-        # Use a Conv2d as patch projection (equivalent to linear per-patch)
+        # 使用 Conv2d 作为 patch 投影（等价于每个 patch 做线性投影）
         self.proj = nn.Conv2d(
             in_channels,
             embed_dim,
@@ -179,7 +176,7 @@ class PatchEmbedding(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """(B, C, H, W) → (B, num_patches, embed_dim)."""
+        """(B, C, H, W) → (B, num_patches, embed_dim)。"""
         x = self.proj(x)  # (B, embed_dim, H/p, W/p)
         x = x.flatten(2)  # (B, embed_dim, num_patches)
         x = x.transpose(1, 2)  # (B, num_patches, embed_dim)
@@ -187,12 +184,12 @@ class PatchEmbedding(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# Full Vision Transformer
+# 完整 Vision Transformer
 # ---------------------------------------------------------------------------
 
 
 class VisionTransformer(nn.Module):
-    """Vision Transformer from scratch (Dosovitskiy et al., 2021)."""
+    """从零实现的 Vision Transformer（Dosovitskiy et al., 2021）。"""
 
     def __init__(
         self,
@@ -212,15 +209,15 @@ class VisionTransformer(nn.Module):
         )
         num_patches = self.patch_embed.num_patches
 
-        # CLS token (learnable)
+        # CLS token（可学习）
         self.cls_token = nn.Parameter(torch.randn(1, 1, embed_dim) * 0.02)
 
-        # Learned 1D positional encoding (one per patch + CLS)
+        # 可学习 1D 位置编码（每个 patch + CLS 各一个）
         self.pos_embed = nn.Parameter(torch.randn(1, num_patches + 1, embed_dim) * 0.02)
 
         self.dropout = nn.Dropout(dropout)
 
-        # Stack of transformer encoder blocks
+        # transformer 编码器块的堆叠
         self.blocks = nn.ModuleList(
             [
                 TransformerEncoderBlock(embed_dim, num_heads, mlp_ratio, dropout)
@@ -229,7 +226,7 @@ class VisionTransformer(nn.Module):
         )
         self.norm = nn.LayerNorm(embed_dim)
 
-        # Classification head: CLS token → logits
+        # 分类头：CLS token → logits
         self.head = nn.Linear(embed_dim, num_classes)
 
         self._init_weights()
@@ -247,17 +244,17 @@ class VisionTransformer(nn.Module):
     def forward(
         self, x: torch.Tensor, return_attentions: bool = False
     ) -> torch.Tensor | Tuple[torch.Tensor, list[torch.Tensor]]:
-        """Forward pass: (B, C, H, W) → (B, num_classes)."""
+        """前向传播：(B, C, H, W) → (B, num_classes)。"""
         B = x.size(0)
 
-        # Patch embedding + CLS token + positional encoding
+        # Patch embedding + CLS token + 位置编码
         x = self.patch_embed(x)  # (B, N_patches, D)
         cls_tokens = self.cls_token.expand(B, -1, -1)  # (B, 1, D)
         x = torch.cat([cls_tokens, x], dim=1)  # (B, N_patches+1, D)
         x = x + self.pos_embed
         x = self.dropout(x)
 
-        # Transformer blocks
+        # Transformer 块
         attentions: list[torch.Tensor] = []
         for blk in self.blocks:
             if return_attentions:
@@ -268,7 +265,7 @@ class VisionTransformer(nn.Module):
 
         x = self.norm(x)
 
-        # CLS token → classification
+        # CLS token → 分类
         x = self.head(x[:, 0])  # (B, num_classes)
 
         if return_attentions:
@@ -277,12 +274,12 @@ class VisionTransformer(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# Synthetic image dataset
+# 合成图像数据集
 # ---------------------------------------------------------------------------
 
 
 class SyntheticImageDataset(torch.utils.data.Dataset):
-    """Random images with class-specific patterns for classification."""
+    """带有类别特定模式的随机图像，用于分类任务。"""
 
     def __init__(
         self,
@@ -299,7 +296,7 @@ class SyntheticImageDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         cls = idx % self.num_classes
-        # Deterministic pseudo-random per sample, with class-specific bias
+        # 每个样本的确定性伪随机数，带类别特定偏置
         torch.manual_seed(idx)
         image = torch.randn(3, self.image_size, self.image_size)
         image = image + (cls / self.num_classes) * 1.0
@@ -307,7 +304,7 @@ class SyntheticImageDataset(torch.utils.data.Dataset):
 
 
 # ---------------------------------------------------------------------------
-# Attention map visualization
+# 注意力图可视化
 # ---------------------------------------------------------------------------
 
 
@@ -316,19 +313,19 @@ def visualize_attention(
     image: torch.Tensor,
     save_path: str = "vit_attention_maps.png",
 ) -> None:
-    """Visualize attention maps from all heads in the last transformer block.
+    """可视化最后一个 transformer 块中所有头的注意力图。
 
-    Saves a grid of heatmaps to a PNG file.
+    将热力图网格保存为 PNG 文件。
     """
     model.eval()
     with torch.no_grad():
         _, attentions = model(image.unsqueeze(0), return_attentions=True)
 
-    # Take attention from the last block
+    # 取最后一个块的注意力
     attn_last = attentions[-1]  # (1, num_heads, N+1, N+1)
     num_heads = attn_last.size(1)
 
-    # Use CLS token's attention to patches (exclude CLS self-attention)
+    # 使用 CLS token 对 patch 的注意力（排除 CLS 自注意力）
     cls_attn = attn_last[0, :, 0, 1:]  # (num_heads, N_patches)
 
     num_patches = cls_attn.size(1)
@@ -350,7 +347,7 @@ def visualize_attention(
 
 
 # ---------------------------------------------------------------------------
-# Demonstration
+# 演示
 # ---------------------------------------------------------------------------
 
 
@@ -361,7 +358,7 @@ def main() -> None:
     print("Vision Transformer (ViT) from Scratch")
     print("=" * 60)
 
-    # Hyperparameters
+    # 超参数
     image_size = 32
     patch_size = 4
     embed_dim = 128
@@ -372,7 +369,7 @@ def main() -> None:
     num_epochs = 20
     lr = 1e-3
 
-    # Build model
+    # 构建模型
     model = VisionTransformer(
         image_size=image_size,
         patch_size=patch_size,
@@ -391,7 +388,7 @@ def main() -> None:
     )
     print(f"Embed dim: {embed_dim}, Depth: {depth}, Heads: {num_heads}")
 
-    # Synthetic dataset
+    # 合成数据集
     train_dataset = SyntheticImageDataset(
         num_samples=500, num_classes=num_classes, image_size=image_size
     )
@@ -405,13 +402,13 @@ def main() -> None:
         test_dataset, batch_size=batch_size, shuffle=False
     )
 
-    # Optimizer and loss
+    # 优化器和损失函数
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss()
 
     print(f"\nTraining: {num_epochs} epochs, batch_size={batch_size}, lr={lr}\n")
 
-    # Training loop
+    # 训练循环
     for epoch in range(1, num_epochs + 1):
         model.train()
         total_loss = 0.0
@@ -432,7 +429,7 @@ def main() -> None:
 
         train_acc = correct / total
 
-        # Evaluate on test set
+        # 在测试集上评估
         model.eval()
         test_correct = 0
         test_total = 0
@@ -455,7 +452,7 @@ def main() -> None:
 
     print(f"\nFinal test accuracy: {test_acc:.2%}")
 
-    # Visualize attention maps
+    # 可视化注意力图
     sample_img, _label = test_dataset[0]
     visualize_attention(model, sample_img, save_path="vit_attention_maps.png")
 

@@ -1,10 +1,10 @@
 """
-scaling_law_fit.py — Scaling Law Fitting (Kaplan & Chinchilla)
+scaling_law_fit.py — 缩放定律拟合 (Kaplan 与 Chinchilla)
 
-Generates synthetic scaling law data and fits both the Kaplan (isolated)
-and Chinchilla (joint) power-law formulations using scipy.optimize.curve_fit.
+生成合成缩放定律数据，并使用 scipy.optimize.curve_fit 拟合
+Kaplan（独立）和 Chinchilla（联合）幂律公式。
 
-Usage:
+用法:
     python scaling_law_fit.py
 """
 
@@ -17,17 +17,17 @@ from typing import Tuple, Dict, Any
 
 
 # ---------------------------------------------------------------------------
-# Ground-truth parameters (roughly inspired by the literature)
+# 真实参数（大致参考文献）
 # ---------------------------------------------------------------------------
 
-# Kaplan-style isolated power laws:  L(x) = (x_c / x)^alpha + L_inf
+# Kaplan 风格独立幂律:  L(x) = (x_c / x)^alpha + L_inf
 GT_KAPLAN: Dict[str, Dict[str, float]] = {
     "N": {"N_c": 8.8e13, "alpha": 0.076, "L_inf": 1.69},
     "D": {"D_c": 5.4e13, "alpha": 0.095, "L_inf": 1.69},
     "C": {"C_c": 3.1e8, "alpha": 0.050, "L_inf": 1.69},
 }
 
-# Chinchilla joint power law:  L(N,D) = E + A/N^alpha + B/D^beta
+# Chinchilla 联合幂律:  L(N,D) = E + A/N^alpha + B/D^beta
 GT_CHINCHILLA: Dict[str, float] = {
     "E": 1.69,
     "A": 406.4,
@@ -38,7 +38,7 @@ GT_CHINCHILLA: Dict[str, float] = {
 
 
 # ---------------------------------------------------------------------------
-# Synthetic data generation
+# 合成数据生成
 # ---------------------------------------------------------------------------
 
 
@@ -50,9 +50,9 @@ def generate_kaplan_data(
     Tuple[NDArray[np.float64], NDArray[np.float64]],
     Tuple[NDArray[np.float64], NDArray[np.float64]],
 ]:
-    """Generate synthetic data for the three isolated scaling laws.
+    """生成三个独立缩放定律的合成数据。
 
-    Returns three tuples of (x, L(x)) for N, D, and C respectively.
+    返回三个 (x, L(x)) 元组，分别对应 N、D 和 C。
     """
     rng = np.random.default_rng(seed)
 
@@ -78,9 +78,9 @@ def generate_chinchilla_grid(
     seed: int = 42,
     noise_std: float = 0.005,
 ) -> Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
-    """Generate a 2-D grid of (N, D) pairs and corresponding noisy losses.
+    """生成 (N, D) 对的二维网格及对应的带噪声 loss。
 
-    Returns (N_flat, D_flat, L_noisy) where each is 1-D.
+    返回 (N_flat, D_flat, L_noisy)，每个都是一维数组。
     """
     rng = np.random.default_rng(seed)
     N_vals = np.logspace(6, 9, 25)  # 1M to 1B parameters
@@ -99,9 +99,9 @@ def generate_chinchilla_grid(
 def generate_isflop_data(
     compute_budgets: NDArray[np.float64] | None = None,
 ) -> Dict[float, Tuple[NDArray[np.float64], NDArray[np.float64]]]:
-    """For each compute budget C, generate loss along the 6ND = C curve.
+    """对于每个 compute budget C，沿 6ND = C 曲线生成 loss。
 
-    Returns dict mapping C -> (N_vals, L_vals).
+    返回字典，映射 C -> (N_vals, L_vals)。
     """
     if compute_budgets is None:
         compute_budgets = np.logspace(16, 20, 5)  # 1e16 to 1e20 FLOPs
@@ -119,7 +119,7 @@ def generate_isflop_data(
 
 
 # ---------------------------------------------------------------------------
-# Kaplan-style fitting (isolated power laws)
+# Kaplan 风格拟合（独立幂律）
 # ---------------------------------------------------------------------------
 
 
@@ -129,7 +129,7 @@ def kaplan_fn(
     alpha: float,
     L_inf: float,
 ) -> NDArray[np.float64]:
-    """Kaplan-style power law: (x_c / x)^{alpha} + L_inf."""
+    """Kaplan 风格幂律: (x_c / x)^{alpha} + L_inf。"""
     return (x_c / x) ** alpha + L_inf
 
 
@@ -138,7 +138,7 @@ def fit_kaplan(
     y: NDArray[np.float64],
     label: str = "",
 ) -> Tuple[float, float, float, NDArray[np.float64]]:
-    """Fit the three-parameter Kaplan law and return (x_c, alpha, L_inf, pcov)."""
+    """拟合三参数 Kaplan 定律，返回 (x_c, alpha, L_inf, pcov)。"""
     p0 = (np.mean(x), 0.05, min(y))
     popt, pcov = curve_fit(kaplan_fn, x, y, p0=p0, maxfev=10000)
     x_c_hat, alpha_hat, L_inf_hat = popt
@@ -146,7 +146,7 @@ def fit_kaplan(
 
 
 # ---------------------------------------------------------------------------
-# Chinchilla-style fitting (joint power law)
+# Chinchilla 风格拟合（联合幂律）
 # ---------------------------------------------------------------------------
 
 
@@ -158,7 +158,7 @@ def chinchilla_fn(
     B: float,
     beta: float,
 ) -> NDArray[np.float64]:
-    """Chinchilla joint power law: E + A/N^{alpha} + B/D^{beta}."""
+    """Chinchilla 联合幂律: E + A/N^{alpha} + B/D^{beta}。"""
     N, D = ND
     return E + A / (N**alpha) + B / (D**beta)
 
@@ -168,7 +168,7 @@ def fit_chinchilla(
     D_flat: NDArray[np.float64],
     L_flat: NDArray[np.float64],
 ) -> Tuple[float, float, float, float, float, NDArray[np.float64]]:
-    """Fit the five-parameter Chinchilla law; return (E, A, alpha, B, beta, pcov)."""
+    """拟合五参数 Chinchilla 定律；返回 (E, A, alpha, B, beta, pcov)。"""
     p0 = (1.5, 300.0, 0.3, 300.0, 0.3)
     bounds = ([0, 0, 0.01, 0, 0.01], [10, 1e5, 1.0, 1e5, 1.0])
     popt, pcov = curve_fit(
@@ -184,7 +184,7 @@ def fit_chinchilla(
 
 
 # ---------------------------------------------------------------------------
-# IsoFLOP curve analysis
+# IsoFLOP 曲线分析
 # ---------------------------------------------------------------------------
 
 
@@ -197,9 +197,9 @@ def find_isflop_optimal(
     beta: float,
     n_points: int = 500,
 ) -> Tuple[float, float, float]:
-    """For a given compute budget C, numerically find optimal (N_opt, D_opt, L_opt).
+    """对于给定的 compute budget C，通过数值方法找到最优 (N_opt, D_opt, L_opt)。
 
-    Uses a fine grid search over N; D is determined by C = 6ND.
+    使用对 N 的细粒度网格搜索；D 由 C = 6ND 确定。
     """
     N_candidates = np.logspace(4, 10, n_points)
     D_candidates = C / (6.0 * N_candidates)
@@ -213,16 +213,16 @@ def find_isflop_optimal(
 
 
 # ---------------------------------------------------------------------------
-# Main demonstration
+# 主演示
 # ---------------------------------------------------------------------------
 
 
 def main() -> None:
-    # --- Generate data ---
+    # --- 生成数据 ---
     (N_data, L_N), (D_data, L_D), (C_data, L_C) = generate_kaplan_data()
     Nch, Dch, Lch = generate_chinchilla_grid()
 
-    # --- Fit Kaplan ---
+    # --- 拟合 Kaplan ---
     print("=" * 70)
     print("Kaplan-style isolated power law fits")
     print("=" * 70)

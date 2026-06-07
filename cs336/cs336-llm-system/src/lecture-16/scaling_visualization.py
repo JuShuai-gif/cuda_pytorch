@@ -1,14 +1,14 @@
 """
-scaling_visualization.py — Scaling Law Visualization
+scaling_visualization.py — 缩放定律可视化
 
-Creates publication-quality plots:
-  1. L(N), L(D), L(C) — Kaplan isolated fits with data points.
-  2. Chinchilla loss surface as contour / heatmap in (N, D) space.
-  3. IsoFLOP curves — loss vs N for fixed compute budgets.
-  4. Compute-optimal N/D ratio trend.
+创建出版级别的图表:
+  1. L(N), L(D), L(C) — 带有数据点的 Kaplan 独立拟合。
+  2. Chinchilla loss 曲面 — (N, D) 空间中的等高线/热力图。
+  3. IsoFLOP 曲线 — 固定 compute budget 下的 loss vs N。
+  4. Compute-optimal N/D 比率趋势。
 
-Plots are saved as PNG files in the current directory.
-Usage:
+图表保存为当前目录下的 PNG 文件。
+用法:
     python scaling_visualization.py
 """
 
@@ -18,12 +18,12 @@ import numpy as np
 from numpy.typing import NDArray
 import matplotlib
 
-matplotlib.use("Agg")  # non-interactive backend for headless environments
+matplotlib.use("Agg")  # 非交互式后端，用于无头环境
 import matplotlib.pyplot as plt
 from matplotlib.ticker import LogFormatterSciNotation, ScalarFormatter
 from typing import Tuple
 
-# Import utilities from sibling modules
+# 从同级模块导入工具函数
 from scaling_law_fit import (
     generate_kaplan_data,
     generate_chinchilla_grid,
@@ -45,12 +45,12 @@ from compute_optimal import (
 
 
 # ---------------------------------------------------------------------------
-# Global matplotlib style
+# 全局 matplotlib 样式
 # ---------------------------------------------------------------------------
 
 
 def set_style() -> None:
-    """Apply a clean, publication-ready matplotlib style."""
+    """应用简洁、出版级别的 matplotlib 样式。"""
     plt.rcParams.update(
         {
             "figure.dpi": 150,
@@ -67,12 +67,12 @@ def set_style() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Plot 1: Kaplan isolated fits  L(N), L(D), L(C)
+# 图 1: Kaplan 独立拟合  L(N), L(D), L(C)
 # ---------------------------------------------------------------------------
 
 
 def plot_kaplan_fits(save_path: str = "kaplan_fits.png") -> None:
-    """Plot the three isolated Kaplan power laws with fits and data."""
+    """绘制三条独立 Kaplan 幂律的拟合曲线与数据点。"""
     (N_data, L_N), (D_data, L_D), (C_data, L_C) = generate_kaplan_data()
 
     fig, axes = plt.subplots(1, 3, figsize=(16, 4.5))
@@ -85,10 +85,10 @@ def plot_kaplan_fits(save_path: str = "kaplan_fits.png") -> None:
     ]
 
     for ax, x, y, prefix, label in configs:
-        # Fit
+        # 拟合
         x_c_hat, a_hat, L_inf_hat, _ = fit_kaplan(x, y, prefix)
 
-        # Plot data & fit
+        # 绘制数据与拟合曲线
         ax.scatter(x, y, s=6, alpha=0.5, color="steelblue", label="Synthetic data")
         x_fit = np.logspace(np.log10(x.min()), np.log10(x.max()), 300)
         y_fit = kaplan_fn(x_fit, x_c_hat, a_hat, L_inf_hat)
@@ -103,7 +103,7 @@ def plot_kaplan_fits(save_path: str = "kaplan_fits.png") -> None:
             ),
         )
 
-        # Ground truth
+        # 真实值（ground truth）
         gt = GT_KAPLAN[prefix]
         gt_xc = gt[f"{prefix}_c"]
         gt_a = gt["alpha"]
@@ -124,30 +124,30 @@ def plot_kaplan_fits(save_path: str = "kaplan_fits.png") -> None:
 
 
 # ---------------------------------------------------------------------------
-# Plot 2: Chinchilla loss surface as contour / heatmap
+# 图 2: Chinchilla loss 曲面 — 等高线 / 热力图
 # ---------------------------------------------------------------------------
 
 
 def plot_chinchilla_surface(save_path: str = "chinchilla_surface.png") -> None:
-    """2D contour + heatmap of the Chinchilla loss in (N, D) space."""
-    Nch, Dch, Lch = generate_chinchilla_grid(noise_std=0.0)  # no noise for surface
+    """Chinchilla loss 在 (N, D) 空间中的 2D 等高线 + 热力图。"""
+    Nch, Dch, Lch = generate_chinchilla_grid(noise_std=0.0)  # 曲面不需要噪声
     N_vals = np.unique(Nch)
     D_vals = np.unique(Dch)
     L_grid = Lch.reshape(len(D_vals), len(N_vals))  # D rows, N cols
 
     fig, ax = plt.subplots(figsize=(8, 6))
 
-    # Heatmap
+    # 热力图
     levels = np.linspace(L_grid.min(), L_grid.max(), 30)
     cf = ax.contourf(N_vals, D_vals, L_grid, levels=levels, cmap="YlOrRd")
     cbar = fig.colorbar(cf, ax=ax, label="Loss  L(N, D)")
 
-    # Overlay contour lines
+    # 叠加等高线
     ax.contour(
         N_vals, D_vals, L_grid, levels=15, colors="black", linewidths=0.4, alpha=0.6
     )
 
-    # Compute-optimal line (analytical)
+    # Compute-optimal 线（解析解）
     p = GT_CHINCHILLA
     C_range = np.logspace(14, 21, 200)
     N_opts = []
@@ -182,13 +182,13 @@ def plot_chinchilla_surface(save_path: str = "chinchilla_surface.png") -> None:
 
 
 # ---------------------------------------------------------------------------
-# Plot 3: IsoFLOP curves
+# 图 3: IsoFLOP 曲线
 # ---------------------------------------------------------------------------
 
 
 def plot_isflop_curves(save_path: str = "isflop_curves.png") -> None:
-    """Plot loss vs N for several fixed compute budgets (IsoFLOP curves)."""
-    compute_budgets = np.logspace(15, 20, 6)  # 6 budgets
+    """对于多个固定 compute budget，绘制 loss vs N 的曲线（IsoFLOP 曲线）。"""
+    compute_budgets = np.logspace(15, 20, 6)  # 6 个 budget
     iso_data = generate_isflop_data(compute_budgets)
 
     fig, ax = plt.subplots(figsize=(9, 5.5))
@@ -199,7 +199,7 @@ def plot_isflop_curves(save_path: str = "isflop_curves.png") -> None:
         N_vals, L_vals = iso_data[float(C)]
         ax.plot(N_vals, L_vals, color=color, linewidth=1.8, label=f"C = {C:.1e}")
 
-        # Mark optimum
+        # 标记最优值
         N_opt, _, L_opt = find_isflop_optimal(
             C,
             p["E"],
@@ -232,12 +232,12 @@ def plot_isflop_curves(save_path: str = "isflop_curves.png") -> None:
 
 
 # ---------------------------------------------------------------------------
-# Plot 4: Compute-optimal N/D ratio trend
+# 图 4: Compute-optimal N/D 比率趋势
 # ---------------------------------------------------------------------------
 
 
 def plot_optimal_ratio(save_path: str = "optimal_ratio.png") -> None:
-    """Plot how the compute-optimal N/D ratio evolves with compute budget."""
+    """绘制 compute-optimal N/D 比率随 compute budget 变化的趋势。"""
     C_vals = np.logspace(14, 23, 150)
 
     N_opt_vals = np.empty_like(C_vals)
@@ -252,7 +252,7 @@ def plot_optimal_ratio(save_path: str = "optimal_ratio.png") -> None:
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 
-    # Left: ratio vs compute
+    # 左: 比率 vs compute
     ax = axes[0]
     ax.plot(C_vals, ratios, color="darkgreen", linewidth=2)
     ax.set_xscale("log")
@@ -261,8 +261,8 @@ def plot_optimal_ratio(save_path: str = "optimal_ratio.png") -> None:
     ax.set_title("Compute-Optimal N/D Ratio vs Compute Budget")
     ax.grid(True, alpha=0.3, which="both")
 
-    # Annotate with Chinchilla-optimal ratio at 70B-scale
-    C_70B = 6.0 * 70e9 * 1.4e12  # rough 70B model trained on 1.4T tokens
+    # 为 70B 量级标注 Chinchilla-optimal 比率
+    C_70B = 6.0 * 70e9 * 1.4e12  # 粗略的 70B 模型，在 1.4T tokens 上训练
     ratio_70B = compute_optimal_ratio(C_70B)
     ax.axvline(C_70B, color="gray", linestyle="--", alpha=0.5)
     ax.annotate(
@@ -273,7 +273,7 @@ def plot_optimal_ratio(save_path: str = "optimal_ratio.png") -> None:
         ha="right",
     )
 
-    # Right: N_opt and D_opt vs C
+    # 右: N_opt 和 D_opt vs C
     ax = axes[1]
     ax.plot(
         C_vals, N_opt_vals, color="steelblue", linewidth=2, label=r"$N_{opt}$ (params)"
@@ -297,12 +297,12 @@ def plot_optimal_ratio(save_path: str = "optimal_ratio.png") -> None:
 
 
 # ---------------------------------------------------------------------------
-# Plot 5: Chinchilla fit residuals
+# 图 5: Chinchilla 拟合残差
 # ---------------------------------------------------------------------------
 
 
 def plot_chinchilla_fit(save_path: str = "chinchilla_fit.png") -> None:
-    """Show data vs fitted Chinchilla model with residuals."""
+    """展示数据 vs 拟合的 Chinchilla 模型，以及残差。"""
     Nch, Dch, Lch = generate_chinchilla_grid(noise_std=0.005)
     E_hat, A_hat, a_hat, B_hat, b_hat, _ = fit_chinchilla(Nch, Dch, Lch)
     L_pred = chinchilla_fn((Nch, Dch), E_hat, A_hat, a_hat, B_hat, b_hat)
@@ -310,7 +310,7 @@ def plot_chinchilla_fit(save_path: str = "chinchilla_fit.png") -> None:
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 4.8))
 
-    # Left: scatter of predicted vs actual
+    # 左: 预测值 vs 实际值散点图
     ax = axes[0]
     ax.scatter(L_pred, Lch, s=10, alpha=0.5, color="steelblue")
     lims = [min(L_pred.min(), Lch.min()), max(L_pred.max(), Lch.max())]
@@ -320,7 +320,7 @@ def plot_chinchilla_fit(save_path: str = "chinchilla_fit.png") -> None:
     ax.set_title("Chinchilla Fit: Predicted vs Actual")
     ax.grid(True, alpha=0.3)
 
-    # Right: histogram of residuals
+    # 右: 残差直方图
     ax = axes[1]
     ax.hist(residuals, bins=40, color="steelblue", edgecolor="white", alpha=0.85)
     ax.axvline(0, color="k", linestyle="--", linewidth=1)
@@ -342,7 +342,7 @@ def plot_chinchilla_fit(save_path: str = "chinchilla_fit.png") -> None:
 
 
 # ---------------------------------------------------------------------------
-# Main
+# 主函数
 # ---------------------------------------------------------------------------
 
 

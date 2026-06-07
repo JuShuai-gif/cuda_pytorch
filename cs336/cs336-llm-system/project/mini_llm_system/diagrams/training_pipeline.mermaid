@@ -1,0 +1,49 @@
+graph TD
+    subgraph "Initialization"
+        A1[Load Config] --> A2[Build Model MiniLLM]
+        A2 --> A3[Initialize Optimizer AdamW]
+        A3 --> A4[Setup LR Scheduler]
+        A4 --> A5[Load/Initialize Tokenizer]
+    end
+
+    subgraph "Data Preparation"
+        B1[Read Text Files] --> B2[Tokenize Corpus]
+        B2 --> B3[TextDataset]
+        B3 --> B4[DataLoader]
+    end
+
+    subgraph "Training Loop"
+        C1[Start Epoch] --> C2[Get Batch]
+        C2 --> C3[Forward Pass]
+        C3 --> C4[Compute Loss]
+        C4 --> C5["Backward Pass (autocast)"]
+        C5 --> C6{"Gradient Accumulation Complete?"}
+        C6 -->|No| C2
+        C6 -->|Yes| C7[Clip Gradients]
+        C7 --> C8["Optimizer Step (GradScaler)"]
+        C8 --> C9[LR Scheduler Step]
+        C9 --> C10{Zero Grad}
+    end
+
+    subgraph "Periodic Tasks"
+        C10 --> D1{"Log Step?"}
+        D1 -->|Yes| D2["Log loss, lr, tokens/s"]
+        D1 -->|No| D3{"Eval Step?"}
+        D3 -->|Yes| D4[Run Validation]
+        D4 --> D5["Log val_loss"]
+        D3 -->|No| D6{"Save Step?"}
+        D6 -->|Yes| D7[Save Checkpoint]
+        D6 -->|No| D8{"Max Steps?"}
+    end
+
+    D8 -->|No| C2
+    D8 -->|Yes| E1[Final Evaluation]
+    E1 --> E2[Save Final Checkpoint]
+    E2 --> E3[Training Complete]
+
+    A5 --> B2
+
+    style C3 fill:#e3f2fd
+    style C5 fill:#fff3e0
+    style C8 fill:#e8f5e9
+    style E3 fill:#c8e6c9

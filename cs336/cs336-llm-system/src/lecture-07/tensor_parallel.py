@@ -1,11 +1,10 @@
 """
-Megatron-style tensor parallelism for MLP layers.
-Implements column-parallel and row-parallel linear layers by manually
-splitting weight matrices. No distributed communication required to
-understand the concept.
+Megatron 风格的 MLP 层张量并行。
+通过手动拆分权重矩阵来实现列并行和行并行线性层。
+无需实际分布式通信即可理解相关概念。
 
-Reference: Megatron-LM: Training Multi-Billion Parameter Language Models
-           Using Model Parallelism (Shoeybi et al., 2019)
+参考文献：Megatron-LM: Training Multi-Billion Parameter Language Models
+           Using Model Parallelism（Shoeybi et al., 2019）
 """
 
 from __future__ import annotations
@@ -17,18 +16,18 @@ import torch.nn.functional as F
 
 class ColumnParallelLinear(nn.Module):
     """
-    Column-parallel linear layer.
+    列并行线性层。
 
-    The weight matrix W is split along its column dimension across devices.
-    Input is replicated (same on all devices).
-    Output is partitioned along the last dimension.
+    权重矩阵 W 沿列维度在设备之间拆分。
+    输入在所有设备上完全复制（相同）。
+    输出沿最后一维分区。
 
-    Forward:
-        y_i = x @ W_i  (no communication needed)
+    前向：
+        y_i = x @ W_i  （无需通信）
 
-    In a transformer, this is typically used for the first linear in the FFN,
-    or for QKV projections in attention. The output needs an all-reduce for
-    activations if followed by a non-column-parallel layer (like GeLU).
+    在 Transformer 中，通常用于 FFN 的第一个线性层，
+    或注意力的 QKV 投影。如果其后接非列并行层（如 GeLU），
+    则输出需要对激活进行 all-reduce。
     """
 
     def __init__(
@@ -45,13 +44,13 @@ class ColumnParallelLinear(nn.Module):
         self.num_partitions = num_partitions
         self.partition_idx = partition_idx
 
-        # Each partition has out_features // num_partitions columns
+        # 每个分区有 out_features // num_partitions 列
         assert out_features % num_partitions == 0, (
-            f"out_features ({out_features}) must be divisible by num_partitions ({num_partitions})"
+            f"out_features（{out_features}）必须能被 num_partitions（{num_partitions}）整除"
         )
         self.partition_out_features = out_features // num_partitions
 
-        # Local weight: (in_features, out_features // num_partitions)
+        # 本地权重：(in_features, out_features // num_partitions)
         self.weight = nn.Parameter(
             torch.randn(in_features, self.partition_out_features) * 0.02
         )
@@ -62,8 +61,8 @@ class ColumnParallelLinear(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        x: (batch, seq_len, in_features) - replicated input
-        Returns: (batch, seq_len, partition_out_features) - partitioned output
+        x：(batch, seq_len, in_features) - 复制的输入
+        返回：(batch, seq_len, partition_out_features) - 分区的输出
         """
         y = x @ self.weight
         if self.bias is not None:
@@ -72,22 +71,22 @@ class ColumnParallelLinear(nn.Module):
 
     def gather_output(self, local_output: torch.Tensor) -> torch.Tensor:
         """
-        Simulate gathering partitioned outputs from all devices.
-        In real distributed, this would be an all-gather.
+        模拟从所有设备收集分区输出。
+        在实际分布式环境中，这将是 all-gather 操作。
         """
-        # In a real implementation, each device performs all-gather here.
-        # Since we are simulating, we return what would be the full output.
+        # 在实际实现中，每个设备在此处执行 all-gather。
+        # 由于我们只是模拟，这里返回完整输出的占位值。
         full_weight = self.get_full_weight()
         full_bias = self.get_full_bias()
-        return local_output @ torch.eye(self.partition_out_features)  # placeholder
+        return local_output @ torch.eye(self.partition_out_features)  # 占位
 
     def get_full_weight(self) -> torch.Tensor:
-        """Return the conceptual full weight matrix (for explanation only)."""
-        # In practice, this never exists on a single GPU
+        """返回概念上的完整权重矩阵（仅用于说明）。"""
+        # 实践中，这个矩阵永远不会存在于单个 GPU 上
         return torch.randn(self.in_features, self.out_features)
 
     def get_full_bias(self) -> torch.Tensor | None:
-        """Return the conceptual full bias vector."""
+        """返回概念上的完整偏置向量。"""
         if self.bias is not None:
             return torch.randn(self.out_features)
         return None
@@ -95,17 +94,17 @@ class ColumnParallelLinear(nn.Module):
 
 class RowParallelLinear(nn.Module):
     """
-    Row-parallel linear layer.
+    行并行线性层。
 
-    The weight matrix W is split along its row dimension across devices.
-    Input is partitioned along the last dimension.
-    Output is replicated (same on all devices) after all-reduce.
+    权重矩阵 W 沿行维度在设备之间拆分。
+    输入沿最后一维分区。
+    输出在 all-reduce 后在所有设备上完全复制（相同）。
 
-    Forward:
-        y_i = x_i @ W_i (partial sum)
-        y = all-reduce(y_i) (sum across partitions)
+    前向：
+        y_i = x_i @ W_i（部分和）
+        y = all-reduce(y_i)（跨分区求和）
 
-    In a transformer FFN, this is typically used after the activation:
+    在 Transformer FFN 中，通常用在激活函数之后：
         [ColumnParallel FC] → GeLU → [RowParallel FC]
     """
 
@@ -124,24 +123,24 @@ class RowParallelLinear(nn.Module):
         self.partition_idx = partition_idx
 
         assert in_features % num_partitions == 0, (
-            f"in_features ({in_features}) must be divisible by num_partitions ({num_partitions})"
+            f"in_features（{in_features}）必须能被 num_partitions（{num_partitions}）整除"
         )
         self.partition_in_features = in_features // num_partitions
 
-        # Local weight: (in_features // num_partitions, out_features)
+        # 本地权重：(in_features // num_partitions, out_features)
         self.weight = nn.Parameter(
             torch.randn(self.partition_in_features, out_features) * 0.02
         )
         if bias:
-            # Bias is duplicated (each partition has the full bias). Can also be split.
+            # 偏置被复制（每个分区都有完整偏置）。也可以拆分。
             self.bias = nn.Parameter(torch.zeros(out_features))
         else:
             self.register_parameter("bias", None)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        x: (batch, seq_len, partition_in_features) - partitioned input
-        Returns: (batch, seq_len, out_features) - partial sum (needs all-reduce)
+        x：(batch, seq_len, partition_in_features) - 分区的输入
+        返回：(batch, seq_len, out_features) - 部分和（需要 all-reduce）
         """
         y = x @ self.weight
         if self.bias is not None:
@@ -149,21 +148,21 @@ class RowParallelLinear(nn.Module):
         return y
 
     def simulate_all_reduce(self, partial_outputs: list[torch.Tensor]) -> torch.Tensor:
-        """Simulate all-reduce across partitions."""
+        """模拟跨分区的 all-reduce。"""
         return torch.stack(partial_outputs).sum(dim=0)
 
 
 class TensorParallelMLP(nn.Module):
     """
-    Complete tensor-parallel MLP using Megatron-style column + row parallelism.
+    完整的张量并行 MLP，使用 Megatron 风格的列 + 行并行。
 
-    Architecture:
-        Input (replicated) → ColumnParallelLinear → ReLU → RowParallelLinear → Output (replicated)
+    架构：
+        输入（复制）→ ColumnParallelLinear → ReLU → RowParallelLinear → 输出（复制）
 
-    Communication analysis:
-        - ColumnParallel: f (no comm in forward, no comm in backward)
-        - ReLU: f (element-wise, no comm)
-        - RowParallel: f (all-reduce in forward, identity in backward)
+    通信分析：
+        - ColumnParallel：f（前向无需通信，反向无需通信）
+        - ReLU：f（逐元素操作，无需通信）
+        - RowParallel：f（前向需要 all-reduce，反向无需通信）
     """
 
     def __init__(
@@ -174,14 +173,14 @@ class TensorParallelMLP(nn.Module):
         partition_idx: int = 0,
     ):
         super().__init__()
-        # Column-parallel: in_features→intermediate, split output columns
+        # 列并行：in_features→intermediate，拆分输出列
         self.fc1 = ColumnParallelLinear(
             in_features=hidden_size,
             out_features=intermediate_size,
             num_partitions=num_partitions,
             partition_idx=partition_idx,
         )
-        # Row-parallel: intermediate→hidden, split input rows
+        # 行并行：intermediate→hidden，拆分输入行
         self.fc2 = RowParallelLinear(
             in_features=intermediate_size,
             out_features=hidden_size,
@@ -191,21 +190,21 @@ class TensorParallelMLP(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        x: replicated input (same on all partitions)
-        Returns partial output that needs all-reduce to be replicated
+        x：复制的输入（在所有分区上相同）
+        返回需要 all-reduce 才能复制的部分输出
         """
-        # Column-parallel: no communication needed
+        # 列并行：无需通信
         h = F.relu(self.fc1(x))
-        # Row-parallel: each partition computes partial sum
-        # In real distributed, all-reduce is needed here to sum partial outputs
+        # 行并行：每个分区计算部分和
+        # 在实际分布式环境中，此处需要 all-reduce 来求和部分输出
         y = self.fc2(h)
-        return y  # Needs all-reduce from all partitions
+        return y  # 需要来自所有分区的 all-reduce
 
 
 def demo_tensor_parallel() -> None:
-    """Demonstrate tensor parallelism by simulating multiple devices."""
+    """通过模拟多个设备来演示张量并行。"""
     print("=" * 60)
-    print("Tensor Parallelism Demo (Megatron-style)")
+    print("张量并行演示（Megatron 风格）")
     print("=" * 60)
 
     hidden_size = 64
@@ -214,8 +213,8 @@ def demo_tensor_parallel() -> None:
     batch_size = 2
     seq_len = 8
 
-    # Create tensor-parallel MLP partitions
-    print("\nCreating tensor-parallel MLP with 4 partitions...")
+    # 创建张量并行 MLP 分区
+    print("\n创建具有 4 个分区的张量并行 MLP……")
     partitions = [
         TensorParallelMLP(
             hidden_size=hidden_size,
@@ -226,64 +225,56 @@ def demo_tensor_parallel() -> None:
         for i in range(num_partitions)
     ]
 
-    # Simulate forward pass
+    # 模拟前向传播
     x = torch.randn(batch_size, seq_len, hidden_size)
 
-    print(f"\nInput shape: {x.shape} (replicated on all devices)")
-    print(f"\nColumn-parallel FC1: {hidden_size} → {intermediate_size}")
+    print(f"\n输入 shape：{x.shape}（在所有设备上复制）")
+    print(f"\n列并行 FC1：{hidden_size} → {intermediate_size}")
+    print(f"  每分区权重：({hidden_size}, {intermediate_size // num_partitions})")
     print(
-        f"  Weight per partition: ({hidden_size}, {intermediate_size // num_partitions})"
+        f"  每分区输出：({batch_size}, {seq_len}, {intermediate_size // num_partitions})"
     )
-    print(
-        f"  Output per partition: ({batch_size}, {seq_len}, {intermediate_size // num_partitions})"
-    )
-    print(f"  Communication: None (input already replicated)")
+    print(f"  通信：无（输入已复制）")
 
-    # Forward through column-parallel
+    # 列并行前向传播
     h_partitions = [p.fc1(x) for p in partitions]
     for i, h in enumerate(h_partitions):
-        print(f"  Partition {i} output shape: {h.shape}")
+        print(f"  分区 {i} 输出 shape：{h.shape}")
 
-    print(f"\nReLU activation: element-wise, no communication")
+    print(f"\nReLU 激活：逐元素操作，无需通信")
 
     h_activated = [F.relu(h) for h in h_partitions]
 
-    print(f"\nRow-parallel FC2: {intermediate_size} → {hidden_size}")
-    print(
-        f"  Weight per partition: ({intermediate_size // num_partitions}, {hidden_size})"
-    )
-    print(
-        f"  Output per partition: ({batch_size}, {seq_len}, {hidden_size}) [partial sum]"
-    )
-    print(f"  Communication: all-reduce needed to sum partial outputs")
+    print(f"\n行并行 FC2：{intermediate_size} → {hidden_size}")
+    print(f"  每分区权重：({intermediate_size // num_partitions}, {hidden_size})")
+    print(f"  每分区输出：({batch_size}, {seq_len}, {hidden_size}) [部分和]")
+    print(f"  通信：需要 all-reduce 来求和部分输出")
 
     y_partitions = [p.fc2(h_act) for p, h_act in zip(partitions, h_activated)]
     y_reduced = torch.stack(y_partitions).sum(dim=0)
 
-    print(f"\nAfter all-reduce (sum): {y_reduced.shape}")
-    print(f"Output shape: {y_reduced.shape} (replicated on all devices)")
+    print(f"\nall-reduce（求和）之后：{y_reduced.shape}")
+    print(f"输出 shape：{y_reduced.shape}（在所有设备上复制）")
 
-    # Communication analysis
-    print(f"\nCommunication Analysis:")
-    print(f"  FC1 (col-parallel): f = 0 bytes (no communication)")
-    print(f"  ReLU:               f = 0 bytes")
-    print(f"  FC2 (row-parallel): f = batch*seq*hidden*bytes_per_element (all-reduce)")
-    print(f"  Total forward comm: 1 all-reduce per transformer block")
-    print(f"  Total backward comm: 1 all-reduce (for col-parallel grad)")
+    # 通信分析
+    print(f"\n通信分析：")
+    print(f"  FC1（列并行）：f = 0 bytes（无需通信）")
+    print(f"  ReLU：              f = 0 bytes")
+    print(f"  FC2（行并行）：f = batch*seq*hidden*每元素字节数（all-reduce）")
+    print(f"  每个 Transformer 块的前向通信总量：1 次 all-reduce")
+    print(f"  每个 Transformer 块的反向通信总量：1 次 all-reduce（针对列并行梯度）")
 
-    # Memory analysis per device
-    print(f"\nMemory per Device:")
+    # 每设备内存分析
+    print(f"\n每设备内存：")
     fc1_params = hidden_size * (intermediate_size // num_partitions)
     fc2_params = (intermediate_size // num_partitions) * hidden_size
     total_params = fc1_params + fc2_params
-    print(f"  FC1 parameters: {fc1_params:,}")
-    print(f"  FC2 parameters: {fc2_params:,}")
+    print(f"  FC1 参数：{fc1_params:,}")
+    print(f"  FC2 参数：{fc2_params:,}")
     print(
-        f"  Total per device: {total_params:,} (vs {hidden_size * intermediate_size * 2:,} without TP)"
+        f"  每设备总计：{total_params:,}（不使用 TP 时为 {hidden_size * intermediate_size * 2:,}）"
     )
-    print(
-        f"  Memory reduction: {1 - total_params / (hidden_size * intermediate_size * 2):.0%}"
-    )
+    print(f"  内存减少：{1 - total_params / (hidden_size * intermediate_size * 2):.0%}")
 
 
 def main() -> None:

@@ -1,11 +1,11 @@
 """
-Memory calculator for different parallelism strategies.
-Computes GPU memory usage for:
-  - Pure data parallel (DP / DDP)
-  - ZeRO stages 1-3
-  - Tensor parallel (TP)
-  - Pipeline parallel (PP)
-  - Combined strategies (3D parallelism)
+不同并行策略的内存计算器。
+计算以下策略的 GPU 内存使用情况：
+  - 纯数据并行（DP / DDP）
+  - ZeRO 阶段 1-3
+  - 张量并行（TP）
+  - 流水线并行（PP）
+  - 组合策略（3D 并行）
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 @dataclass
 class ModelConfig:
-    """Configuration of a transformer model."""
+    """Transformer 模型的配置。"""
 
     vocab_size: int = 50000
     hidden_size: int = 4096
@@ -25,31 +25,31 @@ class ModelConfig:
     num_kv_heads: int = 32
     intermediate_size: int = 11008
     max_seq_len: int = 2048
-    dtype_bytes: int = 2  # 2 for bf16/fp16, 4 for fp32
+    dtype_bytes: int = 2  # 2 表示 bf16/fp16，4 表示 fp32
 
 
 def count_parameters(config: ModelConfig) -> int:
-    """Count total parameters in the transformer model (no embedding sharing)."""
-    # Embedding
+    """统计 Transformer 模型的总参数量（不含嵌入共享）。"""
+    # 嵌入层
     embed = config.vocab_size * config.hidden_size
 
-    # Per-layer parameters
-    # Q, K, V projections + output projection
+    # 每层参数
+    # Q、K、V 投影 + 输出投影
     qkv = 3 * config.hidden_size * config.hidden_size
     out_proj = config.hidden_size * config.hidden_size
-    # MLP: two linear layers
+    # MLP：两个线性层
     mlp = (
         config.hidden_size * config.intermediate_size
         + config.intermediate_size * config.hidden_size
     )
-    # Layer norms (two per block)
+    # 层归一化（每块两个）
     ln = 2 * config.hidden_size
     per_layer = qkv + out_proj + mlp + ln
 
-    # Final layer norm
+    # 最终层归一化
     final_ln = config.hidden_size
 
-    # LM head (if tied with embedding, skip)
+    # LM head（若与嵌入层权重绑定则跳过）
     lm_head = config.hidden_size * config.vocab_size
 
     total = embed + config.num_layers * per_layer + final_ln + lm_head
@@ -57,7 +57,7 @@ def count_parameters(config: ModelConfig) -> int:
 
 
 def format_memory_gb(bytes_val: float) -> str:
-    """Format bytes as human-readable string."""
+    """将字节数格式化为人类可读的字符串。"""
     if bytes_val >= 1e9:
         return f"{bytes_val / 1e9:.2f} GB"
     elif bytes_val >= 1e6:
@@ -68,7 +68,7 @@ def format_memory_gb(bytes_val: float) -> str:
 
 @dataclass
 class MemoryBreakdown:
-    """Memory usage breakdown for a parallel strategy."""
+    """某种并行策略的内存使用明细。"""
 
     params_mem: float = 0.0
     grads_mem: float = 0.0
@@ -83,27 +83,27 @@ def compute_activation_memory(
     seq_len: int,
 ) -> float:
     """
-    Estimate activation memory for a transformer.
-    This is a rough estimate; actual depends on many factors.
+    估算 Transformer 的激活内存。
+    这是一个粗略估算；实际值取决于多种因素。
     """
     hidden = config.hidden_size
     num_layers = config.num_layers
 
-    # Per-layer activations (rough estimate)
-    # Attention: Q, K, V, attention scores, attention output
-    attn_act = batch_size * seq_len * hidden * 4  # Q, K, V, output
+    # 每层激活（粗略估算）
+    # 注意力：Q、K、V、注意力分数、注意力输出
+    attn_act = batch_size * seq_len * hidden * 4  # Q、K、V、输出
     attn_scores = (
         batch_size * config.num_attention_heads * seq_len * seq_len
-    )  # attention matrix
-    # MLP: intermediate activations
+    )  # 注意力矩阵
+    # MLP：中间激活
     mlp_act = batch_size * seq_len * config.intermediate_size
-    # Layer norm residuals
+    # 层归一化的残差
     residuals = batch_size * seq_len * hidden
 
     per_layer = (attn_act + attn_scores + mlp_act + residuals) * config.dtype_bytes
     total = per_layer * num_layers
 
-    # If activation checkpointing, only store ~sqrt(N) or O(1) layers
+    # 若启用激活检查点，则仅存储约 sqrt(N) 或 O(1) 层
     return total
 
 
@@ -114,18 +114,18 @@ def compute_ddp_memory(
     num_gpus: int,
     use_amp: bool = False,
 ) -> MemoryBreakdown:
-    """Compute memory for pure DDP (no ZeRO)."""
+    """计算纯 DDP（无 ZeRO）的内存使用。"""
     params = count_parameters(config)
     bytes_per = config.dtype_bytes if use_amp else 4  # fp16 vs fp32
 
-    # In DDP, each GPU stores:
-    #   - Full parameters (fp16 if AMP, fp32 otherwise)
-    #   - Full gradients (fp16/fp32)
-    #   - Full optimizer states (fp32, 2x for Adam)
-    #   - Activations (per microbatch)
+    # 在 DDP 中，每个 GPU 存储：
+    #   - 完整参数（若使用 AMP 则为 fp16，否则为 fp32）
+    #   - 完整梯度（fp16/fp32）
+    #   - 完整优化器状态（fp32，Adam 需 2 倍）
+    #   - 激活（每个 microbatch）
 
-    opt_multiplier = 2  # Adam: momentum + variance
-    opt_bytes = 4  # Optimizer always uses fp32
+    opt_multiplier = 2  # Adam：动量 + 方差
+    opt_bytes = 4  # 优化器始终使用 fp32
 
     params_mem = params * bytes_per
     grads_mem = params * bytes_per
@@ -149,7 +149,7 @@ def compute_zero_memory(
     num_gpus: int,
     use_amp: bool = False,
 ) -> MemoryBreakdown:
-    """Compute memory for ZeRO stages 1-3."""
+    """计算 ZeRO 阶段 1-3 的内存使用。"""
     params = count_parameters(config)
     bytes_per = config.dtype_bytes if use_amp else 4
     opt_multiplier = 2
@@ -184,18 +184,18 @@ def compute_tensor_parallel_memory(
     tp_size: int,
     use_amp: bool = False,
 ) -> MemoryBreakdown:
-    """Compute memory for tensor parallelism (alone, no DP)."""
+    """计算张量并行（单独使用，无 DP）的内存使用。"""
     params = count_parameters(config)
     bytes_per = config.dtype_bytes if use_amp else 4
     opt_multiplier = 2
     opt_bytes = 4
 
-    # TP splits parameters across devices
+    # TP 将参数拆分到各设备上
     params_mem = params * bytes_per / tp_size
     grads_mem = params * bytes_per / tp_size
     opt_mem = params * opt_multiplier * opt_bytes / tp_size
 
-    # Activations are also split
+    # 激活也被拆分
     act_mem = compute_activation_memory(config, batch_size, seq_len) / tp_size
 
     return MemoryBreakdown(
@@ -215,20 +215,20 @@ def compute_pipeline_parallel_memory(
     num_microbatches: int = 1,
     use_amp: bool = False,
 ) -> MemoryBreakdown:
-    """Compute memory for pipeline parallelism."""
+    """计算流水线并行的内存使用。"""
     params = count_parameters(config)
     bytes_per = config.dtype_bytes if use_amp else 4
     opt_multiplier = 2
     opt_bytes = 4
 
-    # PP splits layers across devices
+    # PP 将层拆分到各设备上
     params_mem = params * bytes_per / pp_size
     grads_mem = params * bytes_per / pp_size
     opt_mem = params * opt_multiplier * opt_bytes / pp_size
 
-    # Activations: each device stores activations for its layers only
+    # 激活：每个设备仅存储其负责层的激活
     act_mem = compute_activation_memory(config, batch_size, seq_len) / pp_size
-    # Multiply by number of microbatches in flight for 1F1B
+    # 乘以 1F1B 调度中同时在途的 microbatch 数量
     act_mem *= min(num_microbatches, pp_size)
 
     return MemoryBreakdown(
@@ -251,17 +251,17 @@ def compute_3d_parallel_memory(
     num_microbatches: int = 1,
     use_amp: bool = False,
 ) -> MemoryBreakdown:
-    """Compute memory for 3D parallelism (DP + TP + PP)."""
+    """计算 3D 并行（DP + TP + PP）的内存使用。"""
     total_gpus = dp_size * tp_size * pp_size
     params = count_parameters(config)
     bytes_per = config.dtype_bytes if use_amp else 4
     opt_multiplier = 2
     opt_bytes = 4
 
-    # Model states divided by TP and PP
+    # 模型状态由 TP 和 PP 均分
     model_params = params * bytes_per / (tp_size * pp_size)
 
-    # ZeRO further divides across DP
+    # ZeRO 进一步在 DP 维度上拆分
     params_mem = model_params
     grads_mem = model_params
     opt_mem = params * opt_multiplier * opt_bytes / (tp_size * pp_size)
@@ -273,13 +273,13 @@ def compute_3d_parallel_memory(
     if zero_stage >= 1:
         opt_mem /= dp_size
 
-    # Activations
-    # Microbatch per GPU
+    # 激活
+    # 每个 GPU 的 microbatch
     micro_bs = batch_size / (dp_size * num_microbatches)
     batch_per_device = batch_size / dp_size
     act_mem = compute_activation_memory(config, int(batch_per_device), seq_len)
-    act_mem /= tp_size  # TP reduces per-device activation
-    act_mem /= pp_size  # PP splits layers
+    act_mem /= tp_size  # TP 减少每设备激活
+    act_mem /= pp_size  # PP 拆分层
 
     return MemoryBreakdown(
         params_mem=params_mem,
@@ -292,10 +292,10 @@ def compute_3d_parallel_memory(
 
 def main() -> None:
     print("=" * 70)
-    print("Memory Calculator for Parallel Strategies")
+    print("并行策略内存计算器")
     print("=" * 70)
 
-    # Example: Llama-2 7B scale, scaled down for demonstration
+    # 示例：Llama-2 7B 规模，为演示目的进行了缩减
     config = ModelConfig(
         vocab_size=32000,
         hidden_size=4096,
@@ -308,21 +308,21 @@ def main() -> None:
     )
 
     params = count_parameters(config)
-    print(f"\nModel Configuration:")
-    print(f"  Parameters: {params:,} ({params / 1e9:.2f}B)")
-    print(f"  Hidden size: {config.hidden_size}")
-    print(f"  Layers: {config.num_layers}")
-    print(f"  Precision: bf16 (2 bytes)")
+    print(f"\n模型配置：")
+    print(f"  参数量：{params:,}（{params / 1e9:.2f}B）")
+    print(f"  隐藏维度：{config.hidden_size}")
+    print(f"  层数：{config.num_layers}")
+    print(f"  精度：bf16（2 bytes）")
 
     batch_size = 8
     seq_len = 2048
 
-    # --- Pure DDP ---
+    # --- 纯 DDP ---
     print("\n" + "-" * 70)
-    print("Strategy Comparison (8 GPUs, batch_size=8, seq_len=2048)")
+    print("策略对比（8 块 GPU，batch_size=8，seq_len=2048）")
     print("-" * 70)
     print(
-        f"{'Strategy':<25} {'Params':>10} {'Grads':>10} {'Optimizer':>10} {'Activations':>12} {'Total':>12}"
+        f"{'策略':<25} {'参数':>10} {'梯度':>10} {'优化器':>10} {'激活':>12} {'总计':>12}"
     )
     print("-" * 79)
 
@@ -332,20 +332,20 @@ def main() -> None:
         f"{'DDP':<25} {format_memory_gb(mem.params_mem):>10} {format_memory_gb(mem.grads_mem):>10} {format_memory_gb(mem.opt_mem):>10} {format_memory_gb(mem.activations_mem):>12} {format_memory_gb(mem.total):>12}"
     )
 
-    # ZeRO stages
+    # ZeRO 阶段
     for stage in [1, 2, 3]:
         mem = compute_zero_memory(config, stage, batch_size, seq_len, 8, use_amp=True)
         print(
             f"{f'ZeRO-{stage}':<25} {format_memory_gb(mem.params_mem):>10} {format_memory_gb(mem.grads_mem):>10} {format_memory_gb(mem.opt_mem):>10} {format_memory_gb(mem.activations_mem):>12} {format_memory_gb(mem.total):>12}"
         )
 
-    # TP (8-way)
+    # TP（8 路）
     mem = compute_tensor_parallel_memory(config, batch_size, seq_len, 8, use_amp=True)
     print(
         f"{'TP (8-way)':<25} {format_memory_gb(mem.params_mem):>10} {format_memory_gb(mem.grads_mem):>10} {format_memory_gb(mem.opt_mem):>10} {format_memory_gb(mem.activations_mem):>12} {format_memory_gb(mem.total):>12}"
     )
 
-    # PP (8-way)
+    # PP（8 路）
     mem = compute_pipeline_parallel_memory(
         config, batch_size, seq_len, 8, num_microbatches=4
     )
@@ -353,12 +353,12 @@ def main() -> None:
         f"{'PP (8-way, 4MB)':<25} {format_memory_gb(mem.params_mem):>10} {format_memory_gb(mem.grads_mem):>10} {format_memory_gb(mem.opt_mem):>10} {format_memory_gb(mem.activations_mem):>12} {format_memory_gb(mem.total):>12}"
     )
 
-    # 3D Parallelism
+    # 3D 并行
     print("\n" + "-" * 70)
-    print("3D Parallelism Examples (64 GPUs)")
+    print("3D 并行示例（64 块 GPU）")
     print("-" * 70)
     print(
-        f"{'Config (DP/TP/PP)':<25} {'Params':>10} {'Grads':>10} {'Optimizer':>10} {'Activations':>12} {'Total':>12}"
+        f"{'配置 (DP/TP/PP)':<25} {'参数':>10} {'梯度':>10} {'优化器':>10} {'激活':>12} {'总计':>12}"
     )
     print("-" * 79)
 
@@ -373,9 +373,9 @@ def main() -> None:
 
     for dp, tp, pp, z, label in configs_3d:
         assert dp * tp * pp == sum(c[0] * c[1] * c[2] for c in [(dp, tp, pp)]), (
-            "Should be 64"
+            "应为 64"
         )
-        # We just use the provided configs; the total may not be 64 for all
+        # 我们直接使用提供的配置；总数不一定都是 64
         total_gpus = dp * tp * pp
         mem = compute_3d_parallel_memory(
             config,
@@ -393,31 +393,30 @@ def main() -> None:
             f"{label_str:<25} {format_memory_gb(mem.params_mem):>10} {format_memory_gb(mem.grads_mem):>10} {format_memory_gb(mem.opt_mem):>10} {format_memory_gb(mem.activations_mem):>12} {format_memory_gb(mem.total):>12}"
         )
 
-    # Recommendations
+    # 推荐策略
     print("\n" + "=" * 70)
-    print("Recommendations")
+    print("推荐策略")
     print("=" * 70)
     print("""
-    Strategy selection guide:
+    策略选择指南：
     ┌──────────────┬──────────────────────────────────────────────────┐
-    │ Model Size   │ Recommended Strategy                             │
+    │ 模型规模     │ 推荐策略                                         │
     ├──────────────┼──────────────────────────────────────────────────┤
-    │ < 1B params  │ DDP (simplest, no overhead)                      │
-    │ 1B - 10B     │ ZeRO-2 or ZeRO-3 (DP only)                      │
-    │ 10B - 100B   │ ZeRO-3 + TP (hybrid)                            │
-    │ 100B - 500B  │ 3D parallelism (DP + TP + PP) with ZeRO-1/2    │
-    │ > 500B       │ Full 3D parallelism with ZeRO-3 + activation    │
-    │              │ checkpointing + offloading                      │
+    │ < 1B 参数    │ DDP（最简单，无额外开销）                        │
+    │ 1B - 10B     │ ZeRO-2 或 ZeRO-3（仅 DP）                       │
+    │ 10B - 100B   │ ZeRO-3 + TP（混合）                             │
+    │ 100B - 500B  │ 3D 并行（DP + TP + PP）配合 ZeRO-1/2            │
+    │ > 500B       │ 全 3D 并行配合 ZeRO-3 + 激活检查点 + 卸载       │
     └──────────────┴──────────────────────────────────────────────────┘
 
-    Communication vs Memory trade-off:
+    通信与内存权衡：
     ┌──────────┬────────────┬──────────────┬────────────────┐
-    │ Strategy │ Parameters │ Communication│ Memory/GPU     │
+    │ 策略     │ 参数       │ 通信量       │ 每 GPU 内存    │
     ├──────────┼────────────┼──────────────┼────────────────┤
-    │ DDP      │ Replicated │ 1x           │ Full model     │
-    │ ZeRO-3   │ Sharded    │ 1.5x         │ 1/N of DDP     │
-    │ TP       │ Sharded    │ High (intra) │ 1/TP of model  │
-    │ PP       │ Sharded    │ Low          │ 1/PP of model  │
+    │ DDP      │ 完全复制   │ 1x           │ 完整模型       │
+    │ ZeRO-3   │ 分片       │ 1.5x         │ DDP 的 1/N    │
+    │ TP       │ 分片       │ 高（节点内） │ 模型的 1/TP   │
+    │ PP       │ 分片       │ 低           │ 模型的 1/PP   │
     └──────────┴────────────┴──────────────┴────────────────┘
     """)
 

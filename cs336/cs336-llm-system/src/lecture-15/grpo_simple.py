@@ -1,16 +1,15 @@
 """
-Simplified GRPO (Group Relative Policy Optimization).
+简化版 GRPO（Group Relative Policy Optimization，分组相对策略优化）。
 
-GRPO eliminates the critic network by computing advantages through
-group-relative reward normalisation:
+GRPO 通过分组相对奖励归一化来消除 critic 网络：
 
-1. For each prompt, sample G candidate responses.
-2. Compute a scalar reward for each response.
-3. Normalise rewards to zero mean and unit variance **within each group**.
-4. Use the normalised values as advantages in a policy-gradient update.
+1. 对每个 prompt，采样 G 个候选响应。
+2. 为每个响应计算一个标量奖励。
+3. 将奖励**在每个组内**归一化为零均值和单位方差。
+4. 使用归一化后的值作为 policy-gradient 更新中的 advantage。
 
-Reference: "DeepSeekMath: Pushing the Limits of Mathematical Reasoning
-in Open Language Models" (Shao et al., 2024).
+参考文献："DeepSeekMath: Pushing the Limits of Mathematical Reasoning
+in Open Language Models" (Shao et al., 2024)。
 """
 
 from __future__ import annotations
@@ -23,16 +22,15 @@ import torch.nn.functional as F
 
 
 # ---------------------------------------------------------------------------
-# Tiny policy model (simple LSTM-based sequence generator)
+# 微型 policy 模型（基于 LSTM 的简单序列生成器）
 # ---------------------------------------------------------------------------
 
 
 class TinyPolicy(nn.Module):
-    """A compact LSTM-based policy for sequence generation.
+    """一个紧凑的基于 LSTM 的序列生成 policy。
 
-    Maps token ids through an embedding layer, feeds them into a
-    single-layer LSTM, and projects the hidden state to vocabulary-size
-    logits for autoregressive sampling.
+    将 token id 通过 embedding 层映射，传入单层 LSTM，
+    并将隐藏状态投影到词汇表大小的 logits 以进行自回归采样。
     """
 
     def __init__(
@@ -63,17 +61,17 @@ class TinyPolicy(nn.Module):
         seq_len: int,
         temperature: float = 1.0,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Autoregressively generate a sequence and return log-probs.
+        """自回归生成序列并返回 log-prob。
 
         Args:
-            start_token: (B, 1) initial token ids.
-            seq_len:     Number of tokens to generate.
-            temperature: Sampling temperature (higher = more random).
+            start_token: (B, 1) 初始 token id。
+            seq_len:     要生成的 token 数量。
+            temperature: 采样温度（越高越随机）。
 
         Returns:
             (tokens, log_probs)
-              tokens:    (B, seq_len) generated token ids.
-              log_probs: (B, seq_len) per-token log-probabilities.
+              tokens:    (B, seq_len) 生成的 token id。
+              log_probs: (B, seq_len) 每个 token 的 log-probability。
         """
         batch_size = start_token.shape[0]
         tokens: List[torch.Tensor] = []
@@ -84,7 +82,7 @@ class TinyPolicy(nn.Module):
 
         for _ in range(seq_len):
             logits, hidden = self.forward(current, hidden)  # (B, 1, V)
-            # Apply temperature scaling
+            # 应用 temperature 缩放
             logits_scaled = logits / temperature
             probs = F.softmax(logits_scaled, dim=-1)
             dist = torch.distributions.Categorical(probs)
@@ -101,44 +99,42 @@ class TinyPolicy(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# Simple pattern-based reward model
+# 基于简单模式的 reward model
 # ---------------------------------------------------------------------------
 
 
 class PatternRewardModel(nn.Module):
-    """Simple reward model that prefers sequences with an alternating
-    high/low token pattern (like "ABABAB...").
+    """简单的 reward model，偏好具有交替高/低 token 模式的序列（如 "ABABAB..."）。
 
-    Rewards are computed as the dot-product similarity between the
-    generated sequence and a pre-defined target pattern, normalised
-    to [-1, 1] range.
+    奖励通过生成的序列与预定义目标模式之间的点积相似度计算，
+    并归一化到 [-1, 1] 范围内。
     """
 
     def __init__(self, pattern_len: int = 4, embed_dim: int = 32) -> None:
         super().__init__()
-        # Learnable pattern embeddings
+        # 可学习的模式 embedding
         self.pattern_emb = nn.Parameter(torch.randn(pattern_len, embed_dim))
         self.token_emb = nn.Embedding(100, embed_dim)  # up to vocab size 100
 
     def forward(self, sequence: torch.Tensor) -> torch.Tensor:
-        """Compute scalar rewards for a batch of sequences.
+        """为一组序列计算标量奖励。
 
         Args:
-            sequence: (batch, seq_len) token ids.
+            sequence: (batch, seq_len) token id。
 
         Returns:
-            rewards: (batch,) scalar rewards.
+            rewards: (batch,) 标量奖励。
         """
         batch, seq_len = sequence.shape
-        # Embed the target pattern once
+        # 一次性嵌入目标模式
         target = self.pattern_emb[:seq_len]  # (seq_len, E)
-        # Embed the generated sequence
+        # 嵌入生成的序列
         seq_emb = self.token_emb(sequence)  # (B, seq_len, E)
-        # Compute cosine similarity between each token and target
-        # Normalise
+        # 计算每个 token 与目标之间的 cosine 相似度
+        # 归一化
         target_n = F.normalize(target, dim=-1)  # (seq_len, E)
         seq_n = F.normalize(seq_emb, dim=-1)  # (B, seq_len, E)
-        # Dot product per position, then mean over sequence
+        # 每个位置的点积，然后沿序列取平均
         sim = (seq_n * target_n.unsqueeze(0)).sum(dim=-1)  # (B, seq_len)
         rewards = sim.mean(dim=1)  # (B,)
         return rewards
@@ -148,17 +144,16 @@ def simple_pattern_reward(
     sequence: torch.Tensor,
     pattern: List[int] | None = None,
 ) -> torch.Tensor:
-    """Deterministic pattern-matching reward (no parameters).
+    """确定性的模式匹配奖励（无参数）。
 
-    Reward = fraction of positions where token_id % 2 matches the
-    expected parity from an alternating pattern.
+    奖励 = token_id % 2 与交替模式预期奇偶性匹配的位置比例。
 
     Args:
-        sequence: (batch, seq_len) token ids.
-        pattern:  Expected parity sequence (default: alternating 0,1,0,1,...).
+        sequence: (batch, seq_len) token id。
+        pattern:  预期的奇偶性序列（默认：交替 0,1,0,1,...）。
 
     Returns:
-        rewards: (batch,) scalar rewards in [0, 1].
+        rewards: (batch,) [0, 1] 范围内的标量奖励。
     """
     batch, seq_len = sequence.shape
     if pattern is None:
@@ -170,7 +165,7 @@ def simple_pattern_reward(
 
 
 # ---------------------------------------------------------------------------
-# GRPO training step
+# GRPO 训练步骤
 # ---------------------------------------------------------------------------
 
 
@@ -183,20 +178,19 @@ def grpo_step(
     temperature: float = 1.0,
     eps: float = 1e-8,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Perform one GRPO update.
+    """执行一次 GRPO 更新。
 
-    For each prompt in the batch, sample *group_size* responses, compute
-    their rewards, normalise within each group to obtain advantages, and
-    apply a policy-gradient update.
+    对 batch 中的每个 prompt，采样 *group_size* 个响应，计算它们的
+    奖励，在每个组内归一化以获得 advantage，然后应用 policy-gradient 更新。
 
     Args:
-        policy:      The TinyPolicy to update.
-        prompts:     (batch, 1) initial token ids.
-        reward_fn:   Callable (sequence) -> (batch,) rewards.
-        seq_len:     Length of generated response.
-        group_size:  G, number of responses per prompt.
-        temperature: Sampling temperature.
-        eps:         Small constant for numerical stability.
+        policy:      要更新的 TinyPolicy。
+        prompts:     (batch, 1) 初始 token id。
+        reward_fn:   可调用对象 (sequence) -> (batch,) 奖励。
+        seq_len:     生成的响应长度。
+        group_size:  G，每个 prompt 的响应数量。
+        temperature: 采样温度。
+        eps:         用于数值稳定性的小常数。
 
     Returns:
         (loss, mean_reward, mean_advantage_abs)
@@ -205,47 +199,47 @@ def grpo_step(
     all_log_probs: List[torch.Tensor] = []
     all_rewards: List[torch.Tensor] = []
 
-    # ---- Phase 1: Sample G responses per prompt ----
+    # ---- 阶段 1：为每个 prompt 采样 G 个响应 ----
     for _ in range(group_size):
         tokens, log_probs = policy.generate(prompts, seq_len, temperature)
         rewards = reward_fn(tokens)  # (batch,)
-        all_log_probs.append(log_probs.sum(dim=1))  # (batch,) summed log-prob
+        all_log_probs.append(log_probs.sum(dim=1))  # (batch,) 求和 log-prob
         all_rewards.append(rewards)
 
-    # Stack into (group_size, batch_size)
+    # 堆叠为 (group_size, batch_size)
     log_probs_mat = torch.stack(all_log_probs, dim=0)  # (G, B)
     rewards_mat = torch.stack(all_rewards, dim=0)  # (G, B)
 
-    # ---- Phase 2: Group-relative advantage normalisation ----
-    # For each prompt (column), normalise rewards across the G responses
+    # ---- 阶段 2：分组相对 advantage 归一化 ----
+    # 对每个 prompt（列），在 G 个响应之间归一化奖励
     mean_r = rewards_mat.mean(dim=0, keepdim=True)  # (1, B)
     std_r = rewards_mat.std(dim=0, keepdim=True) + eps  # (1, B)
     advantages = (rewards_mat - mean_r) / std_r  # (G, B)
 
-    # ---- Phase 3: Policy gradient loss ----
-    # L = -mean(advantages * log_prob)  (REINFORCE-style, but with GRPO advantages)
-    # Detach advantages from the computation graph (they act as fixed weights)
+    # ---- 阶段 3：Policy gradient 损失 ----
+    # L = -mean(advantages * log_prob)  （REINFORCE 风格，但使用 GRPO advantages）
+    # 将 advantages 从计算图中分离（它们作为固定权重）
     loss = -(advantages.detach() * log_probs_mat).mean()
 
     return loss, rewards_mat.mean(), advantages.abs().mean()
 
 
 # ---------------------------------------------------------------------------
-# Training demonstration
+# 训练演示
 # ---------------------------------------------------------------------------
 
 
 def main() -> None:
-    """Train a tiny policy with GRPO on a synthetic pattern-matching task."""
+    """在合成模式匹配任务上使用 GRPO 训练一个微型 policy。"""
     torch.manual_seed(42)
 
-    # Hyper-parameters
+    # 超参数
     vocab_size = 50
     embed_dim = 32
     hidden_dim = 64
-    seq_len = 16  # length of generated responses
-    num_prompts = 8  # batch of prompts per step
-    group_size = 6  # G responses per prompt
+    seq_len = 16  # 生成响应的长度
+    num_prompts = 8  # 每步的 prompt 批次大小
+    group_size = 6  # 每个 prompt 的 G 个响应
     num_steps = 150
     lr = 5e-3
     temperature = 1.0
@@ -255,13 +249,13 @@ def main() -> None:
     )
     optimizer = torch.optim.AdamW(policy.parameters(), lr=lr)
 
-    # Target pattern for the synthetic reward: alternating parity
+    # 合成奖励的目标模式：交替奇偶性
     pattern = [i % 2 for i in range(seq_len)]
 
     def reward_fn(tokens: torch.Tensor) -> torch.Tensor:
         return simple_pattern_reward(tokens, pattern)
 
-    # Fixed set of prompt tokens (we reuse them across steps for simplicity)
+    # 固定的 prompt token 集合（为简单起见，各步之间复用）
     prompt_tokens = torch.randint(0, vocab_size, (num_prompts, 1))
 
     policy.train()
@@ -282,7 +276,7 @@ def main() -> None:
         optimizer.step()
 
         if step % 15 == 0 or step == 1:
-            # Also compute the best reward in the batch for reporting
+            # 同时计算 batch 中的最佳奖励用于报告
             with torch.no_grad():
                 best = 0.0
                 for _ in range(group_size):
@@ -295,8 +289,8 @@ def main() -> None:
                 f"{mean_adv_abs.item():>10.4f}  {best:>10.4f}"
             )
 
-    # ---- Final evaluation ----
-    print("\n--- Final evaluation ---")
+    # ---- 最终评估 ----
+    print("\n--- 最终评估 ---")
     policy.eval()
     with torch.no_grad():
         eval_prompts = torch.randint(0, vocab_size, (4, 1))
@@ -311,7 +305,7 @@ def main() -> None:
             print(f"    tokens: {seq_str}")
             print(f"    parity: {parity_str}")
 
-        # Baseline: random policy
+        # 基线：随机 policy
         random_policy = TinyPolicy(vocab_size=vocab_size, embed_dim=embed_dim)
         print("\n  Random (untrained) baseline:")
         for i in range(4):
@@ -323,7 +317,7 @@ def main() -> None:
             print(f"    parity: {parity_str}  (reward = {r.item():.3f})")
 
         print("\n  Target pattern parity: " + " ".join(str(p) for p in pattern))
-        print("  (Trained policy should approximate the alternating parity pattern)")
+        print("  (训练后的 policy 应近似交替奇偶性模式)")
 
 
 if __name__ == "__main__":

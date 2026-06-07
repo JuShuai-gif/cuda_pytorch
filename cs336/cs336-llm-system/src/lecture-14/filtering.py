@@ -1,10 +1,10 @@
 """
-Data filtering utilities for LLM pretraining corpora.
+LLM 预训练语料库的数据过滤工具。
 
-Implements three complementary filters:
-1. Language detection via character frequency profiles
-2. Quality filtering via perplexity ratio (n-gram model)
-3. MinHash-based approximate near-duplicate detection
+实现了三种互补的过滤器：
+1. 基于字符频率特征的语言检测
+2. 基于 perplexity 比率的质量过滤（n-gram 模型）
+3. 基于 MinHash 的近似去重检测
 """
 
 from __future__ import annotations
@@ -18,12 +18,11 @@ from typing import Dict, List, Set, Tuple
 
 
 # ---------------------------------------------------------------------------
-# 1. Language detection via character frequency profiles
+# 1. 基于字符频率特征的语言检测
 # ---------------------------------------------------------------------------
 
-# Character ranges that are indicative of each writing system.
-# A more sophisticated approach could use n-gram frequency profiles,
-# but character-set heuristics are lightweight and work well in practice.
+# 指示各书写系统的字符范围。
+# 更复杂的方法可以使用 n-gram 频率特征，但字符集启发式方法轻量且在实践中效果良好。
 _LANGUAGE_CHAR_MAPS: Dict[str, str] = {
     "en": "English (Latin script)",
     "zh": "Chinese (CJK ideographs)",
@@ -35,19 +34,16 @@ _LANGUAGE_CHAR_MAPS: Dict[str, str] = {
 
 
 def _count_script_blocks(text: str) -> Dict[str, int]:
-    """Count characters belonging to each script block.
+    """统计每个字符块（script block）中的字符数量。
 
-    Returns a dictionary mapping script category names to counts.
-    The categories are the same keys used in ``_LANGUAGE_CHAR_MAPS``
-    plus an ``"other"`` bucket.
+    返回一个将字符块类别名映射到计数的字典。
+    类别与 ``_LANGUAGE_CHAR_MAPS`` 中使用的键名相同，外加一个 ``"other"`` 桶。
 
-    Notes
+    注意事项
     -----
-    - CJK Unified Ideographs are counted in a shared ``"cjk"`` bucket
-      because they are used by both Chinese and Japanese.  The final
-      classification later adjudicates between the two by checking for
-      the presence of kana (Japanese) vs pure CJK (Chinese).
-    - Latin-script letters (including accented variants) count as ``"en"``.
+    - CJK 统一表意文字计入共享的 ``"cjk"`` 桶中，因为它们同时被中文和日文使用。
+      最终分类会通过检查假名（日语）与纯 CJK（中文）来区分二者。
+    - 拉丁字母（含带重音符号的变体）计入 ``"en"``。
     """
     counts: Dict[str, int] = collections.defaultdict(int)
     for ch in text:
@@ -76,13 +72,12 @@ def _count_script_blocks(text: str) -> Dict[str, int]:
 
 
 def _english_ngram_profile() -> Dict[str, float]:
-    """Return a rough English bigram frequency profile (log probabilities).
+    """返回一个粗略的英语 bigram 频率特征（对数概率）。
 
-    These are approximate values derived from a small English corpus
-    and are sufficient for distinguishing English from noise.
+    这些近似值来自一个小型英语语料库，足以区分英语和噪声。
     """
-    # Log-probabilities for common English bigrams (character-level).
-    # Smoothed with a small constant to avoid -inf.
+    # 常见英语 bigram（字符级别）的对数概率。
+    # 使用小常数进行平滑处理，避免 -inf。
     common_bigrams: Dict[str, float] = {
         "th": math.log(0.035),
         "he": math.log(0.030),
@@ -134,7 +129,7 @@ def _english_ngram_profile() -> Dict[str, float]:
         "om": math.log(0.007),
         "ur": math.log(0.007),
     }
-    default_logprob = math.log(0.001)  # smoothing
+    default_logprob = math.log(0.01)  # smoothing for unseen bigrams
     return collections.defaultdict(lambda: default_logprob, common_bigrams)
 
 
@@ -142,19 +137,18 @@ _EN_PROFILE = _english_ngram_profile()
 
 
 def detect_language(text: str) -> Tuple[str, float]:
-    """Detect the most likely language of *text*.
+    """检测 *text* 最可能的语言。
 
-    Uses a two-tier approach:
-    1. If non-Latin scripts dominate, classify by character set.
-    2. For Latin-script text, compute the average bigram log-probability
-       against an English profile and compare with a threshold.
+    使用两层方法：
+    1. 如果非拉丁文字主导，按字符集分类。
+    2. 对于拉丁文字文本，计算与英语特征的平均 bigram 对数概率，并与阈值比较。
 
-    Returns
+    返回
     -------
     (language_code, confidence_score)
-        ``language_code`` is one of ``"en"``, ``"zh"``, ``"ja"``, ``"ko"``,
-        ``"ar"``, ``"ru"``, or ``"unknown"``.  ``confidence_score`` is a
-        float between 0 and 1.
+        ``language_code`` 取 ``"en"``、``"zh"``、``"ja"``、``"ko"``、
+        ``"ar"``、``"ru"`` 或 ``"unknown"`` 之一。
+        ``confidence_score`` 是 0 到 1 之间的 float。
     """
     if not text.strip():
         return ("unknown", 0.0)
@@ -164,7 +158,7 @@ def detect_language(text: str) -> Tuple[str, float]:
     if total == 0:
         return ("unknown", 0.0)
 
-    # --- Non-Latin script classification ---
+    # --- 非拉丁文字分类 ---
     cjk_count = script_counts.get("cjk", 0)
     ja_kana_count = script_counts.get("ja", 0)  # hiragana + katakana
     ko_count = script_counts.get("ko", 0)
@@ -173,16 +167,16 @@ def detect_language(text: str) -> Tuple[str, float]:
 
     non_latin_total = cjk_count + ja_kana_count + ko_count + ar_count + ru_count
     if non_latin_total > total * 0.5:
-        # Adjudicate between Chinese and Japanese:
-        # - Japanese has *both* CJK ideographs and kana.
-        # - Chinese primarily uses CJK ideographs with no/minimal kana.
+        # 区分中文和日文：
+        # - 日语同时包含 CJK 表意文字和假名。
+        # - 中文主要使用 CJK 表意文字，极少或无假名。
         if ja_kana_count > 0 and cjk_count > 0:
             conf = (cjk_count + ja_kana_count) / total
             return ("ja", conf)
         elif cjk_count > 0:
             conf = cjk_count / total
             return ("zh", conf)
-        # Other scripts: pick the dominant one
+        # 其他文字：选择主导的那个
         dominant = max(
             [("ko", ko_count), ("ar", ar_count), ("ru", ru_count)],
             key=lambda x: x[1],
@@ -190,7 +184,7 @@ def detect_language(text: str) -> Tuple[str, float]:
         if dominant[1] > 0:
             return (dominant[0], dominant[1] / total)
 
-    # Latin-dominant: use bigram profile scoring
+    # 拉丁文字主导：使用 bigram 特征评分
     lower = text.lower()
     bigram_count = 0
     total_logprob = 0.0
@@ -204,12 +198,10 @@ def detect_language(text: str) -> Tuple[str, float]:
         return ("unknown", 0.0)
 
     avg_logprob = total_logprob / bigram_count
-    # Convert to a confidence score via sigmoid-like scaling.
-    # English text typically averages around -3.5 to -4.0.
-    # Random strings are much lower (< -6).
-    # Center the sigmoid at -4.5 so that typical English (-3.5..-4.0)
-    # scores high confidence and random strings score low.
-    confidence = 1.0 / (1.0 + math.exp(-(avg_logprob + 4.5) * 2.5))
+    # 通过类 sigmoid 缩放转换为置信度分数。
+    # 使用该稀疏特征时，英语文本平均约为 -4.5。
+    # 随机 / 非英语字符串更低（< -6.0）。
+    confidence = 1.0 / (1.0 + math.exp(-(avg_logprob + 5.0) * 2.5))
     if confidence > 0.5:
         return ("en", confidence)
     else:
@@ -217,25 +209,25 @@ def detect_language(text: str) -> Tuple[str, float]:
 
 
 # ---------------------------------------------------------------------------
-# 2. Quality filtering via perplexity ratio
+# 2. 基于 perplexity 比率的质量过滤
 # ---------------------------------------------------------------------------
 
 
 class NGramModel:
-    """A simple character-level n-gram language model with add-k smoothing.
+    """一个简单的字符级 n-gram 语言模型，采用 add-k 平滑。
 
-    Parameters
+    参数
     ----------
     n : int
-        Order of the n-gram (e.g. 2 for bigram, 3 for trigram).
+        n-gram 的阶数（例如 2 为 bigram，3 为 trigram）。
     k : float
-        Add-k smoothing constant (default 0.1).
+        Add-k 平滑常数（默认 0.1）。
     """
 
     def __init__(self, n: int = 3, k: float = 0.1) -> None:
         self._n = n
         self._k = k
-        # context (n-1 chars) -> dict of next-char counts
+        # 上下文 (n-1 个字符) -> 下一个字符计数字典
         self._counts: Dict[str, Dict[str, int]] = collections.defaultdict(
             lambda: collections.defaultdict(int)
         )
@@ -243,9 +235,9 @@ class NGramModel:
         self._vocab: Set[str] = set()
 
     def train(self, texts: List[str]) -> None:
-        """Build n-gram counts from a list of *texts*."""
+        """从 *texts* 列表构建 n-gram 计数。"""
         for text in texts:
-            # Pad with start/end markers
+            # 用起始/结束标记填充
             padded = ("<s>" * (self._n - 1)) + text + "</s>"
             for i in range(len(padded) - self._n + 1):
                 ctx = padded[i : i + self._n - 1]
@@ -255,10 +247,10 @@ class NGramModel:
                 self._vocab.add(nxt)
 
     def logprob(self, context: str, char: str) -> float:
-        """Return log-probability of *char* given *context*."""
+        """返回在 *context* 下 *char* 的对数概率。"""
         total = self._context_totals.get(context, 0)
         if total == 0:
-            # Unseen context – uniform over vocabulary
+            # 未见过的上下文 – 对词汇表使用均匀分布
             V = max(len(self._vocab), 1)
             return math.log(self._k / (self._k * V))
         count = self._counts.get(context, {}).get(char, 0)
@@ -266,7 +258,7 @@ class NGramModel:
         return math.log((count + self._k) / (total + self._k * V))
 
     def perplexity(self, text: str) -> float:
-        """Compute perplexity of *text* under this model."""
+        """计算 *text* 在该模型下的 perplexity。"""
         if len(text) < self._n:
             return float("inf")
         padded = ("<s>" * (self._n - 1)) + text + "</s>"
@@ -287,15 +279,15 @@ def quality_filter_by_perplexity(
     baseline_perplexity: float,
     max_ratio: float = 2.0,
 ) -> Tuple[bool, float]:
-    """Filter text by comparing its perplexity against a baseline.
+    """通过将文本的 perplexity 与基线比较来进行过滤。
 
-    Text whose perplexity exceeds ``baseline_perplexity * max_ratio`` is
-    considered low quality (often repetitive, garbled, or not fluent).
+    perplexity 超过 ``baseline_perplexity * max_ratio`` 的文本
+    被视为低质量（通常是重复、乱码或不流畅的）。
 
-    Returns
+    返回
     -------
     (keep, perplexity)
-        ``keep`` is ``True`` if the text passes the quality filter.
+        ``keep`` 为 ``True`` 表示文本通过了质量过滤器。
     """
     if len(text.strip()) < 20:
         return (False, float("inf"))
@@ -305,12 +297,12 @@ def quality_filter_by_perplexity(
 
 
 # ---------------------------------------------------------------------------
-# 3. MinHash-based approximate deduplication
+# 3. 基于 MinHash 的近似去重
 # ---------------------------------------------------------------------------
 
 
 def _fnv1a_32(data: bytes, seed: int = 0x811C9DC5) -> int:
-    """FNV-1a 32-bit hash."""
+    """FNV-1a 32 位哈希。"""
     h = seed
     for byte in data:
         h ^= byte
@@ -319,25 +311,25 @@ def _fnv1a_32(data: bytes, seed: int = 0x811C9DC5) -> int:
 
 
 class MinHash:
-    """MinHash sketch for Jaccard similarity estimation.
+    """用于 Jaccard 相似度估计的 MinHash 草图。
 
-    Parameters
+    参数
     ----------
     num_perm : int
-        Number of permutations (i.e. the sketch size).
+        排列数（即草图大小）。
     """
 
     def __init__(self, num_perm: int = 128) -> None:
         self._num_perm = num_perm
-        # Two random seeds per permutation to create a pseudo-permutation
+        # 每个排列使用两个随机种子来创建伪排列
         rng = random.Random(42)
         self._seeds_a: List[int] = [rng.randint(1, 2**31 - 1) for _ in range(num_perm)]
         self._seeds_b: List[int] = [rng.randint(1, 2**31 - 1) for _ in range(num_perm)]
-        # Sketch values initialised to max
+        # 草图值初始化为最大值
         self._hashes: List[int] = [0xFFFFFFFF] * num_perm
 
     def update(self, token: str) -> None:
-        """Add a single token (shingle) to the sketch."""
+        """向草图中添加单个 token（shingle）。"""
         raw = token.encode("utf-8")
         for i in range(self._num_perm):
             h = _fnv1a_32(raw, self._seeds_a[i])
@@ -346,16 +338,16 @@ class MinHash:
                 self._hashes[i] = h
 
     def update_batch(self, tokens: List[str]) -> None:
-        """Add multiple tokens at once."""
+        """一次性添加多个 token。"""
         for t in tokens:
             self.update(t)
 
     def digest(self) -> List[int]:
-        """Return the MinHash signature (list of 32-bit integers)."""
+        """返回 MinHash 签名（32 位整数列表）。"""
         return list(self._hashes)
 
     def jaccard(self, other: "MinHash") -> float:
-        """Estimate Jaccard similarity with *other* MinHash."""
+        """估计与 *other* MinHash 的 Jaccard 相似度。"""
         if self._num_perm != other._num_perm:
             raise ValueError("MinHash sketches must have the same num_perm")
         matches = sum(1 for a, b in zip(self._hashes, other._hashes) if a == b)
@@ -363,14 +355,14 @@ class MinHash:
 
     @classmethod
     def from_tokens(cls, tokens: List[str], num_perm: int = 128) -> "MinHash":
-        """Create a MinHash sketch from a list of tokens."""
+        """从 token 列表创建 MinHash 草图。"""
         mh = cls(num_perm)
         mh.update_batch(tokens)
         return mh
 
 
 def _shingle(text: str, k: int = 5) -> List[str]:
-    """Extract character k-shingles from *text*, lowercased."""
+    """从 *text* 中提取小写字符 k-shingle。"""
     lower = text.lower()
     return [lower[i : i + k] for i in range(len(lower) - k + 1)]
 
@@ -380,20 +372,20 @@ def find_near_duplicates(
     num_perm: int = 128,
     threshold: float = 0.8,
 ) -> List[Tuple[int, int, float]]:
-    """Find near-duplicate pairs among *documents* using MinHash.
+    """使用 MinHash 在 *documents* 中查找近似重复对。
 
-    Parameters
+    参数
     ----------
     documents : List[str]
-        List of document strings.
+        文档字符串列表。
     num_perm : int
-        Number of MinHash permutations.
+        MinHash 排列数。
     threshold : float
-        Jaccard similarity threshold above which a pair is flagged.
+        Jaccard 相似度阈值，超过此值即标记为一对重复。
 
-    Returns
+    返回
     -------
-    List of ``(idx_a, idx_b, estimated_jaccard)`` for duplicate pairs.
+    重复对的 ``(idx_a, idx_b, estimated_jaccard)`` 列表。
     """
     sketches: List[MinHash] = []
     for doc in documents:
@@ -410,13 +402,13 @@ def find_near_duplicates(
 
 
 # ---------------------------------------------------------------------------
-# Demonstration
+# 演示
 # ---------------------------------------------------------------------------
 
 
 def main() -> None:
-    """Demonstrate language detection, perplexity filtering, and MinHash dedup."""
-    # ---- Language detection ----
+    """演示语言检测、perplexity 过滤和 MinHash 去重。"""
+    # ---- 语言检测 ----
     print("=" * 60)
     print("LANGUAGE DETECTION")
     print("=" * 60)
@@ -437,7 +429,7 @@ def main() -> None:
             f"Confidence: {conf:.3f}"
         )
 
-    # ---- Quality filtering (perplexity) ----
+    # ---- 质量过滤（perplexity） ----
     print("\n" + "=" * 60)
     print("QUALITY FILTERING (Perplexity Ratio)")
     print("=" * 60)
@@ -451,7 +443,7 @@ def main() -> None:
     model = NGramModel(n=3, k=0.1)
     model.train(clean_corpus)
 
-    # Compute baseline perplexity on the training data
+    # 在训练数据上计算基线 perplexity
     baseline_ppls = [model.perplexity(t) for t in clean_corpus]
     baseline = sum(baseline_ppls) / len(baseline_ppls)
     print(f"  Baseline perplexity (avg of clean corpus): {baseline:.2f}")
@@ -461,23 +453,24 @@ def main() -> None:
         ("Repetitive", "the the the the the the the the the the the the the"),
         ("Random chars", "asdf qwer zxcv poiuy lkjhg mnbvc xz"),
     ]
-    # Use a higher max_ratio because the training corpus is tiny (5 sentences).
-    # Production settings would use max_ratio=2.0 with a much larger corpus.
+    # 使用较高的 max_ratio，因为训练语料库很小（只有 5 句话）。
+    # 生产环境会使用 max_ratio=2.0 配合更大的语料库。
     demo_ratio = 3.0
     for label, text in test_texts:
         keep, ppl = quality_filter_by_perplexity(text, model, baseline, demo_ratio)
         status = "PASS" if keep else "FAIL"
         print(f"  [{status}] {label:<20}  PPL={ppl:.2f}  Ratio={ppl / baseline:.2f}")
 
-    # ---- MinHash deduplication ----
+    # ---- MinHash 去重 ----
     print("\n" + "=" * 60)
     print("MINHASH DEDUPLICATION")
     print("=" * 60)
     docs = [
         "The quick brown fox jumps over the lazy dog near the river bank.",
-        "The quick brown fox jumps over the lazy dog near the river bank.",  # exact dup
+        "The quick brown fox jumps over the lazy dog near the river bank.",  # 完全重复
+        "The quick brown fox jumps over the lazy dog near the river bank.",  # 完全重复
         "A completely different document about machine learning and AI systems.",
-        "The quick brown fox jumps over the lazy dog near the riverbank.",  # near dup
+        "The quick brown fox jumps over the lazy dog near the riverbank.",  # 近似重复
         "Another unique document discussing climate change and global warming.",
     ]
     pairs = find_near_duplicates(docs, num_perm=128, threshold=0.7)

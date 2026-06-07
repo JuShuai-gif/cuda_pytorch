@@ -1,9 +1,8 @@
 """
-Streaming data processing pipeline for LLM training data.
+LLM 训练数据的流式数据处理管道。
 
-Implements a ``DataPipeline`` class that chains: reading → cleaning →
-filtering → tokenization in a streaming fashion, yielding documents
-one at a time to avoid loading the entire corpus into memory.
+实现了一个 ``DataPipeline`` 类，以流式方式串联：读取 → 清洗 →
+过滤 → 分词，一次产出（yield）一个文档，避免将整个语料库加载到内存中。
 """
 
 from __future__ import annotations
@@ -24,46 +23,46 @@ from filtering import (
 
 
 # ---------------------------------------------------------------------------
-# Simple word-level tokenizer (no external dependency)
+# 简单的词级分词器（无外部依赖）
 # ---------------------------------------------------------------------------
 
 
 def simple_tokenize(text: str) -> List[str]:
-    """Split *text* into word tokens using whitespace and punctuation boundaries.
+    """使用空白和标点边界将 *text* 分割为词 token。
 
-    This is a minimal tokenizer for demonstration; a production pipeline
-    would use a subword tokenizer (BPE, SentencePiece, etc.).
+    这是一个用于演示的最小化分词器；生产管道
+    会使用子词分词器（BPE、SentencePiece 等）。
     """
-    # Keep word characters and apostrophes for contractions
+    # 保留单词字符和撇号以处理缩写
     tokens = re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ']+|[0-9]+|[^\s\w]", text)
     return tokens
 
 
 # ---------------------------------------------------------------------------
-# DataPipeline class
+# DataPipeline 类
 # ---------------------------------------------------------------------------
 
 
 class DataPipeline:
-    """Streaming pipeline for preprocessing LLM training data.
+    """用于预处理 LLM 训练数据的流式管道。
 
-    Reads documents from an iterable, applies a sequence of transformation
-    stages, and yields processed documents one at a time.
+    从可迭代对象中读取文档，应用一系列转换阶段，
+    并逐个产出（yield）处理后的文档。
 
-    Parameters
+    参数
     ----------
     reader : Callable[[], Iterable[str]]
-        Zero-argument callable that returns an iterable of raw document strings.
+        无参数的可调用对象，返回原始文档字符串的可迭代对象。
     cleaner : TextCleaner | None
-        Text cleaning pipeline.  If ``None``, a default ``TextCleaner`` is used.
+        文本清洗管道。如果为 ``None``，则使用默认的 ``TextCleaner``。
     filters : List[Callable[[str], Tuple[bool, Optional[str]]]] | None
-        List of filter functions.  Each receives the cleaned text and returns
-        ``(keep: bool, reason: str | None)``.  Documents where any filter
-        returns ``keep=False`` are skipped.
+        过滤器函数列表。每个函数接收清洗后的文本并返回
+        ``(keep: bool, reason: str | None)``。
+        任何过滤器返回 ``keep=False`` 的文档将被跳过。
     tokenizer : Callable[[str], List[str]] | None
-        Tokenizer function.  If ``None``, ``simple_tokenize`` is used.
+        分词器函数。如果为 ``None``，则使用 ``simple_tokenize``。
     report_interval : int
-        Print a progress report every *report_interval* documents.
+        每处理 *report_interval* 个文档打印一次进度报告。
     """
 
     def __init__(
@@ -82,19 +81,19 @@ class DataPipeline:
         self._tokenizer = tokenizer if tokenizer is not None else simple_tokenize
         self._report_interval = report_interval
 
-        # Statistics
+        # 统计数据
         self.stats: Dict[str, int] = collections.defaultdict(int)
 
     def process(self) -> Iterator[Dict[str, object]]:
-        """Yield processed documents as dictionaries.
+        """以字典形式产出处理后的文档。
 
-        Each yielded dict has the keys ``"raw"``, ``"cleaned"``, ``"tokens"``,
-        and ``"doc_id"``.
+        每个产出的字典包含 ``"raw"``、``"cleaned"``、``"tokens"``
+        和 ``"doc_id"`` 键。
 
-        Yields
+        产出
         ------
         dict
-            Processed document with metadata.
+            带元数据的处理后文档。
         """
         start_time = time.monotonic()
         skipped_reasons: Dict[str, int] = collections.defaultdict(int)
@@ -102,13 +101,13 @@ class DataPipeline:
         for doc_id, raw in enumerate(self._reader()):
             self.stats["total_read"] += 1
 
-            # Stage 1: Clean
+            # 阶段 1：清洗
             cleaned = self._cleaner.clean(raw)
             if not cleaned.strip():
                 skipped_reasons["empty_after_cleaning"] += 1
                 continue
 
-            # Stage 2: Filter
+            # 阶段 2：过滤
             keep = True
             for filt in self._filters:
                 keep, reason = filt(cleaned)
@@ -118,11 +117,11 @@ class DataPipeline:
             if not keep:
                 continue
 
-            # Stage 3: Tokenize
+            # 阶段 3：分词
             tokens = self._tokenizer(cleaned)
             self.stats["total_accepted"] += 1
 
-            # Progress reporting
+            # 进度报告
             if (self.stats["total_read"] % self._report_interval) == 0:
                 elapsed = time.monotonic() - start_time
                 rate = self.stats["total_read"] / elapsed if elapsed > 0 else 0
@@ -150,14 +149,14 @@ class DataPipeline:
 
 
 # ---------------------------------------------------------------------------
-# Pre-built filter factories
+# 预构建的过滤器工厂函数
 # ---------------------------------------------------------------------------
 
 
 def make_language_filter(
     target_lang: str,
 ) -> Callable[[str], Tuple[bool, Optional[str]]]:
-    """Return a filter that keeps only *target_lang* documents."""
+    """返回一个仅保留 *target_lang* 语言文档的过滤器。"""
 
     def _filt(text: str) -> Tuple[bool, Optional[str]]:
         lang, _conf = detect_language(text)
@@ -172,11 +171,11 @@ def make_perplexity_filter(
     clean_texts: List[str],
     max_ratio: float = 2.0,
 ) -> Callable[[str], Tuple[bool, Optional[str]]]:
-    """Return a filter that removes high-perplexity (low-quality) text.
+    """返回一个移除高 perplexity（低质量）文本的过滤器。
 
-    Builds an n-gram model from *clean_texts*, computes the baseline
-    perplexity, and rejects any document whose perplexity exceeds
-    ``baseline * max_ratio``.
+    从 *clean_texts* 构建一个 n-gram 模型，计算基线
+    perplexity，并拒绝任何 perplexity 超过
+    ``baseline * max_ratio`` 的文档。
     """
     model = NGramModel(n=3, k=0.1)
     model.train(clean_texts)
@@ -192,12 +191,12 @@ def make_perplexity_filter(
 
 
 # ---------------------------------------------------------------------------
-# Demonstration
+# 演示
 # ---------------------------------------------------------------------------
 
 
 def _generate_synthetic_docs() -> List[str]:
-    """Create a small set of synthetic documents."""
+    """创建一小组合成文档。"""
     clean_docs = [
         "Machine learning is a subset of artificial intelligence that "
         "enables systems to learn and improve from experience without "
@@ -222,11 +221,11 @@ def _generate_synthetic_docs() -> List[str]:
 
 
 def main() -> None:
-    """Demonstrate the full streaming data pipeline."""
+    """演示完整的流式数据处理管道。"""
     raw_docs = _generate_synthetic_docs()
     print(f"Generated {len(raw_docs)} synthetic documents\n")
 
-    # Build filters
+    # 构建过滤器
     en_filter = make_language_filter("en")
     clean_corpus = [
         "machine learning is a subset of artificial intelligence",
@@ -238,9 +237,9 @@ def main() -> None:
     ]
     perplexity_filter = make_perplexity_filter(clean_corpus, max_ratio=3.0)
 
-    # Build pipeline
+    # 构建管道
     pipeline = DataPipeline(
-        reader=lambda: raw_docs,  # Return the whole list (simulates a reader)
+        reader=lambda: raw_docs,  # 返回整个列表（模拟读取器）
         filters=[en_filter, perplexity_filter],
         tokenizer=simple_tokenize,
         report_interval=3,

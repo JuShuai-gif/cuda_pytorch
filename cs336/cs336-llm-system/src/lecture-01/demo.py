@@ -1,14 +1,14 @@
 """
-Demonstration of the Byte-Pair Encoding (BPE) tokenizer.
+Byte-Pair Encoding (BPE) tokenizer 演示。
 
-Covers:
-  - Training a tokenizer on sample text
-  - Encoding and decoding with round-trip verification
-  - Unicode handling (emoji, Chinese, accented characters)
-  - Compression ratio analysis across vocabulary sizes
-  - Visualizing the learned merge sequence
+涵盖内容：
+  - 在示例文本上训练 tokenizer
+  - 编码和解码（含往返验证）
+  - Unicode 处理（Emoji、中文、带重音字符）
+  - 不同词汇表大小下的压缩比分析
+  - 可视化学到的合并序列
 
-Usage:
+用法：
     python demo.py
 """
 
@@ -18,12 +18,12 @@ from bpe import BPETokenizer
 
 
 # ---------------------------------------------------------------------------
-# Helper
+# 辅助函数
 # ---------------------------------------------------------------------------
 
 
 def print_section(title: str) -> None:
-    """Print a formatted section header."""
+    """打印格式化的节标题。"""
     width = 60
     print()
     print("=" * width)
@@ -32,7 +32,7 @@ def print_section(title: str) -> None:
 
 
 def show_encoding(tokenizer: BPETokenizer, text: str, label: str | None = None) -> None:
-    """Show the encoding result for a given text."""
+    """展示给定文本的编码结果。"""
     ids = tokenizer.encode(text)
     decoded = tokenizer.decode(ids)
     tokens = [tokenizer.vocab[idx].decode("utf-8", errors="replace") for idx in ids]
@@ -48,12 +48,12 @@ def show_encoding(tokenizer: BPETokenizer, text: str, label: str | None = None) 
 
 
 # ---------------------------------------------------------------------------
-# Demos
+# 演示函数
 # ---------------------------------------------------------------------------
 
 
 def demo_basic_training() -> BPETokenizer:
-    """Demonstrate basic BPE training on English text."""
+    """演示在英文文本上的基本 BPE 训练。"""
     print_section("1. Basic BPE Training")
 
     corpus = (
@@ -70,7 +70,7 @@ def demo_basic_training() -> BPETokenizer:
     tokenizer.train(corpus, vocab_size=280)
     print(f"Trained vocab size: {tokenizer.vocab_size}")
 
-    # Show the first few merges learned
+    # 展示前几个学到的合并规则
     print("\nFirst 5 merges learned:")
     merge_items = list(tokenizer.merges.items())
     for i, (pair, new_id) in enumerate(merge_items[:5]):
@@ -83,7 +83,7 @@ def demo_basic_training() -> BPETokenizer:
 
 
 def demo_encode_decode(tokenizer: BPETokenizer) -> None:
-    """Demonstrate encoding and decoding on various texts."""
+    """演示对各种文本的编码和解码。"""
     print_section("2. Encoding & Decoding")
 
     texts = [
@@ -98,7 +98,7 @@ def demo_encode_decode(tokenizer: BPETokenizer) -> None:
 
 
 def demo_unicode_handling() -> None:
-    """Demonstrate BPE with Unicode-rich text."""
+    """演示 BPE 对富含 Unicode 字符的文本的处理。"""
     print_section("3. Unicode Handling (Emoji, Chinese, Accented)")
 
     corpus = (
@@ -131,7 +131,7 @@ def demo_unicode_handling() -> None:
 
 
 def demo_compression_analysis() -> None:
-    """Analyze compression ratio at different vocabulary sizes."""
+    """分析不同词汇表大小下的压缩比。"""
     print_section("4. Compression Ratio by Vocab Size")
 
     corpus = (
@@ -165,13 +165,13 @@ def demo_compression_analysis() -> None:
 
 
 def demo_merge_visualization() -> None:
-    """Visualize the merge process step by step."""
+    """逐步可视化合并过程。"""
     print_section("5. Merge Process Visualization")
 
     text = "abcabcabc"
     tokenizer = BPETokenizer()
 
-    # Manually show merges for demonstration
+    # 手动执行合并以进行演示
     ids = list(text.encode("utf-8"))
     print(f"Starting text: {text!r}")
     print(f"Initial bytes: {list(map(tokenizer.vocab.get, ids))}")
@@ -179,7 +179,7 @@ def demo_merge_visualization() -> None:
     print()
 
     for i in range(5):
-        # Count pairs
+        # 统计 token 对
         counts: dict[tuple[int, int], int] = {}
         for j in range(len(ids) - 1):
             pair = (ids[j], ids[j + 1])
@@ -208,7 +208,7 @@ def demo_merge_visualization() -> None:
         print(f"  Bytes: {list(map(tokenizer.vocab.get, ids))}")
         print()
 
-    # Show final encoding
+    # 展示最终编码结果
     final_ids = tokenizer.encode(text)
     print(f"Final encode('{text}'):  {final_ids}")
     print(f"Final decode:           {tokenizer.decode(final_ids)!r}")
@@ -219,7 +219,7 @@ def demo_merge_visualization() -> None:
 
 
 def demo_summary() -> None:
-    """Print a summary of key takeaways."""
+    """打印关键要点的总结。"""
     print_section("6. Summary")
 
     print("Key takeaways from BPE tokenization:")
@@ -242,32 +242,32 @@ def demo_summary() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Main
+# 主函数
 # ---------------------------------------------------------------------------
 
 
 def main() -> None:
-    """Run all BPE demonstrations."""
+    """运行所有 BPE 演示。"""
     print("=" * 60)
     print("  BPE Tokenizer from Scratch - Demonstration")
     print("=" * 60)
 
-    # 1. Basic training
+    # 1. 基本训练
     tokenizer = demo_basic_training()
 
-    # 2. Encoding and decoding
+    # 2. 编码和解码
     demo_encode_decode(tokenizer)
 
-    # 3. Unicode handling
+    # 3. Unicode 处理
     demo_unicode_handling()
 
-    # 4. Compression analysis
+    # 4. 压缩比分析
     demo_compression_analysis()
 
-    # 5. Merge visualization
+    # 5. 合并过程可视化
     demo_merge_visualization()
 
-    # 6. Summary
+    # 6. 总结
     demo_summary()
 
     print("\nAll demonstrations completed successfully.")

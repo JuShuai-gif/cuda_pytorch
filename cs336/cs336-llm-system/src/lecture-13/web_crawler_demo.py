@@ -1,14 +1,14 @@
 """
-Demonstrate web crawling and text extraction for LLM data collection.
+演示 LLM 数据收集中的网页爬取和文本提取功能。
 
-Uses trafilatura as the primary extraction engine with BeautifulSoup as fallback.
-Both libraries are imported gracefully so the module remains importable even
-when they are not installed, falling back to a simulated demo mode.
+使用 trafilatura 作为主要提取引擎，BeautifulSoup 作为后备方案。
+两个库均采用优雅导入方式，即使未安装模块也能正常导入，
+自动回退到模拟演示模式。
 
-Typical usage for LLM pretraining:
-    - Fetch raw HTML from CommonCrawl WARC files or live URLs
-    - Extract clean plain text (boilerplate removal)
-    - Filter by language, quality heuristics, deduplication
+LLM 预训练的典型用法：
+    - 从 CommonCrawl WARC 文件或实时 URL 获取原始 HTML
+    - 提取干净的纯文本（去除网页模板/广告等内容）
+    - 按语言、质量启发式规则、去重进行过滤
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from urllib.error import URLError
 
 
 # ---------------------------------------------------------------------------
-# Graceful imports: try trafilatura first, then BeautifulSoup, else simulate
+# 优雅导入：优先尝试 trafilatura，其次 BeautifulSoup，否则模拟
 # ---------------------------------------------------------------------------
 
 _trafilatura_available = False
@@ -43,7 +43,7 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# Core extraction function
+# 核心提取函数
 # ---------------------------------------------------------------------------
 
 
@@ -52,28 +52,28 @@ def fetch_and_extract_text(
     timeout: float = 15.0,
     user_agent: Optional[str] = None,
 ) -> str:
-    """Fetch a web page and extract clean plain text from it.
+    """获取网页并从中提取干净的纯文本。
 
-    Strategy:
-        1. Download raw HTML via ``requests``.
-        2. Try ``trafilatura`` for best-in-class boilerplate removal.
-        3. Fall back to ``BeautifulSoup`` for basic text extraction.
-        4. If neither is available, return a simulated placeholder.
+    策略:
+        1. 通过 ``requests`` 下载原始 HTML。
+        2. 优先使用 ``trafilatura`` 进行最佳的网页模板去除。
+        3. 回退到 ``BeautifulSoup`` 进行基础文本提取。
+        4. 如果两者都不可用，返回模拟占位文本。
 
     Args:
-        url: The URL to fetch.
-        timeout: Request timeout in seconds.
-        user_agent: Custom User-Agent header; falls back to a reasonable default.
+        url: 要获取的 URL。
+        timeout: 请求超时时间（秒）。
+        user_agent: 自定义 User-Agent 头；未指定时使用合理的默认值。
 
     Returns:
-        Extracted clean text, or an error description on failure.
+        提取出的干净文本，或在失败时返回错误描述。
     """
     headers: dict[str, str] = {
         "User-Agent": user_agent
         or ("Mozilla/5.0 (compatible; CS336-LLM-Crawler/1.0; +https://example.com/bot)")
     }
 
-    # --- Step 1: Fetch ---
+    # --- 步骤 1：获取 ---
     try:
         resp = requests.get(url, headers=headers, timeout=timeout)
         resp.raise_for_status()
@@ -87,7 +87,7 @@ def fetch_and_extract_text(
     except (requests.exceptions.RequestException, URLError) as exc:
         return f"[ERROR] Request failed for {url}: {exc}"
 
-    # --- Step 2: Extract with trafilatura ---
+    # --- 步骤 2：使用 trafilatura 提取 ---
     if _trafilatura_available:
         extracted = trafilatura.extract(
             html, include_comments=False, include_tables=False
@@ -95,28 +95,28 @@ def fetch_and_extract_text(
         if extracted:
             return extracted.strip()
 
-    # --- Step 3: Fallback to BeautifulSoup ---
+    # --- 步骤 3：回退到 BeautifulSoup ---
     if _bs4_available:
         soup = BeautifulSoup(html, "html.parser")
-        # Remove script and style tags before extracting text
+        # 在提取文本之前移除 script 和 style 标签
         for tag in soup(["script", "style", "nav", "footer", "header"]):
             tag.decompose()
         text = soup.get_text(separator="\n")
-        # Collapse multiple blank lines
+        # 合并多个空行
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         return "\n".join(lines)
 
-    # --- Step 4: Neither library available ---
+    # --- 步骤 4：两个库都不可用 ---
     return _simulate_extraction(url)
 
 
 # ---------------------------------------------------------------------------
-# Simulation fallback
+# 模拟回退
 # ---------------------------------------------------------------------------
 
 
 def _simulate_extraction(url: str) -> str:
-    """Return a short simulated extraction when no library is available."""
+    """当没有可用的提取库时，返回一段简短的模拟提取结果。"""
     return (
         f"[SIMULATED] This is placeholder text extracted from {url}.\n"
         "Install trafilatura and beautifulsoup4 for real extraction.\n"
@@ -128,12 +128,12 @@ def _simulate_extraction(url: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Demonstration
+# 演示
 # ---------------------------------------------------------------------------
 
 
 def main() -> None:
-    # Determine available extraction method
+    # 判断可用的提取方法
     if _trafilatura_available:
         method = "trafilatura (primary) + BeautifulSoup (fallback)"
     elif _bs4_available:
@@ -150,7 +150,7 @@ def main() -> None:
     print(f"Extraction method: {method}")
     print()
 
-    # Example URLs (these are lightweight, well-known sites)
+    # 示例 URL（这些是轻量级的知名网站）
     example_urls: list[str] = [
         "https://example.com/",
         "https://httpbin.org/html",
@@ -163,7 +163,7 @@ def main() -> None:
         text = fetch_and_extract_text(url, timeout=10.0)
         elapsed = time.perf_counter() - start
 
-        # Print first 500 characters as a preview
+        # 打印前 500 个字符作为预览
         preview = text[:500]
         print(f"  Elapsed: {elapsed:.2f}s")
         print(f"  Text length: {len(text)} chars")

@@ -1,13 +1,13 @@
 """
-Define and compare major data sources used for LLM pretraining.
+定义并比较用于 LLM 预训练的主要数据源。
 
-Each data source is represented with structured metadata including:
-    - Approximate size (tokens)
-    - Language coverage
-    - Quality level
-    - Typical use cases in research and production
+每个数据源均以结构化元数据表示，包括：
+    - 近似大小（token 数）
+    - 语言覆盖范围
+    - 质量等级
+    - 研究及生产中的典型用例
 
-This module uses only hard-coded reference data -- no external downloads needed.
+本模块仅使用硬编码的参考数据——无需外部下载。
 """
 
 from __future__ import annotations
@@ -17,38 +17,38 @@ from typing import Optional
 
 
 # ---------------------------------------------------------------------------
-# Data structures
+# 数据结构
 # ---------------------------------------------------------------------------
 
 
 @dataclass
 class DataSource:
-    """Structured representation of a pretraining data source."""
+    """预训练数据源的结构化表示。"""
 
     name: str
-    """Short name of the source, e.g. 'CommonCrawl'."""
+    """数据源的简称，例如 'CommonCrawl'。"""
 
     description: str
-    """One-sentence description."""
+    """一句话描述。"""
 
     estimated_size: str
-    """Approximate size, e.g. '~400B tokens'."""
+    """近似大小，例如 '~400B tokens'。"""
 
     language_coverage: str
-    """Languages covered, e.g. 'Multilingual (100+)' or 'English-only'."""
+    """覆盖的语言，例如 'Multilingual (100+)' 或 'English-only'。"""
 
     quality_level: str
-    """Quality tier: 'Raw', 'Filtered', 'Curated', or 'High-quality'."""
+    """质量层级：'Raw'、'Filtered'、'Curated' 或 'High-quality'。"""
 
     typical_use_cases: list[str] = field(default_factory=list)
-    """Examples: ['general pretraining', 'multilingual models']."""
+    """示例：['general pretraining', 'multilingual models']。"""
 
     notes: Optional[str] = None
-    """Additional notes, caveats, or references."""
+    """附加说明、注意事项或参考文献。"""
 
 
 # ---------------------------------------------------------------------------
-# Known data sources
+# 已知数据源
 # ---------------------------------------------------------------------------
 
 DATA_SOURCES: list[DataSource] = [
@@ -197,17 +197,17 @@ DATA_SOURCES: list[DataSource] = [
 
 
 # ---------------------------------------------------------------------------
-# Comparison functions
+# 比较函数
 # ---------------------------------------------------------------------------
 
 
 def compare_sources(
     sources: Optional[list[DataSource]] = None,
 ) -> None:
-    """Print a formatted comparison table of data sources.
+    """打印数据源的格式化比较表格。
 
     Args:
-        sources: List of sources to compare. Defaults to all known sources.
+        sources: 要比较的数据源列表。默认为所有已知数据源。
     """
     if sources is None:
         sources = DATA_SOURCES
@@ -216,11 +216,11 @@ def compare_sources(
         print("No data sources to compare.")
         return
 
-    # Column widths
+    # 列宽
     name_w = max(len(s.name) for s in sources) + 2
     quality_w = max(len(s.quality_level) for s in sources) + 2
 
-    # Header
+    # 表头
     header = (
         f"{'Source':<{name_w}} {'Size':<22} {'Quality':<{quality_w}} "
         f"{'Languages':<20} {'Use Cases'}"
@@ -242,7 +242,7 @@ def compare_sources(
 
 
 def get_source_by_name(name: str) -> Optional[DataSource]:
-    """Look up a data source by name (case-insensitive)."""
+    """按名称查找数据源（大小写不敏感）。"""
     for s in DATA_SOURCES:
         if s.name.lower() == name.lower():
             return s
@@ -250,22 +250,22 @@ def get_source_by_name(name: str) -> Optional[DataSource]:
 
 
 def filter_by_quality(sources: list[DataSource], quality: str) -> list[DataSource]:
-    """Filter sources by their quality level (case-insensitive)."""
+    """按质量等级过滤数据源（大小写不敏感）。"""
     q = quality.lower()
     return [s for s in sources if s.quality_level.lower() == q]
 
 
 def get_total_size_range() -> tuple[str, str]:
-    """Return a rough sum of token counts across all sources.
+    """返回所有数据源 token 计数的粗略总和。
 
     Returns:
-        A (min, max) string pair summarizing the estimated corpus sizes.
+        一个 (min, max) 字符串对，总结估计的语料库大小。
     """
     return "~17T+ tokens (sum of listed sources)", "30T+ including RedPajama v2"
 
 
 # ---------------------------------------------------------------------------
-# Demonstration
+# 演示
 # ---------------------------------------------------------------------------
 
 
@@ -275,11 +275,11 @@ def main() -> None:
     print("=" * 70)
     print(f"Total sources listed: {len(DATA_SOURCES)}\n")
 
-    # Print full comparison table
+    # 打印完整比较表
     compare_sources()
     print()
 
-    # Quality breakdown
+    # 质量分级统计
     print("--- Quality Breakdown ---")
     all_qualities = sorted(set(s.quality_level for s in DATA_SOURCES))
     for quality in all_qualities:
@@ -288,14 +288,14 @@ def main() -> None:
         print(f"  {quality:<14s} ({len(filtered)}): {', '.join(names)}")
     print()
 
-    # Size overview
+    # 大小概览
     print("--- Estimated Total Corpus Size ---")
     low, high = get_total_size_range()
     print(f"  Conservative: {low}")
     print(f"  Including v2: {high}")
     print()
 
-    # Demonstrate lookup
+    # 演示查找功能
     print("--- Source Lookup Example ---")
     source = get_source_by_name("The Pile")
     if source:

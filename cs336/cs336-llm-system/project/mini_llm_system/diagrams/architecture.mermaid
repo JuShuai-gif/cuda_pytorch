@@ -1,0 +1,36 @@
+graph TD
+    A[Tokenizer/BPE] --> B[Embedding]
+    B --> C[TransformerBlock x N]
+    C --> D[RMSNorm]
+    D --> E[LM Head]
+    E --> F[Output Logits]
+    F --> G[CrossEntropyLoss]
+    G --> H[AdamW Optimizer]
+
+    subgraph "TransformerBlock"
+        C1[RMSNorm] --> C2[GQA Attention + RoPE]
+        C2 --> C3["+ Residual"]
+        C3 --> C4[RMSNorm]
+        C4 --> C5[SwiGLU FFN]
+        C5 --> C6["+ Residual"]
+    end
+
+    subgraph "Inference"
+        I[KV Cache] --> J[PagedAttention]
+        J --> K[Autoregressive Generation]
+    end
+
+    subgraph "Distributed"
+        L["DDP / all-reduce"] --> M[Gradient Accumulation]
+        M --> N[ZeRO Stages 1-3]
+    end
+
+    subgraph "Training Infrastructure"
+        O[CosineWarmupScheduler] --> P[Gradient Clipping]
+        P --> Q[Mixed Precision autocast + GradScaler]
+        Q --> R[Checkpoint Save/Load]
+    end
+
+    style A fill:#e1f5fe
+    style E fill:#fff3e0
+    style H fill:#e8f5e9

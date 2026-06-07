@@ -1,0 +1,31 @@
+graph LR
+    A[Raw Text] --> B[Data Cleaning]
+    B --> C[BPE Tokenizer]
+    C --> D[Token IDs]
+    D --> E["Dataloader (batching)"]
+    E --> F["Model Forward (Embedding)"]
+    F --> F1[TransformerBlock x N]
+    F1 --> F2[RMSNorm + LM Head]
+    F2 --> G[Logits]
+    G --> H[CrossEntropyLoss]
+    H --> I[Loss Scalar]
+
+    subgraph "Backward Pass"
+        I --> J[loss.backward]
+        J --> K[Gradient Accumulation]
+        K --> L["DDP all_reduce (if distributed)"]
+        L --> M[Gradient Clipping]
+        M --> N[Optimizer Step AdamW]
+        N --> O[LR Scheduler Step]
+    end
+
+    O --> P[Next Batch]
+
+    subgraph "TextDataset"
+        D --> Q["stride windowing"]
+        Q --> R["(input_ids, labels) pairs"]
+    end
+
+    style A fill:#e3f2fd
+    style G fill:#fff3e0
+    style N fill:#e8f5e9

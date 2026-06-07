@@ -1,14 +1,14 @@
 """
-Simplified PPO (Proximal Policy Optimization) trainer.
+简化版 PPO（Proximal Policy Optimization，近端策略优化）训练器。
 
-Implements an Actor-Critic architecture with a shared LSTM base network
-feeding separate actor (policy logits) and critic (value) heads.
+实现一个 Actor-Critic 架构，使用共享的 LSTM 基础网络，
+分别输出 actor（policy logits）和 critic（value）头。
 
-Key components:
-- GAE (Generalized Advantage Estimation) for computing advantages
-- PPO clip loss:  L = -min(r_t*A_t, clip(r_t, 1-eps, 1+eps)*A_t)
-- Value loss via MSE, plus optional entropy bonus
-- Demonstrated on a synthetic next-token prediction task.
+关键组件：
+- GAE（Generalized Advantage Estimation，广义优势估计）用于计算 advantage
+- PPO clip 损失：L = -min(r_t*A_t, clip(r_t, 1-eps, 1+eps)*A_t)
+- Value 损失通过 MSE 计算，外加可选的 entropy bonus
+- 在一个合成 next-token 预测任务上进行演示。
 """
 
 from __future__ import annotations
@@ -21,16 +21,16 @@ import torch.nn.functional as F
 
 
 # ---------------------------------------------------------------------------
-# Actor-Critic architecture
+# Actor-Critic 架构
 # ---------------------------------------------------------------------------
 
 
 class ActorCritic(nn.Module):
-    """Shared-base Actor-Critic with LSTM backbone.
+    """共享基础的 Actor-Critic，使用 LSTM 作为主干网络。
 
-    The embedding + LSTM layers are shared; two linear heads produce
-    - actor logits (vocab_size) for action sampling
-    - critic value  (scalar)      for state-value estimation.
+    embedding + LSTM 层是共享的；两个线性头分别产生：
+    - actor logits (vocab_size) 用于动作采样
+    - critic value  (标量) 用于状态价值估计。
     """
 
     def __init__(
@@ -59,11 +59,11 @@ class ActorCritic(nn.Module):
         x: torch.Tensor,
         hidden: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        """Forward pass.
+        """前向传播。
 
         Args:
-            x:      Input token ids  (batch, seq_len).
-            hidden: Optional initial LSTM hidden state.
+            x:      输入 token id  (batch, seq_len)。
+            hidden: 可选的初始 LSTM 隐藏状态。
 
         Returns:
             (logits, values, hidden_out)
@@ -80,10 +80,10 @@ class ActorCritic(nn.Module):
         self,
         logits: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Sample from categorical distribution and return log-prob.
+        """从 categorical 分布中采样并返回 log-prob。
 
         Args:
-            logits: (batch, seq_len, vocab_size).
+            logits: (batch, seq_len, vocab_size)。
 
         Returns:
             (actions, log_probs)
@@ -101,7 +101,7 @@ class ActorCritic(nn.Module):
         logits: torch.Tensor,
         actions: torch.Tensor,
     ) -> torch.Tensor:
-        """Log-probability of *actions* under the distribution given by *logits*.
+        """*actions* 在 *logits* 给出的分布下的 log-probability。
 
         Args:
             logits:  (..., vocab_size)
@@ -115,7 +115,7 @@ class ActorCritic(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# GAE (Generalized Advantage Estimation)
+# GAE（Generalized Advantage Estimation，广义优势估计）
 # ---------------------------------------------------------------------------
 
 
@@ -126,14 +126,14 @@ def compute_gae(
     lam: float = 0.95,
     terminal_value: float = 0.0,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Compute GAE advantages and returns.
+    """计算 GAE advantage 和 return。
 
     Args:
-        rewards:  (seq_len,)  per-timestep rewards.
-        values:   (seq_len+1,)  V(s_t) for t=0..T (last is bootstrap or 0).
-        gamma:    Discount factor.
-        lam:      GAE lambda parameter.
-        terminal_value: Value to use beyond the last timestep.
+        rewards:  (seq_len,)  每个时间步的奖励。
+        values:   (seq_len+1,)  t=0..T 的 V(s_t)（最后一个为 bootstrap 或 0）。
+        gamma:    折扣因子。
+        lam:      GAE lambda 参数。
+        terminal_value: 在最后一个时间步之后使用的价值。
 
     Returns:
         (advantages, returns)
@@ -149,12 +149,12 @@ def compute_gae(
         gae = delta + gamma * lam * gae
         advantages[t] = gae
 
-    returns = advantages + values[:-1]  # V(s_t) + A_t = R_t (approx)
+    returns = advantages + values[:-1]  # V(s_t) + A_t = R_t（近似）
     return advantages, returns
 
 
 # ---------------------------------------------------------------------------
-# PPO clip loss
+# PPO clip 损失
 # ---------------------------------------------------------------------------
 
 
@@ -165,20 +165,20 @@ def ppo_clip_loss(
     advantages: torch.Tensor,
     clip_eps: float = 0.2,
 ) -> torch.Tensor:
-    """PPO clipped surrogate objective.
+    """PPO clipped surrogate 目标。
 
     r_t = pi(a_t|s_t) / pi_old(a_t|s_t)
     L   = -mean(min(r_t*A_t, clip(r_t, 1-eps, 1+eps)*A_t))
 
     Args:
-        logits:     Current-policy logits   (seq_len, vocab_size).
-        old_logits: Old-policy logits       (seq_len, vocab_size).
-        actions:    Sampled actions          (seq_len,).
-        advantages: GAE advantages           (seq_len,).
-        clip_eps:   Clipping epsilon.
+        logits:     当前 policy 的 logits   (seq_len, vocab_size)。
+        old_logits: 旧 policy 的 logits       (seq_len, vocab_size)。
+        actions:    采样的动作                  (seq_len,)。
+        advantages: GAE advantage              (seq_len,)。
+        clip_eps:   裁剪 epsilon。
 
     Returns:
-        Scalar loss.
+        标量损失。
     """
     new_log_probs = (
         F.log_softmax(logits, dim=-1).gather(-1, actions.unsqueeze(-1)).squeeze(-1)
@@ -198,52 +198,52 @@ def value_loss_fn(
     values: torch.Tensor,
     returns: torch.Tensor,
 ) -> torch.Tensor:
-    """Mean-squared-error between predicted values and GAE returns.
+    """预测 value 与 GAE return 之间的均方误差。
 
     Args:
-        values:  (seq_len, 1) or (seq_len,)
+        values:  (seq_len, 1) 或 (seq_len,)
         returns: (seq_len,)
 
     Returns:
-        Scalar MSE loss.
+        标量 MSE 损失。
     """
     values = values.squeeze(-1)  # (seq_len,)
     return F.mse_loss(values, returns)
 
 
 def entropy_bonus(logits: torch.Tensor) -> torch.Tensor:
-    """Mean entropy of the categorical distribution to encourage exploration."""
+    """categorical 分布的平均 entropy，用于鼓励探索。"""
     probs = F.softmax(logits, dim=-1)
     log_probs = F.log_softmax(logits, dim=-1)
     return -(probs * log_probs).sum(dim=-1).mean()
 
 
 # ---------------------------------------------------------------------------
-# Synthetic reward function
+# 合成奖励函数
 # ---------------------------------------------------------------------------
 
 
 def synthetic_reward(sequence: torch.Tensor, vocab_size: int) -> torch.Tensor:
-    """Compute a per-token reward for a generated sequence.
+    """为生成的序列计算每个 token 的奖励。
 
-    Reward model: tokens from the upper half of the vocabulary (higher
-    IDs) receive +1 reward; tokens from the lower half receive -1.
-    This creates a clear learning signal for the PPO agent.
+    奖励模型：词汇表中上半部分的 token（较大 ID）获得 +1 奖励；
+    下半部分的 token 获得 -1。这为 PPO agent 创建了一个清晰的
+    学习信号。
     """
     mid = vocab_size // 2
     return torch.where(sequence >= mid, 1.0, -1.0).float()
 
 
 # ---------------------------------------------------------------------------
-# Training demonstration
+# 训练演示
 # ---------------------------------------------------------------------------
 
 
 def main() -> None:
-    """Train an actor-critic agent with PPO on a synthetic token-preference task."""
+    """在合成 token 偏好任务上使用 PPO 训练一个 actor-critic agent。"""
     torch.manual_seed(42)
 
-    # Hyper-parameters
+    # 超参数
     vocab_size = 100
     embed_dim = 64
     hidden_dim = 128
@@ -270,13 +270,13 @@ def main() -> None:
     )
     print("-" * 58)
 
-    # Track mean token id over epochs (higher = learned preference)
+    # 跟踪 epoch 之间的平均 token id（越高 = 学会了偏好）
     for epoch in range(1, num_epochs + 1):
-        # ---- Phase 1: Rollout (collect a trajectory) ----
-        # Start from a random first token
+        # ---- 阶段 1：Rollout（收集一条 trajectory）----
+        # 从一个随机的第一个 token 开始
         start_token = torch.randint(0, vocab_size, (1, 1))
 
-        # Auto-regressively generate a sequence
+        # 自回归生成一个序列
         generated = [start_token]
         hidden: Optional[Tuple[torch.Tensor, torch.Tensor]] = None
         old_logits_list: List[torch.Tensor] = []
@@ -297,23 +297,23 @@ def main() -> None:
             current_input = action.unsqueeze(0)  # (1, 1)
             generated.append(current_input)
 
-        # Stack lists into tensors
+        # 将列表堆叠为张量
         full_seq = torch.cat(generated, dim=1)  # (1, seq_len+1)
         actions = torch.stack(actions_list)  # (seq_len,)
         old_logits_t = torch.stack(old_logits_list)  # (seq_len, V)
         values_t = torch.stack(values_list)  # (seq_len,)
 
-        # ---- Phase 2: Compute rewards and advantages ----
+        # ---- 阶段 2：计算奖励和 advantage ----
         rewards = synthetic_reward(actions, vocab_size)  # (seq_len,)
 
-        # Append terminal value (0 for simplicity)
+        # 附加 terminal value（为简单起见使用 0）
         values_ext = torch.cat([values_t, torch.zeros(1)])  # (seq_len+1,)
 
         advantages, returns = compute_gae(rewards, values_ext, gamma, lam)
 
-        # ---- Phase 3: PPO update (single epoch per rollout for simplicity) ----
+        # ---- 阶段 3：PPO 更新（为简单起见，每个 rollout 只更新一次）----
         model.train()
-        # Re-forward to get current policy logits (we need both old and new)
+        # 重新前向传播以获取当前 policy 的 logits（需要同时有旧的和新的）
         hidden = None
         current_logits_list: List[torch.Tensor] = []
         current_values_list: List[torch.Tensor] = []
@@ -347,12 +347,12 @@ def main() -> None:
                 f"{ent.item():>10.4f}"
             )
 
-    # ---- Final evaluation ----
-    print("\n--- Final evaluation ---")
+    # ---- 最终评估 ----
+    print("\n--- 最终评估 ---")
     model.eval()
     with torch.no_grad():
-        # Sample 8 independent sequences and show their mean token IDs
-        print("Sampled sequences (mean token id, should increase with training):")
+        # 采样 8 个独立序列并显示它们的平均 token ID
+        print("采样序列（平均 token id，训练后应增加）：")
         for i in range(8):
             start = torch.randint(0, vocab_size, (1, 1))
             hidden = None
@@ -366,7 +366,7 @@ def main() -> None:
             mean_id = full.float().mean().item()
             print(f"  seq {i + 1}: mean_token_id = {mean_id:.2f}")
 
-        # Also show what a randomly initialized model would produce
+        # 同时展示随机初始化模型的输出
         random_model = ActorCritic(vocab_size=vocab_size, embed_dim=embed_dim)
         start = torch.randint(0, vocab_size, (1, 1))
         hidden = None
@@ -378,7 +378,7 @@ def main() -> None:
             rseq.append(action)
         rfull = torch.cat(rseq, dim=1)
         print(f"  random baseline: mean_token_id = {rfull.float().mean().item():.2f}")
-        print("(Trained model should prefer higher token IDs than random baseline)")
+        print("(训练后的模型应比随机基线偏好更高的 token ID)")
 
 
 if __name__ == "__main__":

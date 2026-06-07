@@ -1,16 +1,15 @@
 """
-DPO (Direct Preference Optimization) loss from scratch.
+从零实现的 DPO（Direct Preference Optimization，直接偏好优化）损失函数。
 
-Implements the DPO loss as described in the DPO paper (Rafailov et al.,
-2023), which directly optimises a policy to satisfy human preferences
-without training a separate reward model.
+实现了 DPO 论文（Rafailov et al., 2023）中描述的 DPO 损失，
+该损失直接优化策略以满足人类偏好，无需训练单独的 reward model。
 
     L_DPO = -E[log sigma(beta * (log(pi(yw|x)/ref(yw|x))
                                   - log(pi(yl|x)/ref(yl|x))))]
 
-Two variants are provided:
-- dpo_loss:          Takes full log-probability tensors and token indices.
-- dpo_loss_logp:     Takes pre-computed log-ratio vectors (lighter weight).
+提供两种变体：
+- dpo_loss:          接受完整的 log-probability 张量和 token 索引。
+- dpo_loss_logp:     接受预计算的 log-ratio 向量（更轻量级）。
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ import torch.nn.functional as F
 
 
 # ---------------------------------------------------------------------------
-# Core DPO loss functions
+# DPO 核心损失函数
 # ---------------------------------------------------------------------------
 
 
@@ -33,39 +32,38 @@ def dpo_loss(
     yl_idxs: torch.Tensor,
     beta: float,
 ) -> torch.Tensor:
-    """Direct Preference Optimisation loss (token-index form).
+    """DPO（直接偏好优化）损失函数（token 索引形式）。
 
-    Given per-token log-probabilities from the policy and reference models,
-    this function extracts the sub-sequences corresponding to the chosen
-    (yw) and rejected (yl) responses, sums their log-probs, and computes
-    the DPO objective.
+    给定来自 policy 模型和 reference 模型的每个 token 的
+    log-probability，此函数提取被选中的 (yw) 和未被选中的 (yl)
+    响应所对应的子序列，求和它们的 log-prob，并计算 DPO 目标。
 
     Args:
-        pi_logps:  Log-probabilities from the **policy** model.
-                   Shape (batch, seq_len).
-        ref_logps: Log-probabilities from the **reference** model.
-                   Shape (batch, seq_len).
-        yw_idxs:   Indices of the **chosen** (winning) tokens.
-                   Shape (batch, n_chosen).
-        yl_idxs:   Indices of the **rejected** (losing) tokens.
-                   Shape (batch, n_rejected).
-        beta:      Temperature parameter controlling how strongly the
-                   policy is penalised for diverging from the reference.
+        pi_logps:  **policy** 模型的 log-probability。
+                   形状 (batch, seq_len)。
+        ref_logps: **reference** 模型的 log-probability。
+                   形状 (batch, seq_len)。
+        yw_idxs:   **被选中（winning）** token 的索引。
+                   形状 (batch, n_chosen)。
+        yl_idxs:   **未被选中（losing）** token 的索引。
+                   形状 (batch, n_rejected)。
+        beta:      温度参数，控制 policy 偏离 reference 时受到
+                   的惩罚强度。
 
     Returns:
-        Scalar DPO loss averaged over the batch.
+        对 batch 取平均后的标量 DPO 损失。
     """
-    # Sum log-probabilities over the chosen / rejected token positions
+    # 对被选中/未被选中的 token 位置求和 log-probability
     pi_yw = pi_logps.gather(1, yw_idxs).sum(dim=1)  # (batch,)
     pi_yl = pi_logps.gather(1, yl_idxs).sum(dim=1)  # (batch,)
     ref_yw = ref_logps.gather(1, yw_idxs).sum(dim=1)  # (batch,)
     ref_yl = ref_logps.gather(1, yl_idxs).sum(dim=1)  # (batch,)
 
-    # log(pi / ref) for chosen and rejected
+    # 被选中和未被选中的 log(pi / ref)
     pi_log_ratio = pi_yw - pi_yl  # log(pi_w) - log(pi_l)
     ref_log_ratio = ref_yw - ref_yl  # log(ref_w) - log(ref_l)
 
-    # DPO loss: -log sigma(beta * (pi_log_ratio - ref_log_ratio))
+    # DPO 损失：-log sigma(beta * (pi_log_ratio - ref_log_ratio))
     loss = -F.logsigmoid(beta * (pi_log_ratio - ref_log_ratio)).mean()
     return loss
 
@@ -75,24 +73,24 @@ def dpo_loss_logp(
     ref_log_ratios: torch.Tensor,
     beta: float,
 ) -> torch.Tensor:
-    """DPO loss variant that takes pre-computed log-ratios.
+    """DPO 损失变体，接受预计算的 log-ratio。
 
     Args:
-        pi_log_ratios:  log(pi(yw|x)) - log(pi(yl|x)) for each batch item.
-                        Shape (batch,).
-        ref_log_ratios: log(ref(yw|x)) - log(ref(yl|x)) for each batch item.
-                        Shape (batch,).
-        beta:           Temperature / KL-penalty coefficient.
+        pi_log_ratios:  每个 batch 项的 log(pi(yw|x)) - log(pi(yl|x))。
+                        形状 (batch,)。
+        ref_log_ratios: 每个 batch 项的 log(ref(yw|x)) - log(ref(yl|x))。
+                        形状 (batch,)。
+        beta:           温度 / KL 惩罚系数。
 
     Returns:
-        Scalar DPO loss averaged over the batch.
+        对 batch 取平均后的标量 DPO 损失。
     """
     loss = -F.logsigmoid(beta * (pi_log_ratios - ref_log_ratios)).mean()
     return loss
 
 
 # ---------------------------------------------------------------------------
-# Utility: compute implied reward and accuracy
+# 工具函数：计算隐含奖励和准确率
 # ---------------------------------------------------------------------------
 
 
@@ -101,7 +99,7 @@ def implied_reward(
     ref_log_ratios: torch.Tensor,
     beta: float,
 ) -> torch.Tensor:
-    """Implied reward under the DPO parametrisation: r(x,y) = beta * log(pi/ref)."""
+    """DPO 参数化下的隐含奖励：r(x,y) = beta * log(pi/ref)。"""
     return beta * (pi_log_ratios - ref_log_ratios)
 
 
@@ -109,13 +107,12 @@ def preference_accuracy(
     pi_log_ratios: torch.Tensor,
     ref_log_ratios: torch.Tensor,
 ) -> float:
-    """Fraction of pairs where the policy assigns higher relative
-    probability to the chosen response than the reference does."""
+    """policy 对被选中响应赋予比 reference 更高相对概率的 pair 占比。"""
     return (pi_log_ratios > ref_log_ratios).float().mean().item()
 
 
 # ---------------------------------------------------------------------------
-# Synthetic demonstration
+# 合成演示
 # ---------------------------------------------------------------------------
 
 
@@ -125,23 +122,23 @@ def generate_synthetic_dpo_batch(
     n_chosen: int,
     n_rejected: int,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Create a batch of synthetic log-probability tensors for DPO.
+    """为 DPO 创建一个批次的合成 log-probability 张量。
 
-    The "chosen" and "rejected" token positions are interleaved so that
-    the policy can learn to favour the winning tokens.  Both pi_logps and
-    ref_logps start as random log-probabilities; the policy is expected
-    to shift mass toward the chosen tokens during training.
+    "被选中"和"未被选中"的 token 位置交错排列，使 policy
+    能够学会偏好 winning token。pi_logps 和 ref_logps
+    都初始化为随机 log-probability；policy 应在训练过程中
+    将概率质量移向被选中的 token。
 
     Returns:
         (pi_logps, ref_logps, yw_idxs, yl_idxs)
     """
-    # Random log-probabilities (negative values, as log of probabilities)
-    pi_logps = torch.randn(batch_size, seq_len) * 2.0 - 4.0  # around -4
-    ref_logps = torch.randn(batch_size, seq_len) * 2.0 - 4.0  # around -4
-    # Detach ref_logps so it acts as a fixed reference
+    # 随机 log-probability（负值，因为 log(概率) 为负）
+    pi_logps = torch.randn(batch_size, seq_len) * 2.0 - 4.0  # 约 -4
+    ref_logps = torch.randn(batch_size, seq_len) * 2.0 - 4.0  # 约 -4
+    # 将 ref_logps 分离，使其作为固定的 reference
     ref_logps = ref_logps.detach().clone()
 
-    # Randomly choose token positions for chosen and rejected subsets
+    # 随机选择被选中和未被选中子集的 token 位置
     all_idxs = torch.randperm(seq_len)[: n_chosen + n_rejected]
     yw_idxs = all_idxs[:n_chosen].unsqueeze(0).expand(batch_size, -1)
     yl_idxs = all_idxs[n_chosen:].unsqueeze(0).expand(batch_size, -1)
@@ -150,7 +147,7 @@ def generate_synthetic_dpo_batch(
 
 
 def main() -> None:
-    """Demonstrate DPO loss behaviour on synthetic data."""
+    """在合成数据上演示 DPO 损失的行为。"""
     torch.manual_seed(42)
 
     batch_size = 32
@@ -161,12 +158,12 @@ def main() -> None:
     lr = 0.1
     num_steps = 100
 
-    # Create a fixed reference model (log-probs stay frozen)
+    # 创建固定的 reference 模型（log-probs 保持冻结）
     _, ref_logps, yw_idxs, yl_idxs = generate_synthetic_dpo_batch(
         batch_size, seq_len, n_chosen, n_rejected
     )
 
-    # Initialise trainable "policy" log-probabilities
+    # 初始化可训练的"policy" log-probability
     pi_logps = torch.randn(batch_size, seq_len) * 2.0 - 4.0
     pi_logps.requires_grad_(True)
 
@@ -189,7 +186,7 @@ def main() -> None:
 
         if step % 20 == 0 or step == 1:
             with torch.no_grad():
-                # Extract current log-ratios for reporting
+                # 提取当前的 log-ratio 用于报告
                 pi_w = pi_logps.gather(1, yw_idxs).sum(dim=1)
                 pi_l = pi_logps.gather(1, yl_idxs).sum(dim=1)
                 ref_w = ref_logps.gather(1, yw_idxs).sum(dim=1)
@@ -205,8 +202,8 @@ def main() -> None:
                     f"{pi_ratio.mean().item():>12.4f}  {ref_ratio.mean().item():>12.4f}"
                 )
 
-    # ---- Compare dpo_loss vs dpo_loss_logp ----
-    print("\n--- dpo_loss_logp consistency check ---")
+    # ---- 比较 dpo_loss 与 dpo_loss_logp ----
+    print("\n--- dpo_loss_logp 一致性检查 ---")
     with torch.no_grad():
         pi_w = pi_logps.gather(1, yw_idxs).sum(dim=1)
         pi_l = pi_logps.gather(1, yl_idxs).sum(dim=1)
@@ -221,14 +218,14 @@ def main() -> None:
             f"  Match?         {'YES' if abs(loss_a.item() - loss_b.item()) < 1e-5 else 'NO'}"
         )
 
-    # ---- Show that the policy now prefers chosen tokens ----
-    print("\n--- Final statistics ---")
+    # ---- 展示 policy 现在偏好被选中的 token ----
+    print("\n--- 最终统计 ---")
     with torch.no_grad():
         pi_w = pi_logps.gather(1, yw_idxs).sum(dim=1)
         pi_l = pi_logps.gather(1, yl_idxs).sum(dim=1)
         pi_ratio = pi_w - pi_l
         print(f"  pi(yw) - pi(yl)  mean = {pi_ratio.mean().item():.4f}")
-        print(f"  (positive value => policy prefers chosen over rejected)")
+        print(f"  (正值 => policy 偏好被选中的而非未被选中的)")
         print(f"  Final DPO loss          = {loss.item():.6f}")
         print(
             f"  Implied reward mean     = {implied_reward(pi_ratio, ref_ratio, beta).mean().item():.4f}"

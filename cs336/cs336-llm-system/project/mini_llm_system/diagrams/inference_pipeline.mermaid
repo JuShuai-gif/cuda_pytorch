@@ -1,0 +1,55 @@
+graph TD
+    subgraph "Setup"
+        A1[Load Model Checkpoint] --> A2[Load Tokenizer]
+        A2 --> A3[Initialize KVCache Manager]
+        A3 --> A4[Move to Device]
+    end
+
+    subgraph "Tokenization"
+        B1[Raw Text Prompt] --> B2[Encode with BPE]
+        B2 --> B3["Add Special Tokens BOS, EOS"]
+        B3 --> B4[Token ID Tensor]
+    end
+
+    subgraph "Prefill Phase"
+        C1[Process Full Prompt] --> C2[Model Forward]
+        C2 --> C3[Compute K, V for All Tokens]
+        C3 --> C4[Store in KV Cache]
+    end
+
+    subgraph "Decode Phase Autoregressive Loop"
+        D1[Get Last Generated Token] --> D2[Model Forward]
+        D2 --> D3["GQA Attention with KV Cache"]
+        D3 --> D4[Compute K,V for New Token]
+        D4 --> D5[Append to KV Cache]
+        D5 --> D6[Get Logits for Last Position]
+        D6 --> D7[Apply Sampling Filters]
+    end
+
+    subgraph "Sampling"
+        D7 --> E1{"Temperature = 0?"}
+        E1 -->|Yes| E2[Greedy argmax]
+        E1 -->|No| E3[Apply Temperature Scaling]
+        E3 --> E4{"top_k > 0?"}
+        E4 -->|Yes| E5[Top-K Filtering]
+        E4 -->|No| E6{"top_p < 1.0?"}
+        E6 -->|Yes| E7[Nucleus Sampling]
+        E6 -->|No| E8[Softmax + Multinomial]
+        E5 --> E8
+        E7 --> E8
+    end
+
+    subgraph "Output"
+        E2 --> F1[Decode Token IDs]
+        E8 --> F1
+        F1 --> F2[Remove Special Tokens]
+        F2 --> F3[Generated Text]
+    end
+
+    D1 --> G1{"Max Tokens or EOS?"}
+    G1 -->|No| D1
+    G1 -->|Yes| F1
+
+    style C1 fill:#e3f2fd
+    style D3 fill:#fff3e0
+    style F3 fill:#c8e6c9

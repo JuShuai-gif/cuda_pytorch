@@ -1,14 +1,13 @@
 """
-Analyze dataset statistics relevant to LLM pretraining.
+分析与 LLM 预训练相关的数据集统计信息。
 
-All functions operate on synthetic or small in-memory data so the module can
-be run without downloading large corpora.
+所有函数均基于合成的小型内存数据运行，因此无需下载大规模语料库即可执行。
 
-Statistics covered:
-    - Token count (word-level and subword-level approximation)
-    - Vocabulary diversity (type-token ratio)
-    - Sentence length distribution
-    - Data quality estimation via n-gram frequency perplexity approximation
+涵盖的统计信息：
+    - 词元计数（词级和子词级近似）
+    - 词汇多样性（type-token ratio）
+    - 句子长度分布
+    - 通过 n-gram 频率 perplexity 近似进行数据质量估计
 """
 
 from __future__ import annotations
@@ -19,7 +18,7 @@ from typing import Sequence
 
 
 # ---------------------------------------------------------------------------
-# Synthetic data for demonstration
+# 用于演示的合成数据
 # ---------------------------------------------------------------------------
 
 _SAMPLE_CORPUS: list[str] = [
@@ -42,7 +41,7 @@ _SAMPLE_CORPUS: list[str] = [
 
 
 # ---------------------------------------------------------------------------
-# 1. Token counting (word-level and subword-level approximation)
+# 1. 词元计数（词级和子词级近似）
 # ---------------------------------------------------------------------------
 
 
@@ -50,21 +49,21 @@ def count_tokens(
     texts: Sequence[str],
     method: str = "word",
 ) -> dict[str, int]:
-    """Count tokens in a collection of texts.
+    """统计文本集合中的词元数量。
 
-    Supports two methods:
-        - ``"word"``: split on whitespace (simple word-level tokenization).
-        - ``"subword"``: approximate BPE-style tokens by splitting on whitespace
-          and further breaking each "word" into character 3-grams. This is NOT
-          a real BPE tokenizer but gives a rough estimate of subword token count.
+    支持两种方法：
+        - ``"word"``：按空白字符分割（简单的词级 tokenization）。
+        - ``"subword"``：通过按空白字符分割后，再将每个"词"拆分为
+          字符级 3-gram 来近似 BPE 风格的 tokenization。这并非真正的
+          BPE tokenizer，但可以给出子词 token 数量的粗略估计。
 
     Args:
-        texts: A sequence of text strings.
-        method: Tokenization method, either ``"word"`` or ``"subword"``.
+        texts: 文本字符串序列。
+        method: Tokenization 方法，可选 ``"word"`` 或 ``"subword"``。
 
     Returns:
-        A dictionary with keys ``"total_tokens"``, ``"num_documents"``,
-        ``"avg_tokens_per_doc"``, and ``"method"``.
+        一个字典，包含键 ``"total_tokens"``、``"num_documents"``、
+        ``"avg_tokens_per_doc"`` 和 ``"method"``。
     """
     tokenized_docs: list[list[str]] = []
 
@@ -89,10 +88,10 @@ def count_tokens(
 
 
 def _simulate_subword_tokens(text: str) -> list[str]:
-    """Approximate subword tokenization by breaking words into 3-gram chunks.
+    """通过将单词拆分为 3-gram 片段来近似子词 tokenization。
 
-    This gives a rough upper-bound estimate of how many BPE tokens a word would
-    produce, useful for comparing word-level vs subword-level corpus sizes.
+    这给出了一个词大致会产生多少 BPE token 的粗略上界估计，
+    对于比较词级与子词级语料库大小很有用。
     """
     words = text.split()
     subwords: list[str] = []
@@ -100,10 +99,10 @@ def _simulate_subword_tokens(text: str) -> list[str]:
         if len(word) <= 3:
             subwords.append(word)
         else:
-            # Simulate BPE merges by breaking long words into overlapping trigrams
+            # 通过将长单词拆分为重叠的 trigram 来模拟 BPE 合并
             for i in range(0, len(word) - 2, 2):
                 subwords.append(word[i : i + 3])
-            # Add remaining tail
+            # 添加剩余尾部
             remainder = len(word) % 2
             if remainder:
                 subwords.append(word[-1])
@@ -111,7 +110,7 @@ def _simulate_subword_tokens(text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# 2. Vocabulary diversity (Type-Token Ratio)
+# 2. 词汇多样性（Type-Token Ratio）
 # ---------------------------------------------------------------------------
 
 
@@ -119,18 +118,18 @@ def compute_type_token_ratio(
     texts: Sequence[str],
     lowercase: bool = True,
 ) -> dict[str, float]:
-    """Compute the Type-Token Ratio (TTR) as a measure of lexical diversity.
+    """计算 Type-Token Ratio (TTR) 作为词汇多样性的度量指标。
 
-    TTR = number of unique word types / total number of word tokens.
-    Higher TTR = more diverse vocabulary. Low TTR = repetitive.
+    TTR = 唯一词类型数 / 总词元数（token 数）。
+    TTR 越高 = 词汇越多样。TTR 越低 = 重复度高。
 
     Args:
-        texts: A sequence of text strings.
-        lowercase: If True, normalize all words to lowercase before counting.
+        texts: 文本字符串序列。
+        lowercase: 如果为 True，计数前将所有词归一化为小写。
 
     Returns:
-        A dictionary with keys ``"num_types"``, ``"num_tokens"``,
-        ``"type_token_ratio"``, and ``"lowercase"``.
+        一个字典，包含键 ``"num_types"``、``"num_tokens"``、
+        ``"type_token_ratio"`` 和 ``"lowercase"``。
     """
     all_tokens: list[str] = []
     for text in texts:
@@ -152,7 +151,7 @@ def compute_type_token_ratio(
 
 
 # ---------------------------------------------------------------------------
-# 3. Sentence length distribution
+# 3. 句子长度分布
 # ---------------------------------------------------------------------------
 
 
@@ -160,24 +159,24 @@ def compute_sentence_length_distribution(
     texts: Sequence[str],
     num_buckets: int = 5,
 ) -> dict[str, object]:
-    """Compute sentence length statistics and bucketed distribution.
+    """计算句子长度统计和分桶分布。
 
-    Sentences are split by ``.``, ``!``, ``?``.
+    句子按 ``.``、``!``、``?`` 进行分割。
 
     Args:
-        texts: A sequence of text strings.
-        num_buckets: Number of histogram buckets for the distribution.
+        texts: 文本字符串序列。
+        num_buckets: 分布直方图的桶数。
 
     Returns:
-        A dictionary with ``"num_sentences"``, ``"mean"``, ``"median"``,
-        ``"min"``, ``"max"``, ``"std"``, and ``"histogram"`` (list of
-        ``(bucket_label, count)`` tuples).
+        一个字典，包含 ``"num_sentences"``、``"mean"``、``"median"``、
+        ``"min"``、``"max"``、``"std"`` 和 ``"histogram"``
+        （``(bucket_label, count)`` 元组列表）。
     """
     import re
 
     lengths: list[int] = []
     for text in texts:
-        # Split on sentence-ending punctuation
+        # 按句子结束标点分割
         sentences = re.split(r"[.!?]+", text)
         for sent in sentences:
             words = sent.strip().split()
@@ -206,7 +205,7 @@ def compute_sentence_length_distribution(
     variance = sum((x - mean) ** 2 for x in lengths) / n
     std = math.sqrt(variance)
 
-    # Bucket into num_buckets histogram
+    # 分桶到 num_buckets 个直方图桶
     min_len = sorted_lengths[0]
     max_len = sorted_lengths[-1]
     if max_len == min_len:
@@ -218,7 +217,7 @@ def compute_sentence_length_distribution(
     for b in range(num_buckets):
         low = min_len + b * bucket_size
         high = low + bucket_size
-        # Last bucket is inclusive on both ends
+        # 最后一个桶两端都包含
         if b == num_buckets - 1:
             count = sum(1 for x in lengths if low <= x <= high)
         else:
@@ -242,7 +241,7 @@ def compute_sentence_length_distribution(
 
 
 # ---------------------------------------------------------------------------
-# 4. Data quality: perplexity approximation via n-gram frequencies
+# 4. 数据质量：通过 n-gram 频率进行 perplexity 近似
 # ---------------------------------------------------------------------------
 
 
@@ -250,35 +249,34 @@ def estimate_perplexity(
     texts: Sequence[str],
     n: int = 2,
 ) -> dict[str, float]:
-    """Estimate a simple n-gram perplexity as a proxy for data quality.
+    """估计简单的 n-gram perplexity 作为数据质量的代理指标。
 
-    Low n-gram perplexity on the training corpus means the data is internally
-    predictable and may be lower-quality (repetitive, formulaic). High
-    perplexity means high diversity – generally desirable for pretraining,
-    though extremely high values may indicate noise.
+    训练语料库上的低 n-gram perplexity 意味着数据内部可预测性强，
+    可能是低质量数据（重复、公式化）。高 perplexity 意味着高多样性
+    —— 这通常是预训练所期望的，但极高的值可能表明存在噪声。
 
-    Uses a simple unsmoothed n-gram language model over words:
+    使用基于词的简单无平滑 n-gram 语言模型：
         p(w_i | w_{i-n+1} ... w_{i-1}) = count(ngram) / count(context)
 
-    Perplexity = exp(-1/M * sum log p(w_i)), where M is total tokens evaluated.
+    Perplexity = exp(-1/M * sum log p(w_i))，其中 M 为评估的总 token 数。
 
     Args:
-        texts: A sequence of text strings.
-        n: The n-gram order (2 = bigram, 3 = trigram, etc.).
+        texts: 文本字符串序列。
+        n: n-gram 阶数（2 = bigram, 3 = trigram 等）。
 
     Returns:
-        A dictionary with ``"n"``, ``"perplexity"``, ``"vocab_size"``,
-        ``"num_ngrams"``, and ``"num_evaluated"``.
+        一个字典，包含 ``"n"``、``"perplexity"``、``"vocab_size"``、
+        ``"num_ngrams"`` 和 ``"num_evaluated"``。
     """
     if n < 2:
         raise ValueError("n must be >= 2 for perplexity estimation")
 
-    # Tokenize all texts into words
+    # 将所有文本 tokenize 为词
     all_words: list[str] = []
     for text in texts:
         all_words.extend(text.split())
 
-    # Build n-gram frequency counts
+    # 构建 n-gram 频率计数
     ngram_counts: dict[tuple[str, ...], int] = collections.Counter()
     context_counts: dict[tuple[str, ...], int] = collections.Counter()
 
@@ -290,7 +288,7 @@ def estimate_perplexity(
         context = tuple(all_words[i : i + n - 1])
         context_counts[context] += 1
 
-    # Evaluate: compute log probabilities for all n-gram positions
+    # 评估：计算所有 n-gram 位置的对数概率
     total_log_prob = 0.0
     num_evaluated = 0
 
@@ -301,7 +299,7 @@ def estimate_perplexity(
         ctx_count = context_counts.get(context, 0)
 
         if ctx_count > 0:
-            # Unscented MLE: p = count / context_count
+            # 无平滑 MLE：p = count / context_count
             prob = count / ctx_count
             if prob > 0:
                 total_log_prob += math.log(prob)
@@ -329,7 +327,7 @@ def estimate_perplexity(
 
 
 # ---------------------------------------------------------------------------
-# Demonstration
+# 演示
 # ---------------------------------------------------------------------------
 
 

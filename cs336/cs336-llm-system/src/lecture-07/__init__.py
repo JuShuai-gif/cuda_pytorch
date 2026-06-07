@@ -1,3 +1,2 @@
-# Lecture 07: Distributed Training
-# Demonstrates collective operations, DDP from scratch, model parallelism strategies,
-# and memory analysis for different parallel strategies.
+# 第07讲：分布式训练
+# 演示集合操作、从零实现 DDP、模型并行策略以及不同并行策略的内存分析。

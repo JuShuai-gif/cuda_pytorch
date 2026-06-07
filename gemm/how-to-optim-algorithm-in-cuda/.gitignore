@@ -1,6 +1,47 @@
+# Compiled objects
 *.o
+*.obj
+*.so
+*.a
+*.dll
+*.dylib
+*.lib
+
+# CUDA intermediates
+*.ptx
+*.cubin
+*.fatbin
+
+# Build & output
 bin/
-*.ncu-rep
-flagged/
+build/
+dist/
+output/
+
+# Python
 __pycache__/
+*.pyc
+.venv/
+
+# Profiling
+*.ncu-rep
+*.nsys-rep
+*.qdrep
+
+# Large assets
+*.pdf
+*.pptx
+*.pt
+*.pth
+*.onnx
+*.bin
+
+# IDE / OS
+.idea/
+.vscode/
 .DS_Store
+*.swp
+
+# Temporary / flagged
+flagged/
+*.log
