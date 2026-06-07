@@ -66,7 +66,7 @@
       "6. Write README.md"
     ],
     "acceptance-criteria": "main.py runs without errors on CPU. linear_quantize correctly quantizes tensors. dequantize restores approximate values. Quantization error compared across bit widths. Weight histogram plotted. K-means quantization implemented. README.md exists.",
-    "complete": false
+    "complete": true
   },
   {
     "task": "lecture-06: PTQ pipeline and QAT with FakeQuantize + STE",

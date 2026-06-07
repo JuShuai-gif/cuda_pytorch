@@ -214,3 +214,94 @@ TESTING RESULTS:
      type hints, structured docstrings, section separators)
 
 ================================================================================
+TASK ID: task-005
+TASK NAME: lecture-05: Linear quantization int8/int4/int2
+STATUS: complete
+TIMESTAMP: 2026-06-07T12:05:00Z
+WORKER AGENT: Worker-v2
+================================================================================
+OBJECTIVE (Acceptance Criteria):
+   main.py runs without errors on CPU. linear_quantize correctly quantizes
+   tensors. dequantize restores approximate values. Quantization error
+   compared across bit widths. Weight histogram plotted. K-means
+   quantization implemented. README.md exists.
+
+STEPS PROVIDED:
+   1. Create src/lecture-05/ directory
+   2. Write main.py with linear_quantize(tensor, bits), dequantize(q, scale, zp)
+   3. Compare quantization error for int8, int4, int2
+   4. Visualize weight histogram + quantization levels
+   5. Implement K-means quantization alternative
+   6. Write README.md
+
+STEPS EXECUTED:
+   ✓ Step 1: Created src/lecture-05/ directory
+   ✓ Step 2: Wrote main.py with linear_quantize, dequantize, compute_quantization_error
+   ✓ Step 3: Error comparison table (MSE, MAE, max_abs_err, cosine_sim) across int8/int4/int2
+   ✓ Step 4: plot_weight_histogram with matplotlib, quantization levels as red dashed lines
+   ✓ Step 5: kmeans_quantize using scipy.cluster.vq.kmeans2 with pure-PyTorch fallback
+   ✓ Step 6: Wrote README.md following established lecture-03/04 pattern
+
+WORK COMPLETED:
+   1. Created src/lecture-05/main.py (491 lines)
+      - linear_quantize(tensor, bits): asymmetric affine quantization
+      - dequantize(q, scale, zp): reconstruct float values
+      - compute_quantization_error(orig, recon): MSE, MAE, max_abs_err, cosine_sim
+      - kmeans_quantize(tensor, bits): non-uniform K-means quantization
+      - _kmeans_fallback(data, k, ...): pure-PyTorch Lloyd's algorithm
+      - generate_synthetic_weights(n): mixture distribution for realistic weights
+      - plot_weight_histogram(weights, info): histogram + quantization level overlay
+   2. Created src/lecture-05/README.md (7.2 KB)
+      - Overview, prerequisites, usage instructions
+      - Key functions table, example output
+      - Educational content: affine quantization, bit-width tradeoffs, error metrics,
+        K-means vs linear, histogram interpretation
+   3. Script runs successfully: exit code 0, all sections execute
+   4. Individual function verification: all 5 tests passed
+
+FILES MODIFIED:
+   - src/lecture-05/main.py (created, 491 lines)
+   - src/lecture-05/README.md (created, 156 lines)
+   - PROGRESS.txt (modified)
+
+KEY DECISIONS:
+   - Used asymmetric (affine) quantization (with zero point) for better range coverage
+   - Implemented both scipy-based and pure-PyTorch K-means with import fallback
+   - Used synthetic weights from mixture distribution (Gaussian + outliers + skew)
+   - Error metrics: MSE, MAE, max_abs_err, cosine_sim (direction preservation)
+   - matplotlib.use("Agg") for headless plot generation
+   - Follows existing code style: from __future__ import annotations, type hints,
+     Google-style docstrings, section separators with ===
+
+BLOCKERS RESOLVED:
+   - TypeError in format string: 'string' * 12.1 → 'string' * 12 (int multiplication)
+
+REMAINING ISSUES:
+   - None
+
+NOTES FOR NEXT AGENT:
+   - The quantization_histogram.png is saved in project root (consistent with other lectures)
+   - For int8 K-means, scipy's kmeans2 with minit="points" may not always beat linear
+     quantization due to local minima with many clusters (256 on 5000 points)
+   - Could extend to per-channel quantization or quantization-aware training in a follow-up
+
+ACCEPTANCE CRITERIA VERIFICATION:
+   ✓ Criterion 1: main.py runs without errors on CPU - VERIFIED (exit code 0, full output)
+   ✓ Criterion 2: linear_quantize correctly quantizes tensors - VERIFIED
+     (int2 produces <= 4 unique levels; max error bound <= scale/2 met)
+   ✓ Criterion 3: dequantize restores approximate values - VERIFIED
+     (round-trip test: [-2, -1, 0, 1, 2] → [-1.99, -1.00, 0.00, 1.00, 1.99])
+   ✓ Criterion 4: Quantization error compared across bit widths - VERIFIED
+     (comparison table: int8/int4/int2 with MSE, MAE, max_abs_err, cosine_sim)
+   ✓ Criterion 5: Weight histogram plotted - VERIFIED
+     (quantization_histogram.png 171 KB, 3 subplots with red dashed quant levels)
+   ✓ Criterion 6: K-means quantization implemented - VERIFIED
+     (kmeans_quantize produces correct # of centroids; improves MSE 69-79% for int2/int4)
+   ✓ Criterion 7: README.md exists - VERIFIED (156 lines, 7.2 KB)
+
+TESTING RESULTS:
+   ✓ Script execution: exit code 0, complete output
+   ✓ Functional tests: 5/5 passed (quantize/dequantize round-trip, error metrics,
+     max error bound, K-means centroid count, int2 unique levels)
+
+================================================================================
