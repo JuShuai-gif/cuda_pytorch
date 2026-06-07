@@ -9,8 +9,11 @@
       "4. Verify all files run without errors"
     ],
     "acceptance-criteria": "bpe.py runs with test cases passing. demo.py runs without errors. BPE train/corpus/vocab_size, encode/decode methods work correctly. Unicode handling works. __init__.py exists.",
-    "skills": ["writing-python", "tdd-workflow"],
-    "complete": false
+    "skills": [
+      "writing-python",
+      "tdd-workflow"
+    ],
+    "complete": true
   },
   {
     "task": "lecture-02: Resource Accounting - FLOPs, arithmetic intensity, mixed precision",
@@ -23,7 +26,10 @@
       "5. Verify all files run without errors"
     ],
     "acceptance-criteria": "flops_counter.py correctly counts parameters and estimates FLOPs. arithmetic_intensity.py produces roofline plot. mixed_precision.py demonstrates precision differences. __init__.py exists. All files run without errors.",
-    "skills": ["writing-python", "tdd-workflow"],
+    "skills": [
+      "writing-python",
+      "tdd-workflow"
+    ],
     "complete": false
   },
   {
@@ -36,7 +42,10 @@
       "4. Verify all tests pass"
     ],
     "acceptance-criteria": "MultiHeadAttention implements QKV projection and scaled dot-product attention. TransformerBlock includes Attention+MLP+residual+LayerNorm. TransformerLM has Embedding+Blocks+LM head. Causal masking works. Pre-norm and post-norm supported. Forward pass runs. All tests pass.",
-    "skills": ["writing-python", "tdd-workflow"],
+    "skills": [
+      "writing-python",
+      "tdd-workflow"
+    ],
     "complete": false
   },
   {
@@ -52,7 +61,10 @@
       "7. Verify all files run without errors"
     ],
     "acceptance-criteria": "AdamW correctly decouples weight decay with bias correction. Cosine schedule, warmup, WSD implemented. Cross-entropy loss verified against PyTorch. Training loop runs on dummy data. clip_grad_norm works correctly. __init__.py exists. All files run without errors.",
-    "skills": ["writing-python", "tdd-workflow"],
+    "skills": [
+      "writing-python",
+      "tdd-workflow"
+    ],
     "complete": false
   },
   {
@@ -67,7 +79,10 @@
       "6. Verify all files run without errors"
     ],
     "acceptance-criteria": "gpu_specs.py displays GPU spec comparison table. memory_analysis.py correctly computes memory for transformer layers. occupancy_calc.py computes occupancy given register/shared memory constraints. bandwidth_test.py runs bandwidth and matmul tests. __init__.py exists. All files run without errors.",
-    "skills": ["writing-python", "tdd-workflow"],
+    "skills": [
+      "writing-python",
+      "tdd-workflow"
+    ],
     "complete": false
   },
   {
@@ -83,7 +98,10 @@
       "7. Verify all files run (with GPU fallback where needed)"
     ],
     "acceptance-criteria": "GeLU kernel matches PyTorch output within tolerance. Softmax kernel uses online algorithm. Matmul kernel uses tiling and shared memory. Benchmarks compare Triton vs PyTorch. Profiler demo shows CPU/GPU timeline. All files have GPU fallback. __init__.py exists.",
-    "skills": ["writing-python", "tdd-workflow"],
+    "skills": [
+      "writing-python",
+      "tdd-workflow"
+    ],
     "complete": false
   }
 ]

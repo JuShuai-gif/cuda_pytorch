@@ -76,7 +76,9 @@ def demo_all_gather() -> None:
     print("ALL-GATHER: All processes get the full concatenated result")
     print("=" * 60)
     world_size = 4
-    chunks = [torch.tensor([r * 3.0, r * 3.0 + 1.0, r * 3.0 + 2.0]) for r in range(world_size)]
+    chunks = [
+        torch.tensor([r * 3.0, r * 3.0 + 1.0, r * 3.0 + 2.0]) for r in range(world_size)
+    ]
     for rank, chunk in enumerate(chunks):
         print(f"  Rank {rank} sends: {chunk}")
     gathered = torch.cat(chunks)
@@ -92,7 +94,10 @@ def demo_reduce_scatter() -> None:
     print("=" * 60)
     world_size = 4
     # Each rank has a full-sized tensor
-    data = [torch.tensor([r * 4 + i for i in range(8)], dtype=torch.float32) for r in range(world_size)]
+    data = [
+        torch.tensor([r * 4 + i for i in range(8)], dtype=torch.float32)
+        for r in range(world_size)
+    ]
     for rank, d in enumerate(data):
         print(f"  Rank {rank} input: {d}")
     # Sum all
@@ -135,13 +140,21 @@ def demo_all_to_all() -> None:
     print("=" * 60)
     world_size = 3
     # Each rank has a matrix. All-to-all scatters columns to all ranks.
-    data = [torch.tensor([[r * 10 + c for c in range(3)] for _ in range(2)], dtype=torch.float32) for r in range(world_size)]
+    data = [
+        torch.tensor(
+            [[r * 10 + c for c in range(3)] for _ in range(2)], dtype=torch.float32
+        )
+        for r in range(world_size)
+    ]
     for rank, d in enumerate(data):
         print(f"  Rank {rank} input:\n{d}")
     # Each rank sends column j to rank j
     print("  After all-to-all:")
     for rank_out in range(world_size):
-        result = torch.tensor([[r * 10 + rank_out for r in range(3)] for _ in range(2)], dtype=torch.float32)
+        result = torch.tensor(
+            [[r * 10 + rank_out for r in range(3)] for _ in range(2)],
+            dtype=torch.float32,
+        )
         print(f"  Rank {rank_out} receives:\n{result}")
     print()
 

@@ -1192,10 +1192,120 @@ ACCEPTANCE CRITERIA VERIFICATION:
    ✓ Criterion 12: Standard packages only (torch, numpy, math) -- VERIFIED
 
 TESTING RESULTS:
-   ✓ python3 main.py runs successfully, zero errors
-   ✓ Table 1: Full n^2 grows 2x->32x over Window n*w across sequence lengths
-   ✓ Table 2: All five methods produce valid output tensors and element counts
-   ✓ RoPE: base 10000 -> 41829.4 for 4x context; bonus table shows log-scale progression
-   ✓ KV eviction: correct token count reduction (e.g., 4096->128 at capacity 128)
+    ✓ python3 main.py runs successfully, zero errors
+    ✓ Table 1: Full n^2 grows 2x->32x over Window n*w across sequence lengths
+    ✓ Table 2: All five methods produce valid output tensors and element counts
+    ✓ RoPE: base 10000 -> 41829.4 for 4x context; bonus table shows log-scale progression
+    ✓ KV eviction: correct token count reduction (e.g., 4096->128 at capacity 128)
+
+================================================================================
+TASK ID: task-016
+TASK NAME: lecture-01: Tokenization - BPE from scratch
+STATUS: complete
+TIMESTAMP: 2026-06-07T20:00:00Z
+WORKER AGENT: Worker-v2
+================================================================================
+OBJECTIVE (Acceptance Criteria):
+   bpe.py runs with test cases passing. demo.py runs without errors.
+   BPE train/corpus/vocab_size, encode/decode methods work correctly.
+   Unicode handling works. __init__.py exists.
+
+STEPS PROVIDED:
+   1. Create src/lecture-01/__init__.py
+   2. Write bpe.py: BPE tokenizer with train, encode, decode, unicode handling, test cases
+   3. Write demo.py: demonstrate BPE tokenizer usage on sample text
+   4. Verify all files run without errors
+
+STEPS EXECUTED:
+   ✓ Step 1: Created __init__.py with module docstring
+   ✓ Step 2: Wrote bpe.py (230 lines) with BPETokenizer class + 10 self-contained test cases
+   ✓ Step 3: Wrote demo.py (280 lines) with 6 demonstration sections
+   ✓ Step 4: Verified both files run without errors on CPU
+
+WORK COMPLETED:
+   1. Created cs336/cs336-llm-system/src/lecture-01/__init__.py (3 lines)
+   2. Created cs336/cs336-llm-system/src/lecture-01/bpe.py (230 lines):
+      - BPETokenizer class with byte-level base vocab (256 entries)
+      - train(text, vocab_size): iteratively merges most frequent adjacent byte/token pairs
+      - encode(text): starts from bytes, applies learned merges in priority order
+      - decode(ids): maps token IDs to bytes, decodes as UTF-8 with error handling
+      - compression_ratio(text): UTF-8 bytes per token metric
+      - 10 self-contained test cases: basic round-trip, empty string, Unicode
+        (emoji/CJK/accented), compression ratio scaling, vocab size correctness,
+        repetitive text merges, special characters, large vocab, determinism
+   3. Created cs336/cs336-llm-system/src/lecture-01/demo.py (280 lines):
+      - Section 1: Basic BPE training with merge visualization
+      - Section 2: Encode/decode demonstration on various English texts
+      - Section 3: Unicode handling (🌍 emoji, 你好世界 Chinese, こんにちは Japanese, Café résumé)
+      - Section 4: Compression ratio analysis across vocab sizes [256, 270, 300, 350, 400, 500]
+      - Section 5: Step-by-step merge process visualization on "abcabcabc"
+      - Section 6: Key takeaways summary
+
+FILES MODIFIED:
+   - cs336/cs336-llm-system/src/lecture-01/__init__.py (created)
+   - cs336/cs336-llm-system/src/lecture-01/bpe.py (created)
+   - cs336/cs336-llm-system/src/lecture-01/demo.py (created)
+   - PROGRESS.txt (modified)
+
+KEY DECISIONS:
+   - Byte-level base vocabulary (0-255) for complete Unicode coverage via UTF-8
+   - encode() applies merges in priority order (earliest merge = lowest ID first),
+     following the canonical BPE algorithm for deterministic encoding
+   - decode() uses errors="replace" for robustness against invalid byte sequences
+   - compression_ratio metric: UTF-8 bytes / token count (higher = better compression)
+   - train() breaks early if no more pairs can be merged (short text edge case)
+   - All test cases run when bpe.py is executed directly (if __name__ == "__main__")
+   - Demo follows a narrative structure: training -> usage -> Unicode -> analysis -> summary
+
+BLOCKERS RESOLVED:
+   - None
+
+REMAINING ISSUES:
+   - None
+
+NOTES FOR NEXT AGENT:
+   - The encode() method currently iterates through all adjacent pairs to find the
+     earliest merge; for production use, this could be optimized with a priority queue
+   - Demo output shows individual bytes of multi-byte UTF-8 characters as �
+     (replacement character) when displayed as individual tokens - this is expected
+     and the round-trip decoding works correctly
+   - Pre-tokenization (e.g., GPT-2 regex pattern) is NOT implemented - this is
+     a pure byte-level BPE without any language-specific preprocessing
+   - Special token handling (e.g., <|endoftext|>) is NOT implemented
+   - This implementation matches the CS336 lecture_01.py reference, with the
+     addition of a proper encode() method and comprehensive tests
+
+ACCEPTANCE CRITERIA VERIFICATION:
+   ✓ Criterion 1: bpe.py runs with test cases passing - VERIFIED (10/10 tests PASSED)
+   ✓ Criterion 2: demo.py runs without errors - VERIFIED (all 6 sections completed successfully)
+   ✓ Criterion 3: BPE train/corpus/vocab_size works - VERIFIED (train() accepts text+vocab_size,
+     correctly grows vocab from 256 to target size via iterative merging)
+   ✓ Criterion 4: encode/decode methods work correctly - VERIFIED (round-trip tests:
+     "the cat" → encode → decode → "the cat"; Unicode: "你好世界" → encode → decode → "你好世界")
+   ✓ Criterion 5: Unicode handling works - VERIFIED (emoji 🌍, Chinese 你好世界, Japanese こんにちは,
+     accented characters Café résumé naïve all round-trip correctly)
+   ✓ Criterion 6: __init__.py exists - VERIFIED (cs336/cs336-llm-system/src/lecture-01/__init__.py)
+
+TESTING RESULTS:
+   ✓ bpe.py: 10/10 test cases PASSED
+     - Test 1: Basic round-trip (4 strings) PASSED
+     - Test 2: Empty string PASSED
+     - Test 3: Unicode handling (6 strings, no exceptions) PASSED
+     - Test 4: Unicode round-trip PASSED
+     - Test 5: Compression ratio improves PASSED
+     - Test 6: Vocabulary size correctness PASSED
+     - Test 7: Repetitive text merges PASSED
+     - Test 8: Special characters PASSED
+     - Test 9: Large vocab on realistic text PASSED
+     - Test 10: Deterministic encoding PASSED
+   ✓ demo.py: All 6 demonstration sections completed
+     - Section 1: Training on English text, first 5 merges shown
+     - Section 2: Encode/decode on 4 texts
+     - Section 3: Unicode verification, all round-trips OK
+     - Section 4: Compression ratio table (256→500 vocab)
+     - Section 5: Merge visualization on "abcabcabc" (4 merges shown)
+     - Section 6: Key takeaways summary
+   ✓ Execution time: < 1 second for both files
+   ✓ No external dependencies beyond Python stdlib
 
 ================================================================================
