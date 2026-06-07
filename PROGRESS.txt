@@ -555,3 +555,106 @@ TESTING RESULTS:
    ✓ Python: no unused imports, type annotations, English docstrings
 
 ================================================================================
+
+================================================================================
+TASK ID: task-012
+TASK NAME: Transformer efficiency analysis (Lecture 12)
+STATUS: complete
+TIMESTAMP: 2026-06-07T05:30:00Z
+WORKER AGENT: Worker-v2
+================================================================================
+OBJECTIVE (Acceptance Criteria):
+   Build a toy GPT-style transformer. Count params, FLOPs, KV cache memory for
+   different sequence lengths. Show quadratic growth of attention: O(n^2) in
+   sequence length. Compare: MHA vs MQA vs GQA parameter counts. Code must run
+   on CPU only (no CUDA). Must have if __name__ == "__main__" guard. All code
+   in a single file. Use only standard packages: torch, numpy, math. Write
+   production-quality code with clear comments in English. Build a small
+   GPT-style transformer with configurable: n_layers, d_model, n_heads,
+   head_dim, vocab_size. Implement MHA, MQA, GQA as separate classes. Calculate
+   and print FLOPs analytically for forward pass at different seq_len values
+   [64, 128, 256, 512, 1024]. Calculate KV cache memory in bytes for FP16 at
+   different seq_len values. Print a clear table showing: seq_len,
+   attention_FLOPs, total_FLOPs, KV_cache_MB. Print a comparison table: MHA vs
+   MQA vs GQA params for various model sizes. Show the quadratic growth trend
+   clearly.
+
+STEPS PROVIDED:
+   None provided (task was atomic: create a single comprehensive analysis file).
+
+STEPS EXECUTED:
+   - Analyzed requirements for transformer efficiency analysis
+   - Designed class hierarchy: MultiHeadAttention, MultiQueryAttention, GroupedQueryAttention
+   - Implemented GPTConfig dataclass with validation
+   - Built GPT model with configurable attention variant via n_kv_heads
+   - Implemented analytical FLOPs calculation (2*m*n*k convention for matmul)
+   - Implemented KV-cache memory calculation (FP16, 2 bytes/element)
+   - Implemented parameter counting matching actual model structure
+   - Created formatted ASCII tables for FLOPs, params, and KV-cache comparison
+   - Added smoke tests to verify model correctness and parameter count
+
+WORK COMPLETED:
+   1. Created mit6.5940/mit6s5940-efficient-dl/src/lecture-12/main.py (755 lines)
+   2. Implemented GPTConfig dataclass with d_model = n_heads * head_dim validation
+   3. Implemented 3 attention classes:
+      - MultiHeadAttention (n_kv_heads == n_heads)
+      - MultiQueryAttention (n_kv_heads == 1)
+      - GroupedQueryAttention (1 < n_kv_heads < n_heads)
+   4. Implemented TransformerBlock and GPT model with weight tying
+   5. Analytical FLOPs: QKV projections, Q@K^T (O(S^2)), Attn@V (O(S^2)),
+      output projection, FFN up/down, LM head
+   6. KV-cache: 2 * n_layers * S * n_kv_heads * head_dim * 2 bytes (FP16)
+   7. Parameter counting: embedding, position_emb, attention, FFN, LayerNorm
+   8. Quadratic scaling verified: S=64->128 gives exactly 4.0x attention FLOPs
+
+FILES MODIFIED:
+   - mit6.5940/mit6s5940-efficient-dl/src/lecture-12/main.py (created, 755 lines)
+   - PROGRESS.txt (appended task-012 entry)
+
+KEY DECISIONS:
+   - FLOPs convention: 2*m*n*k per matmul (multiply-add = 2 FLOPs)
+   - LayerNorm/GELU/softmax/embedding lookups excluded from FLOPs (negligible)
+   - Position embedding included in parameter count (matches actual model)
+   - LM head weight-tied with token embedding (counted once only)
+   - FP16 KV-cache: 2 bytes per element
+   - Attention FLOPs are identical across MHA/MQA/GQA (same Q@K^T + Attn@V work)
+   - KV-cache reduction: MQA = MHA / n_heads (12x in default config)
+
+BLOCKERS RESOLVED:
+   - Parameter count mismatch in smoke test: fixed by adding position_embedding
+     to count_total_params() and removing double-counted lm_head (weight-tied)
+
+REMAINING ISSUES:
+   - None
+
+NOTES FOR NEXT AGENT:
+   - The attention FLOPs (Q@K^T + Attn@V) are identical for MHA/MQA/GQA because
+     every query head still computes dot products against all S key tokens
+   - MQA/GQA savings are in: (1) K/V projection FLOPs (smaller matrices),
+     (2) KV-cache memory, (3) total parameter count
+   - FFN FLOPs (16*S*d_model^2 per layer) dominate for short sequences
+   - Attention FLOPs (4*S^2*d_model per layer) dominate for S > ~512
+
+ACCEPTANCE CRITERIA VERIFICATION:
+   [v] Criterion 1: Build toy GPT-style transformer - VERIFIED (GPT class, TransformerBlock)
+   [v] Criterion 2: Count params, FLOPs, KV cache for different seq lengths - VERIFIED (tables for S=[64,128,256,512,1024])
+   [v] Criterion 3: Show quadratic growth O(n^2) - VERIFIED (ratio matches (S/S0)^2 exactly: 4x, 16x, 64x, 256x)
+   [v] Criterion 4: Compare MHA vs MQA vs GQA params - VERIFIED (table with 4 model sizes, all 3 variants + GQA-4, GQA-2)
+   [v] Criterion 5: CPU only, no CUDA - VERIFIED (zero CUDA references in code)
+   [v] Criterion 6: if __name__ == "__main__" guard - VERIFIED (present at end of file)
+   [v] Criterion 7: All code in single file - VERIFIED (single main.py)
+   [v] Criterion 8: Standard packages only (torch, numpy, math) - VERIFIED (only torch, numpy, math imported)
+   [v] Criterion 9: Clear English comments - VERIFIED (docstrings, inline comments throughout)
+   [v] Criterion 10: Configurable n_layers, d_model, n_heads, head_dim, vocab_size - VERIFIED (GPTConfig dataclass)
+   [v] Criterion 11: FLOPs table: seq_len, attention_FLOPs, total_FLOPs, KV_cache_MB - VERIFIED (printed clearly)
+   [v] Criterion 12: Parameter comparison table MHA vs MQA vs GQA - VERIFIED (4 model sizes shown)
+   [v] Criterion 13: Quadratic growth trend clearly visible - VERIFIED (both numeric ratio and Expected (S/S0)^2 column)
+
+TESTING RESULTS:
+   [v] Smoke test: MHA, GQA, MQA all passed forward pass with correct output shapes
+   [v] Parameter count: all 3 variants matched analytical count exactly
+   [v] Quadratic scaling: 64->128 ratio = 4.0x (exact match)
+   [v] Execution time: < 1 second on CPU
+   [v] Zero CUDA references confirmed
+
+================================================================================
