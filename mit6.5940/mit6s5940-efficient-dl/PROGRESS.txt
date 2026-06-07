@@ -540,3 +540,160 @@ TESTING RESULTS:
    ✓ Manual review: follows lecture-01/03/04/05/06 patterns
 
 ================================================================================
+
+================================================================================
+TASK ID: task-008
+TASK NAME: lecture-08: Evolutionary search with latency-aware NAS
+STATUS: complete
+TIMESTAMP: 2026-06-07T13:31:00Z
+WORKER AGENT: Worker-v2
+================================================================================
+OBJECTIVE (Acceptance Criteria):
+   main.py runs without errors on CPU. Evolutionary search with
+   population/mutation/crossover works. Latency-aware NAS with lookup table
+   implemented. Pareto frontier plotted. Random vs evolutionary comparison
+   shown. README.md exists.
+
+STEPS PROVIDED:
+   1. Create src/lecture-08/ directory
+   2. Write main.py with evolutionary search: population, mutation, crossover
+   3. Implement latency-aware NAS using simulated latency lookup table
+   4. Plot Pareto frontier visualization (accuracy vs latency)
+   5. Compare random search vs evolutionary search results
+   6. Write README.md
+
+STEPS EXECUTED:
+   ✓ Step 1: Created src/lecture-08/ directory
+   ✓ Step 2: Wrote main.py with full evolutionary pipeline: population init,
+     tournament selection (Pareto rank), one-point crossover, three mutation
+     operators (kernel, channel, depth), environmental selection
+   ✓ Step 3: Implemented LatencyLookupTable with query/estimate_model_latency,
+     parametric latency model (compute-bound, memory penalty, kernel overhead,
+     launch overhead), and per-key caching
+   ✓ Step 4: Implemented plot_pareto_frontier() with dual-source scatter
+     (random=blue circles, evo=red triangles), Pareto frontier overlay line
+     (orange), legend, grid, saved as nas_accuracy_vs_latency.png (77KB)
+   ✓ Step 5: Comparison table printed (accuracy, latency, Pareto size) for
+     random search vs evolutionary search
+   ✓ Step 6: Wrote README.md (210 lines) covering overview, evolutionary
+     algorithm details, latency table, concepts, and references
+
+WORK COMPLETED:
+   1. Created src/lecture-08/main.py (1375 lines)
+      - ArchSpec dataclass and EvalResult with source label
+      - LatencyLookupTable: simulated hardware latency with caching
+        (compute-bound + memory penalty + kernel overhead + launch overhead)
+      - NasCNN builder (shared with lecture-07)
+      - CIFAR-10 data loading (5K train + 2K val subset)
+      - Training/evaluation utilities (train_one_epoch, evaluate_accuracy,
+        train_and_evaluate)
+      - Random sampler (random_sample_architecture)
+      - Mutation operators: mutate_kernel, mutate_channels, mutate_depth, mutate
+        (randomly selects one of three)
+      - Crossover: one-point crossover on layer lists, handles depth mismatch
+      - Non-dominated sorting (NSGA-II style) for multi-objective ranking
+      - Tournament selection by Pareto rank + accuracy tie-breaker
+      - run_evolutionary_search(): full loop with init, selection, crossover,
+        mutation, evaluation, environmental selection
+      - compute_pareto_frontier(): O(N^2) dominance check
+      - plot_pareto_frontier(): dual-source scatter + Pareto frontier line
+      - Utilities: arch_summary, format_latency
+   2. Created src/lecture-08/README.md (210 lines)
+      - Overview, search space table, evolutionary algorithm details
+      - Latency lookup table documentation and usage example
+      - Key functions table, concept explanations (multi-objective NAS,
+        NSGA-II, latency table vs on-device measurement)
+      - Random vs evolutionary comparison table
+      - References to Real et al. 2019, Deb et al. NSGA-II, ProxylessNAS,
+        MNasNet, FBNet, Li & Talwalkar 2019
+   3. Smoke test: 5 random + pop=4 x gen=3 completed in 2.0 min CPU
+      - All 6 pipeline stages executed without errors
+      - Random search: 5 architectures, 29-43% accuracy, 10-412ms latency
+      - Evolutionary search: population 4 evolved over 3 generations
+      - Pareto fronts detected per generation (front 0: 3 individuals)
+      - Comparison table: evo improves mean accuracy 33%->37%, latency 135->77ms
+      - Plot saved: nas_accuracy_vs_latency.png (77KB, 150 DPI)
+
+FILES MODIFIED:
+   - src/lecture-08/main.py (created, 1375 lines)
+   - src/lecture-08/README.md (created, 210 lines)
+   - PROGRESS.txt (modified, this entry)
+
+KEY DECISIONS:
+   - Used NSGA-II non-dominated sorting for multi-objective selection
+     (accuracy ↑, latency ↓) instead of scalarised fitness; this avoids
+     needing to tune trade-off weights
+   - LatencyLookupTable uses formula-based simulation (not real hardware
+     measurements); models compute-bound, memory-bound, kernel overhead,
+     and launch overhead effects; results cached per key
+   - Tournament selection (size=3) by Pareto rank with accuracy tie-breaker
+   - Crossover operates on aligned layer lists (handle depth mismatch by
+     truncating to min depth for cross, then appending excess layers)
+   - Three mutation operators chosen uniformly at random per mutation event
+   - Environmental selection keeps top POPULATION_SIZE from parents+offspring
+     using Pareto rank, guaranteeing monotonic non-degradation
+   - Follows lecture-07 code patterns: from __future__ import annotations,
+     type hints, Google-style docstrings, section separators, constants block,
+     CIFAR-10 data pipeline, Adam+CosineAnnealingLR training
+   - Runs from project root (data path is ./data relative to cwd)
+
+BLOCKERS RESOLVED:
+   - CIFAR-10 data path issue: get_cifar10_subset uses relative path ./data;
+     script must be run from project root (mit6s5940-efficient-dl/), not from
+     src/lecture-08/. This matches lecture-07 convention.
+
+REMAINING ISSUES:
+   - None
+
+NOTES FOR NEXT AGENT:
+   - The nas_accuracy_vs_latency.png is saved in project root (consistent with
+     lecture-07's nas_accuracy_vs_macs.png)
+   - The evolutionary algorithm uses the full evaluation budget (initial +
+     offspring per generation); comparison with random search is on final
+     population quality, not on total compute budget
+   - For a more rigorous comparison, the random search should use as many
+     evaluations as the evolutionary search (pop_size * (1 + generations))
+   - Latency lookup table could be replaced with real device measurements
+     (e.g., measured on a phone/edge device) for production use
+   - Could extend with: aging evolution (remove oldest), regularised evolution
+     (tournament-based replacement), or multi-objective scalarisation (weighted sum)
+
+ACCEPTANCE CRITERIA VERIFICATION:
+   ✓ Criterion 1: main.py runs without errors on CPU
+     VERIFIED - Full pipeline (6 stages) completed with exit code 0, 2.0 min runtime
+   ✓ Criterion 2: Evolutionary search with population/mutation/crossover works
+     VERIFIED - Population init (4 individuals), non-dominated sorting (fronts detected),
+     tournament selection, one-point crossover, three mutation operators (kernel/
+     channel/depth), environmental selection; all operators tested in isolation
+     (100 mutation depth invariance checks, crossover children verified)
+   ✓ Criterion 3: Latency-aware NAS with lookup table implemented
+     VERIFIED - LatencyLookupTable with query(kernel, in_c, out_c, h, w) and
+     estimate_model_latency(spec); parametric model with compute-bound, memory
+     penalty (+30% for >100K elements), kernel overhead (+15% for k>=5), and
+     fixed launch overhead (0.02ms/layer); 23 entries cached during smoke test
+   ✓ Criterion 4: Pareto frontier plotted
+     VERIFIED - nas_accuracy_vs_latency.png created (77,754 bytes, 150 DPI);
+     dual-source scatter (random=blue circles, evo=red triangles) with Pareto
+     frontier overlay line (orange/gold), legend, grid
+   ✓ Criterion 5: Random vs evolutionary comparison shown
+     VERIFIED - Comparison table printed with 6 metrics (evaluations, best/mean
+     accuracy, min/mean latency, Pareto frontier size) for both strategies
+   ✓ Criterion 6: README.md exists
+     VERIFIED - src/lecture-08/README.md (210 lines) covering overview, search
+     space, evolutionary algorithm details, latency table, key functions,
+     concepts, comparison, and references
+
+TESTING RESULTS:
+   ✓ Unit tests (quick validation): ArchSpec, LatencyLookupTable, mutation ops,
+     crossover, non_dominated_sorting -- all passed
+   ✓ Full pipeline: 6 stages executed without errors (2.0 min on CPU)
+   ✓ Mutation depth invariance: 100/100 random mutations produced valid depths
+   ✓ Random search: 5 architectures evaluated, 3 Pareto-frontier identified
+   ✓ Evolutionary search: 4-member population, 3 generations, Pareto fronts
+     detected each gen, mean accuracy improved from 33% to 37%
+   ✓ Plot: PNG file created (77KB), 150 DPI, correct dual-source scatter
+   ✓ Manual review: follows lecture-07 patterns (from __future__ import
+     annotations, type hints, structured docstrings, section separators,
+     constants block, CIFAR-10 data pipeline)
+
+================================================================================

@@ -107,6 +107,6 @@
       "6. Write README.md"
     ],
     "acceptance-criteria": "main.py runs without errors on CPU. Evolutionary search with population/mutation/crossover works. Latency-aware NAS with lookup table implemented. Pareto frontier plotted. Random vs evolutionary comparison shown. README.md exists.",
-    "complete": false
+    "complete": true
   }
 ]
