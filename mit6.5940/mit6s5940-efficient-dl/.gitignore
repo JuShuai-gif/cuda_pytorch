@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Model files
+*.pth
+*.onnx
+*.engine
+*.trt
+
+# Data
+data/
+*.tar.gz
+
+# Reports
+*.pdf
+*.docx
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+*.png
+*.jpg
+*.log

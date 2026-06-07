@@ -1,0 +1,175 @@
+# ============================================================
+# 边缘 AI 模型压缩与部署 - 全局配置文件
+# ============================================================
+# 注意：本配置文件使用中文注释，便于课程学习
+# 所有路径均为相对于项目根目录的路径
+
+# ------------------------ 通用配置 ------------------------
+general:
+  # 随机种子，确保实验可复现
+  seed: 42
+  # 设备选择：cpu（本项目纯 CPU 运行）
+  device: "cpu"
+  # 输出目录
+  output_dir: "./output"
+  # 检查点保存目录
+  checkpoint_dir: "./checkpoints"
+  # 日志目录
+  log_dir: "./logs"
+  # 报告输出目录
+  report_dir: "./reports"
+
+# ------------------------ 模型配置 ------------------------
+model:
+  # 模型架构选择：resnet18, resnet34, mobilenetv2, tinycnn
+  architecture: "mobilenetv2"
+  # 输入图像尺寸（CIFAR-10 为 32x32）
+  input_size: 32
+  # 输入通道数（CIFAR-10 为 3 通道 RGB）
+  input_channels: 3
+  # 分类类别数（CIFAR-10 为 10 类）
+  num_classes: 10
+  # 是否使用预训练权重（ImageNet 预训练 → CIFAR-10 微调）
+  pretrained: false
+
+# ------------------------ 训练配置 ------------------------
+training:
+  # 数据集名称：cifar10
+  dataset: "cifar10"
+  # 批处理大小（CPU 环境下建议较小）
+  batch_size: 64
+  # 训练轮数
+  epochs: 50
+  # 初始学习率
+  learning_rate: 0.01
+  # 学习率衰减里程碑（在哪些 epoch 衰减）
+  lr_milestones: [25, 40]
+  # 学习率衰减因子
+  lr_gamma: 0.1
+  # 权重衰减（L2 正则化）
+  weight_decay: 0.0005
+  # 优化器：sgd, adam, adamw
+  optimizer: "sgd"
+  # SGD 动量
+  momentum: 0.9
+  # 数据增强
+  augmentation:
+    # 是否启用数据增强
+    enabled: true
+    # 随机水平翻转
+    random_horizontal_flip: true
+    # 随机裁剪（填充后裁剪）
+    random_crop_padding: 4
+    # 归一化均值（CIFAR-10 统计值）
+    mean: [0.4914, 0.4822, 0.4465]
+    # 归一化标准差（CIFAR-10 统计值）
+    std: [0.2023, 0.1994, 0.2010]
+
+# ------------------------ 剪枝配置 ------------------------
+pruning:
+  # 剪枝方法：magnitude, channel, gradual
+  method: "magnitude"
+  # 目标稀疏度（0.0 ~ 1.0，表示要移除的参数比例）
+  sparsity: 0.5
+  # 剪枝后微调轮数
+  finetune_epochs: 10
+  # 剪枝后微调学习率
+  finetune_lr: 0.001
+  # 结构化剪枝的策略：l1_norm（按 L1 范数）, frobenius（按 Frobenius 范数）
+  structured_criterion: "frobenius"
+  # 渐进剪枝的迭代次数
+  gradual_iterations: 5
+  # 渐进剪枝的初始稀疏度
+  gradual_start_sparsity: 0.1
+  # 渐进剪枝每轮增加的稀疏度
+  gradual_step_sparsity: 0.1
+
+# ------------------------ 量化配置 ------------------------
+quantization:
+  # 量化位宽：8, 4, 2
+  bits: 8
+  # 量化方案：per_tensor, per_channel
+  scheme: "per_channel"
+  # 量化方式：ptq（训练后量化）, qat（量化感知训练）
+  method: "ptq"
+  # 量化对称性：对称量化 / 非对称量化
+  symmetric: true
+  # 校准数据集大小（PTQ 使用）
+  calibration_samples: 1000
+  # 校准批处理大小
+  calibration_batch_size: 32
+  # QAT 训练轮数
+  qat_epochs: 5
+  # QAT 学习率
+  qat_lr: 0.0001
+  # 量化层类型（哪些层做量化）
+  quantizable_layers:
+    - "Conv2d"
+    - "Linear"
+    - "BatchNorm2d"
+
+# ------------------------ 知识蒸馏配置 ------------------------
+distillation:
+  # 教师模型架构（通常大于学生模型）
+  teacher_architecture: "resnet34"
+  # 教师模型权重路径（如果为空则自动训练）
+  teacher_checkpoint: ""
+  # 蒸馏温度
+  temperature: 4.0
+  # KL 散度损失的权重
+  alpha: 0.7
+  # 交叉熵损失的权重（自动设为 1 - alpha）
+  # 是否启用特征蒸馏（中间层对齐）
+  feature_distillation: false
+  # 特征蒸馏损失权重
+  beta: 0.1
+  # 蒸馏训练轮数
+  distill_epochs: 30
+  # 蒸馏学习率
+  distill_lr: 0.001
+
+# ------------------------ 导出配置 ------------------------
+export:
+  # 导出格式：onnx
+  format: "onnx"
+  # ONNX 导出路径
+  onnx_path: "./output/model.onnx"
+  # 是否使用动态 batch size
+  dynamic_batch: true
+  # ONNX opset 版本
+  opset_version: 13
+  # 是否优化 ONNX 模型
+  optimize: true
+  # 是否模拟 TensorRT 工作流（无 GPU 环境下的概念验证）
+  simulate_tensorrt: true
+
+# ------------------------ 基准测试配置 ------------------------
+benchmark:
+  # 测试输入批次大小
+  batch_sizes: [1, 4, 16, 32, 64]
+  # CPU 延迟测试的预热次数
+  warmup_runs: 10
+  # CPU 延迟测试的测量次数
+  measure_runs: 100
+  # 是否测量内存使用
+  measure_memory: true
+  # 是否计算 FLOPs
+  calculate_flops: true
+  # 吞吐量测试的批次数量
+  throughput_batches: 50
+
+# ------------------------ 完整流水线配置 ------------------------
+pipeline:
+  # 流水线执行顺序（按序执行）
+  stages:
+    - "train"       # 1. 训练基线模型
+    - "prune"       # 2. 剪枝模型
+    - "quantize"    # 3. 量化模型
+    - "distill"     # 4. 蒸馏模型
+    - "export"      # 5. 导出模型
+    - "benchmark"   # 6. 基准测试
+
+  # 是否在每个阶段之间保存中间检查点
+  save_intermediate: true
+  # 是否生成最终对比报告
+  generate_report: true
