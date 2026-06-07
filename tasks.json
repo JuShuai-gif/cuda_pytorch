@@ -80,7 +80,7 @@
       "6. Write README.md"
     ],
     "acceptance-criteria": "main.py runs without errors on CPU. PTQ calibration and quantization implemented. QAT with FakeQuantize + STE works. FP32/PTQ/QAT accuracy comparison printed. Mixed precision bonus included. README.md exists.",
-    "complete": false
+    "complete": true
   },
   {
     "task": "lecture-07: Simplified NAS random search",

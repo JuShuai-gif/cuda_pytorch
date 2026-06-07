@@ -302,6 +302,140 @@ ACCEPTANCE CRITERIA VERIFICATION:
 TESTING RESULTS:
    ✓ Script execution: exit code 0, complete output
    ✓ Functional tests: 5/5 passed (quantize/dequantize round-trip, error metrics,
-     max error bound, K-means centroid count, int2 unique levels)
+      max error bound, K-means centroid count, int2 unique levels)
+
+================================================================================
+TASK ID: task-006
+TASK NAME: lecture-06: PTQ pipeline and QAT with FakeQuantize + STE
+STATUS: complete
+TIMESTAMP: 2026-06-07T12:30:00Z
+WORKER AGENT: Worker-v2
+================================================================================
+OBJECTIVE (Acceptance Criteria):
+   main.py runs without errors on CPU. PTQ calibration and quantization
+   implemented. QAT with FakeQuantize + STE works. FP32/PTQ/QAT accuracy
+   comparison printed. Mixed precision bonus included. README.md exists.
+
+STEPS PROVIDED:
+   1. Create src/lecture-06/ directory
+   2. Write main.py with PTQ pipeline: calibrate activation ranges, quantize weights+activations
+   3. Implement QAT with FakeQuantize + STE (Straight-Through Estimator)
+   4. Compare FP32 baseline, PTQ, QAT accuracy
+   5. BONUS: mixed precision simulation (different bits per layer)
+   6. Write README.md
+
+STEPS EXECUTED:
+   ✓ Step 1: Created src/lecture-06/ directory
+   ✓ Step 2: Implemented PTQ pipeline: compute_scale_zp, calibrate_activation_ranges
+     (forward hooks collect per-layer min/max), ptq_quantize_model (quantize weights
+     in-place + attach activation quantizer hooks)
+   ✓ Step 3: Implemented QAT: FakeQuantize nn.Module with observer mode,
+     fake_quantize_ste using .detach() trick + torch.autograd.Function,
+     QATConv2d/QATLinear wrappers, calibrate_qat, freeze_qat_observers
+   ✓ Step 4: FP32 baseline (8 epochs) vs PTQ (8-bit) vs QAT (8-bit, 5 epochs)
+     comparison table with accuracy deltas printed
+   ✓ Step 5: Mixed precision: build_mixed_precision_model with per-layer bit config
+     (conv1=8b, conv2=4b, fc1=4b, fc2=8b), calibrate, fine-tune, evaluate
+   ✓ Step 6: Wrote README.md following lecture-03/04/05 pattern
+
+WORK COMPLETED:
+   1. Created src/lecture-06/main.py (990 lines)
+      - compute_scale_zp(tensor, bits): asymmetric affine quantization params
+      - fake_quantize(x, scale, zp, qmin, qmax): quantize then dequantize
+      - fake_quantize_ste(x, ...): STE via .detach() trick (identity backward)
+      - _FakeQuantizeSTE: torch.autograd.Function version for educational clarity
+      - FakeQuantize(bits): trainable nn.Module with observer mode and STE
+      - calibrate_activation_ranges(model, loader, bits): hook-based min/max collection
+      - ptq_quantize_model(model, act_params, bits): weight quantize + activation hooks
+      - QATConv2d / QATLinear: wrappers with weight + activation FakeQuantize
+      - build_qat_model(fp32_model, bits): convert FP32 model to QAT
+      - calibrate_qat(model, loader): calibrate then freeze FakeQuantize observers
+      - build_mixed_precision_model(fp32_model, bit_config): per-layer bit widths
+      - SimpleCNN: 2 Conv2d + 2 Linear, ~207K params
+      - Training utils: train_one_epoch, evaluate_accuracy, count_params
+   2. Created src/lecture-06/README.md (139 lines)
+      - Overview, prerequisites, usage instructions
+      - Key functions table (11 functions)
+      - Concept explanations: STE, PTQ vs QAT, asymmetric quantization, mixed precision
+      - References to original papers
+   3. Script runs successfully: exit code 0, all 7 pipeline stages execute
+   4. Unit tests: 7/7 passing (compute_scale_zp, fake_quantize, STE gradient,
+      FakeQuantize module, QAT model build, mixed precision build, PTQ pipeline)
+
+FILES MODIFIED:
+   - src/lecture-06/main.py (created, 990 lines)
+   - src/lecture-06/README.md (created, 139 lines)
+   - PROGRESS.txt (modified, this entry)
+
+KEY DECISIONS:
+   - Used synthetic random 28x28 data (consistent with lectures 03-05); accuracy
+     is near-random (~10-12%) as expected; real MNIST would give ~98%+
+   - STE implemented via .detach() trick (x + (x_fq - x).detach()) for simplicity;
+     also provides torch.autograd.Function version for educational comparison
+   - FakeQuantize uses nn.Module with register_buffer for scale/zp (so they
+     appear in state_dict and are moved to device correctly)
+   - PTQ uses forward hooks to insert activation quantizers; hooks stored on
+     model._quant_hooks for potential cleanup via remove_quant_hooks()
+   - QAT wrapper copies Conv2d/Linear weights into QATConv2d/QATLinear wrappers,
+     preserving original trained weights before quantization simulation
+   - Mixed precision uses same QAT mechanism but with per-layer custom bit widths
+   - QAT fine-tuning uses LR=0.005 (half of FP32 training LR) to stabilize
+     training with quantization noise
+   - Activation calibration for PTQ uses 8 batches of 128 samples (1024 total)
+
+BLOCKERS RESOLVED:
+   - None
+
+REMAINING ISSUES:
+   - None
+
+NOTES FOR NEXT AGENT:
+   - Synthetic data accuracy is near-random; switch to real MNIST/Fashion-MNIST
+     via torchvision.datasets for meaningful accuracy comparisons
+   - The .detach() trick and torch.autograd.Function versions of STE produce
+     identical gradients; either can be used
+   - PTQ activation hooks persist on the model for the lifetime of the Python
+     object; call remove_quant_hooks() to clean them up if needed
+   - The mixed-precision config is a simple dict; could be extended to support
+     different bit widths for weights vs activations within the same layer
+   - For lecture-07 or follow-up, consider adding per-channel quantization,
+     dynamic quantization, or comparing against PyTorch's built-in quantization API
+
+ACCEPTANCE CRITERIA VERIFICATION:
+   ✓ Criterion 1: main.py runs without errors on CPU
+     VERIFIED - Full pipeline (7 stages) completed with exit code 0, no exceptions
+   ✓ Criterion 2: PTQ calibration and quantization implemented
+     VERIFIED - calibrate_activation_ranges collects per-layer min/max via forward
+     hooks; ptq_quantize_model quantizes weights in-place and inserts activation
+     quantizers; 4 layers calibrated with per-layer scale/zp printed
+   ✓ Criterion 3: QAT with FakeQuantize + STE works
+     VERIFIED - FakeQuantize module with observer mode and STE gradient; QATConv2d/
+     QATLinear wrappers apply weight+activation FakeQuantize; STE gradient sanity
+     check confirms identity gradient (all 1.0)
+   ✓ Criterion 4: FP32/PTQ/QAT accuracy comparison printed
+     VERIFIED - Section [7] prints formatted comparison table with FP32 baseline,
+     PTQ (8-bit), QAT (8-bit) accuracy and delta vs FP32 percentages
+   ✓ Criterion 5: Mixed precision bonus included
+     VERIFIED - build_mixed_precision_model with MIXED_PRECISION_CONFIG
+     (conv1=8b, conv2=4b, fc1=4b, fc2=8b); per-layer bit-width assignments printed;
+     calibrated, fine-tuned, and evaluated; accuracy reported in comparison table
+   ✓ Criterion 6: README.md exists
+     VERIFIED - src/lecture-06/README.md (139 lines) covering overview, usage,
+     key functions table, concept explanations (STE, PTQ vs QAT, asymmetric
+     quantization, mixed precision), and references
+
+TESTING RESULTS:
+   ✓ Full pipeline: all 7 stages executed without errors
+   ✓ Unit tests: 7/7 passing
+     - compute_scale_zp: correct scale/zp for asymmetric range
+     - fake_quantize: correct shape preserved, unique values <= 16 (4-bit)
+     - STE gradient: identity gradient confirmed (all 1.0)
+     - FakeQuantize module: observer enable/disable works, shape preserved
+     - QAT model build: correct output shape (1, 10), 206,922 params
+     - Mixed precision build: correct output shape, per-layer bit config applied
+     - PTQ pipeline: 4 layers calibrated, weights quantized
+   ✓ Manual review: code follows lecture-03/04/05 patterns (from __future__ import
+     annotations, type hints, structured docstrings, section separators, constants
+     block, synthetic data pipeline)
 
 ================================================================================
