@@ -355,6 +355,203 @@ TESTING RESULTS:
   ✓ avx2_batchnorm: 2/2 correctness PASS (Welford + rsqrt)
   ✓ avx2_winograd_f23: 3/3 correctness PASS (scalar + AVX2 + 4tile)
   ✓ All compile -Wall -Wextra -Wpedantic: ZERO warnings
-  ✓ All use aligned memory (32-byte) via ALIGNED_ALLOC/ALIGNED_FREE
+     ✓ All use aligned memory (32-byte) via ALIGNED_ALLOC/ALIGNED_FREE
+
+================================================================================
+TASK ID: task-004
+TASK NAME: MCUNet/TinyML memory budget simulation (Lecture 10 main.py)
+STATUS: complete
+TIMESTAMP: 2026-06-07T11:30:00Z
+WORKER AGENT: Worker-v2
+================================================================================
+OBJECTIVE (Acceptance Criteria):
+  Build a "TinyCNN" that fits within memory budget (simulated). Track peak
+  activation memory and parameter memory. Simulate SRAM/Flash constraints:
+  refuse architectures that exceed budget. Generate a "MCU memory budget"
+  report. Count params, MACs, peak memory, model size in bytes. Code must
+  run on CPU only (no CUDA). Must have if __name__ == "__main__" guard.
+  All code in a single file. Use only standard packages: torch, numpy.
+  Write production-quality code with clear comments in English. Define
+  SRAM budget (e.g., 256KB) and Flash budget (e.g., 1MB). Create a TinyCNN
+  builder that checks budgets before building. Calculate MACs, param count,
+  activation memory analytically (not via profiling hooks). Generate a
+  formatted MCU memory budget report table. Demonstrate both a valid
+  architecture and one that exceeds budget.
+
+STEPS PROVIDED:
+   None provided (task was defined with detailed functional requirements).
+
+STEPS EXECUTED:
+  ✓ Designed architecture: LayerConfig dataclass, MCUMemoryReport, LayerStats
+  ✓ Implemented analytical compute helpers: conv output size, MACs, params, memory
+  ✓ Implemented build_tiny_cnn() factory: per-layer budget check before nn.Module creation
+  ✓ Implemented format_report_table(): formatted ASCII table with utilization percentages
+  ✓ Implemented _run_sanity_check(): unit-level correctness verification
+  ✓ Implemented main() demo: valid TinyNet + invalid WideNet (SRAM) + invalid FatFC (Flash)
+  ✓ Ran and verified: sanity check passes, all three architectures behave correctly
+
+WORK COMPLETED:
+  1. Created main.py (single file, ~460 lines of production code + demo)
+  2. TinyCNN class: inherits nn.Module, carries its memory_report
+  3. build_tiny_cnn() builder: validates SRAM/Flash per-layer and globally;
+     returns None + report on failure
+  4. Analytical calculations for:
+     - Conv2d: MACs = out_c * in_c/g * k_h * k_w * out_h * out_w
+     - FC:     MACs = in_f * out_f
+     - Params: conv(out_c*in_c*k_h*k_w+bias), fc(in_f*out_f+bias)
+     - Activation memory: output elements * BYTES_PER_FLOAT32
+  5. Budget checks: layer-level (each output activation vs SRAM, each param block vs Flash)
+     and global (total params vs Flash, peak activation vs SRAM)
+  6. Formatted ASCII report table: per-layer breakdown, totals, utilization %
+  7. Sanity check: analytically verifies conv(1->2,k3,8x8)+fc(72->5) stats match PyTorch
+  8. Three demo architectures:
+     - TinyNet (valid): Conv->ReLU->MaxPool->Conv->ReLU->MaxPool->Flatten->FC, fits 256KB/1MB
+     - WideNet (invalid): two Conv layers with 64/128 channels, exceeds 256KB SRAM
+     - FatFC (invalid): FC(2704->1024), ~11MB params exceeds 1MB Flash
+
+FILES MODIFIED:
+  - mit6.5940/mit6s5940-efficient-dl/src/lecture-10/main.py (created, ~460 lines)
+  - PROGRESS.txt (modified)
+
+KEY DECISIONS:
+  - Used @dataclass for LayerStats and MCUMemoryReport for clean data structures
+  - Spatial tracker (c, h, w) threaded through layer configs sequentially
+  - Auto-flatten: FC layer after spatial layers auto-inserts Flatten
+  - Pooling MACs set to 0 (negligible vs convolution/FC)
+  - In-place ReLU: activation footprint same as input (no extra copy)
+  - Rejection stops layer iteration early (no further modules built)
+  - BYTES_PER_FLOAT32 = 4 (fp32 is standard for this simulation)
+  - Default budgets: 256 KB SRAM, 1 MB Flash (realistic Cortex-M4/M7)
+  - Report formatted as fixed-width ASCII table for readability
+  - Layer configs are plain dicts (no extra dependency)
+
+BLOCKERS RESOLVED:
+  - None
+
+REMAINING ISSUES:
+  - None
+
+NOTES FOR NEXT AGENT:
+  - The builder uses plain dict for layer configs; could be upgraded to a typed DSL
+  - INT8 quantization support could be added (byte_width = 1)
+  - In-place layer fusion (Conv+ReLU) could further reduce peak activation
+  - Weight sharing / sparsity patterns not simulated
+  - The sanity check manually reconstructs reference modules; could use pytest
+
+ACCEPTANCE CRITERIA VERIFICATION:
+  ✓ Criterion 1: Build TinyCNN that fits within memory budget - VERIFIED (TinyNet passes, forward pass works)
+  ✓ Criterion 2: Track peak activation memory, parameter memory - VERIFIED (LayerStats + MCUMemoryReport)
+  ✓ Criterion 3: Simulate SRAM/Flash constraints, refuse architectures that exceed - VERIFIED (WideNet + FatFC rejected)
+  ✓ Criterion 4: Generate MCU memory budget report - VERIFIED (format_report_table produces ASCII table)
+  ✓ Criterion 5: Count params, MACs, peak memory, model size in bytes - VERIFIED (all in report)
+  ✓ Criterion 6: Code runs on CPU only (no CUDA) - VERIFIED (grep confirms zero CUDA references)
+  ✓ Criterion 7: if __name__ == "__main__" guard - VERIFIED (present at end of file)
+  ✓ Criterion 8: All code in single file - VERIFIED (single main.py)
+  ✓ Criterion 9: Only standard packages (torch, numpy) - VERIFIED (only torch and numpy imported)
+  ✓ Criterion 10: Production-quality code with English comments - VERIFIED (docstrings, inline comments)
+  ✓ Criterion 11: SRAM 256KB, Flash 1MB budgets defined - VERIFIED (DEFAULT_SRAM_BUDGET, DEFAULT_FLASH_BUDGET)
+  ✓ Criterion 12: TinyCNN builder checks budgets before building - VERIFIED (build_tiny_cnn validates per-layer)
+  ✓ Criterion 13: Analytical MACs/params/activation (no profiling hooks) - VERIFIED (pure math, no hooks)
+  ✓ Criterion 14: Formatted MCU memory budget report table - VERIFIED (100-char wide ASCII table)
+  ✓ Criterion 15: Demonstrate valid + budget-exceeding architectures - VERIFIED (TinyNet passes, WideNet & FatFC fail)
+
+TESTING RESULTS:
+  ✓ Sanity check: all assertions passed (conv+fc param/MACs/activation match expected)
+  ✓ TinyNet: RESULT PASS, forward (1,10), SRAM 8.3%, Flash 2.0%
+  ✓ WideNet: RESULT FAIL, "conv_2 output activation (294,912 bytes) exceeds SRAM budget (262,144 bytes)"
+  ✓ FatFC:   RESULT FAIL, "fc_3 parameters (11,079,680 bytes) exceed Flash budget (1,048,576 bytes)"
+   ✓ Zero CUDA references (grep confirmed)
+   ✓ Execution time: < 1 second on CPU
+
+================================================================================
+================================================================================
+TASK ID: task-011
+TASK NAME: lecture-01: Introduction - Parameter counting, FLOPs estimation, model size
+STATUS: complete
+TIMESTAMP: 2026-06-07T04:30:00Z
+WORKER AGENT: Worker-v2
+================================================================================
+OBJECTIVE (Acceptance Criteria):
+   main.py runs without errors on CPU. count_parameters returns correct count for
+   resnet18. estimate_flops_conv2d returns correct MACs estimate.
+   measure_inference_time returns a float. Summary table is printed with params,
+   FLOPs, model size. README.md exists and explains the lecture concepts.
+
+STEPS PROVIDED:
+   1. Create src/lecture-01/ directory
+   2. Write main.py with count_parameters(model), estimate_flops_conv2d(in_c, out_c, k, h, w),
+      measure_inference_time(model, input_shape), and if __name__ == '__main__' block
+   3. Use torchvision.models.resnet18 as example
+   4. Print a summary table with params, FLOPs, model size
+   5. Write README.md explaining the code and its relation to Lecture 01
+
+STEPS EXECUTED:
+   ✓ Step 1: Created src/lecture-01/ directory
+   ✓ Step 2: Wrote main.py with all required functions + estimate_total_flops helper + print_summary
+   ✓ Step 3: Used torchvision.models.resnet18 as canonical example
+   ✓ Step 4: Implemented print_summary() with formatted ASCII table (params, MACs, FLOPs, model size, latency)
+   ✓ Step 5: Wrote README.md with usage, function reference, learning objectives, and lecture connections
+
+WORK COMPLETED:
+   1. Created main.py (~278 lines) with:
+      - count_parameters(model) -> (total, trainable)
+      - estimate_flops_conv2d(in_c, out_c, k, h, w, stride, padding, groups) -> MACs
+      - estimate_total_flops(model, input_shape) -> total MACs via forward hooks
+      - model_size_mb(total_params, bytes_per_param=4) -> MiB
+      - measure_inference_time(model, input_shape, warmup, repeats) -> float seconds
+      - print_summary(model_name, ...) -> formatted ASCII table
+      - main() -> loads resnet18, runs all metrics, prints summary + sanity check
+   2. Created README.md with:
+      - Overview and prerequisites
+      - Usage instructions with example output
+      - Function reference table
+      - Learning concepts: parameter counting, FLOPs/MACs, model size, inference latency
+      - Connection to Lecture 01 and future lectures (pruning, quantization, NAS, TinyML)
+      - References
+
+FILES MODIFIED:
+   - mit6.5940/mit6s5940-efficient-dl/src/lecture-01/main.py (created, ~278 lines)
+   - mit6.5940/mit6s5940-efficient-dl/src/lecture-01/README.md (created, ~126 lines)
+   - PROGRESS.txt (modified)
+
+KEY DECISIONS:
+   - estimate_flops_conv2d supports stride, padding, groups parameters for full Conv2d flexibility
+   - estimate_total_flops uses forward hooks to trace Conv2d layers non-invasively
+   - Only Conv2d layers are counted (BatchNorm, FC, pooling negligible in CNN backbones)
+   - Model size always in MiB (2^20 bytes), not MB (10^6)
+   - Inference time uses time.perf_counter() for high-resolution timing
+   - measure_inference_time has warmup/repeats parameters for stable measurements
+   - All code runs on CPU only (no CUDA required)
+   - Follows existing project style: English docstrings, = comment separators, type annotations
+
+BLOCKERS RESOLVED:
+   - torchvision not installed in system python; installed via uv pip install torchvision
+   - Old CUDA driver produces warning but does not affect CPU-only execution
+
+REMAINING ISSUES:
+   - CUDA driver warning appears on startup (harmless, code runs correctly)
+   - FLOPs estimate excludes FC layers (documented as intentional)
+   - Could add thop/fvcore comparison for validation in future
+
+NOTES FOR NEXT AGENT:
+   - Total Conv2d MACs for resnet18@224x224: 1,813,561,344 (~1.81 GMACs)
+   - This matches known reference values (~1.8 GMACs for resnet18)
+   - The first conv layer sanity check verifies correctness: 3->64, k=7, s=2, p=3 -> 118,013,952 MACs
+   - measure_inference_time varies by CPU; on this machine ~8-9ms with warmup=10, repeats=100
+
+ACCEPTANCE CRITERIA VERIFICATION:
+   ✓ Criterion 1: main.py runs without errors on CPU - VERIFIED (clean execution, only harmless CUDA driver warning)
+   ✓ Criterion 2: count_parameters returns correct count for resnet18 - VERIFIED (11,689,512 total, 11,689,512 trainable)
+   ✓ Criterion 3: estimate_flops_conv2d returns correct MACs estimate - VERIFIED (first conv: 118,013,952 == 64*112*112*3*7*7)
+   ✓ Criterion 4: measure_inference_time returns a float - VERIFIED (returns float, ~0.009 seconds on this machine)
+   ✓ Criterion 5: Summary table printed with params, FLOPs, model size - VERIFIED (formatted table with all three metrics + latency)
+   ✓ Criterion 6: README.md exists and explains lecture concepts - VERIFIED (covers parameter counting, FLOPs/MACs, model size, latency, lecture connection)
+
+TESTING RESULTS:
+   ✓ Unit assertions: all passed (params, MACs, model size, float return type, positive latency)
+   ✓ End-to-end run: 0 errors, summary table renders correctly
+   ✓ Sanity check: first conv layer MACs matches analytical calculation
+   ✓ Total MACs: 1,813,561,344 (consistent with known resnet18 values)
+   ✓ Python: no unused imports, type annotations, English docstrings
 
 ================================================================================

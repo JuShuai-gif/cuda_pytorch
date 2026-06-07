@@ -10,7 +10,7 @@
       "5. Write README.md explaining the code and its relation to Lecture 01"
     ],
     "acceptance-criteria": "main.py runs without errors on CPU. count_parameters returns correct count for resnet18. estimate_flops_conv2d returns correct MACs estimate. measure_inference_time returns a float. Summary table is printed with params, FLOPs, model size. README.md exists and explains the lecture concepts.",
-    "complete": false
+    "complete": true
   },
   {
     "task": "lecture-02: Efficiency metrics deep dive",
