@@ -461,8 +461,11 @@ def main() -> None:
         ("Repetitive", "the the the the the the the the the the the the the"),
         ("Random chars", "asdf qwer zxcv poiuy lkjhg mnbvc xz"),
     ]
+    # Use a higher max_ratio because the training corpus is tiny (5 sentences).
+    # Production settings would use max_ratio=2.0 with a much larger corpus.
+    demo_ratio = 3.0
     for label, text in test_texts:
-        keep, ppl = quality_filter_by_perplexity(text, model, baseline)
+        keep, ppl = quality_filter_by_perplexity(text, model, baseline, demo_ratio)
         status = "PASS" if keep else "FAIL"
         print(f"  [{status}] {label:<20}  PPL={ppl:.2f}  Ratio={ppl / baseline:.2f}")
 
