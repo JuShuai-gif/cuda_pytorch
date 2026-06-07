@@ -73,10 +73,9 @@ class TinyUNet(nn.Module):
 
         # Decoder
         self.dec1 = nn.ConvTranspose2d(base_ch * 4, base_ch * 2, 4, 2, 1)  # 7 -> 14
-        self.dec2 = nn.ConvTranspose2d(
-            base_ch * 4, base_ch, 4, 2, 1
-        )  # 14 -> 28 (skip from enc1)
-        self.dec3 = nn.Conv2d(base_ch * 2, in_channels, 3, 1, 1)  # 28 -> 28
+        # Skip from enc1: base_ch*2 + base_ch = base_ch*3 channels input
+        self.dec2 = nn.ConvTranspose2d(base_ch * 3, base_ch, 4, 2, 1)  # 14 -> 28
+        self.dec3 = nn.Conv2d(base_ch, in_channels, 3, 1, 1)  # 28 -> 28
 
     def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         te = self.time_emb(t)  # (B, base_ch)
@@ -92,10 +91,9 @@ class TinyUNet(nn.Module):
 
         # Decoder with skip connections
         d1 = F.relu(self.dec1(b))  # (B, base_ch*2, 14, 14)
-        d1 = torch.cat([d1, e2], dim=1)  # skip: (B, base_ch*4, 14, 14)
+        d1 = torch.cat([d1, e1], dim=1)  # skip: (B, base_ch*3, 14, 14)
 
         d2 = F.relu(self.dec2(d1))  # (B, base_ch, 28, 28)
-        d2 = torch.cat([d2, e1], dim=1)  # skip: (B, base_ch*2, 28, 28)
 
         out = self.dec3(d2)  # (B, 1, 28, 28)
         return out

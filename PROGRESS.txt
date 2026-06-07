@@ -652,9 +652,199 @@ ACCEPTANCE CRITERIA VERIFICATION:
 
 TESTING RESULTS:
    [v] Smoke test: MHA, GQA, MQA all passed forward pass with correct output shapes
-   [v] Parameter count: all 3 variants matched analytical count exactly
-   [v] Quadratic scaling: 64->128 ratio = 4.0x (exact match)
-   [v] Execution time: < 1 second on CPU
-   [v] Zero CUDA references confirmed
+    [v] Parameter count: all 3 variants matched analytical count exactly
+    [v] Quadratic scaling: 64->128 ratio = 4.0x (exact match)
+    [v] Execution time: < 1 second on CPU
+    [v] Zero CUDA references confirmed
 
 ================================================================================
+TASK ID: task-013
+TASK NAME: TinyEngine optimization simulation (Lecture 11)
+STATUS: complete
+TIMESTAMP: 2026-06-07T14:15:00Z
+WORKER AGENT: Worker-v2
+================================================================================
+OBJECTIVE (Acceptance Criteria):
+   Benchmark different convolution implementations: naive, im2col, winograd
+   (simulated). Operator fusion example: Conv+BN+ReLU fused into single
+   operation. Memory layout optimization: NCHW vs NHWC. Compare inference
+   time with/without optimizations on CPU. Code must run on CPU only (no
+   CUDA). Must have if __name__ == "__main__" guard. All code in a single
+   file. Use only standard packages: torch, numpy, time. Write production-
+   quality code with clear comments in English.
+
+STEPS PROVIDED:
+   None provided (task was defined with detailed functional requirements).
+
+STEPS EXECUTED:
+   ✓ Implemented naive conv2d baseline (F.conv2d as reference)
+   ✓ Implemented im2col convolution: manual unfold + GEMM
+   ✓ Fixed im2col permute bug: wrong dimension ordering in contiguous+view
+   ✓ Implemented Winograd F(2,3): filter transform + input transform +
+     channel-wise multiply + inverse transform
+   ✓ Fixed Winograd tile ordering bug: permute(0,2,3,1,4,5) before contiguous+view
+   ✓ Implemented Conv+BN+ReLU operator fusion with mathematical BN folding
+   ✓ Implemented memory layout benchmark: NCHW vs NHWC reduction operations
+   ✓ Built 4 formatted comparison tables with GFLOPS and speedup ratios
+   ✓ Verified all correctness checks PASS (im2col, Winograd, fusion)
+
+WORK COMPLETED:
+   1. Created mit6.5940/mit6s5940-efficient-dl/src/lecture-11/main.py (655 lines)
+   2. Naive convolution: F.conv2d baseline with GFLOPS calculation
+   3. im2col convolution: manual unfold → column matrix → GEMM → reshape
+   4. Winograd F(2,3): full implementation using B_T, G, A_T matrices
+      with torch.einsum for transforms and channel-wise multiply
+   5. Operator fusion: BN γ,β,μ,σ² folded into Conv W,b for single-pass inference
+   6. Memory layout benchmark: channel-mean vs spatial-mean in NCHW vs NHWC
+   7. Four comparison tables + optimization summary with key takeaways
+
+FILES MODIFIED:
+   - mit6.5940/mit6s5940-efficient-dl/src/lecture-11/main.py (created, 655 lines)
+   - PROGRESS.txt (modified)
+
+KEY DECISIONS:
+   - Used torch.einsum for Winograd transforms with distinct labels to avoid
+     the "label appears more than once in output" error
+   - im2col uses permute(0,2,3,1,4,5).contiguous().view() for correct column order
+   - Winograd tiles use permute(0,2,3,1,4,5).contiguous().view() to fix
+     non-contiguous stride from unfold affecting element ordering
+   - Fusion tolerance: 1e-3 (float32 BN folding error ~3.7e-4)
+   - im2col/Winograd tolerance: 1e-3 (float32 GEMM + transform error)
+   - All randomness seeded (manual_seed(42)) for reproducibility
+
+BLOCKERS RESOLVED:
+   - Winograd einsum: "output subscript appears more than once" → distinct labels
+   - Winograd correctness (diff 1.6e+2): tile ordering bug → permute fix
+   - im2col correctness (diff 1.4e+2): old permute chain buggy → simplified
+   - Fusion threshold: 1e-5 too strict for FP32 → raised to 1e-3
+   - NumPy not installed: uv pip install numpy
+
+REMAINING ISSUES:
+   - None
+
+NOTES FOR NEXT AGENT:
+   - Winograd measured speedup (0.06-0.18x) far below theoretical 2.25x:
+     Python/einsum overhead dominates; C++/SIMD would show true benefit
+   - Operator fusion shows clearest practical benefit (~2-4x speedup)
+   - Layout benchmark results vary with CPU; NHWC theory confirmed in principle
+
+ACCEPTANCE CRITERIA VERIFICATION:
+   ✓ Criterion 1: Benchmark naive conv - VERIFIED (F.conv2d timing + GFLOPS)
+   ✓ Criterion 2: Benchmark im2col conv - VERIFIED (manual unfold+GEMM, PASS)
+   ✓ Criterion 3: Benchmark Winograd - VERIFIED (F(2,3), correctness PASS)
+   ✓ Criterion 4: Operator fusion Conv+BN+ReLU - VERIFIED (BN folded, PASS)
+   ✓ Criterion 5: Memory layout NCHW vs NHWC - VERIFIED (channel + spatial reduction)
+   ✓ Criterion 6: Compare inference time - VERIFIED (4 formatted tables)
+   ✓ Criterion 7: CPU only (no CUDA) - VERIFIED (zero CUDA references)
+   ✓ Criterion 8: if __name__ == "__main__" guard - VERIFIED
+   ✓ Criterion 9: Single file - VERIFIED (single main.py)
+   ✓ Criterion 10: Standard packages only - VERIFIED (torch, numpy, time)
+   ✓ Criterion 11: Production-quality code, English comments - VERIFIED
+
+TESTING RESULTS:
+   ✓ im2col: PASS (max diff 1.53e-04)
+   ✓ Winograd: PASS (max diff 1.37e-04, relative 1.10e-06)
+   ✓ Fusion: PASS (max diff 3.66e-04)
+   ✓ All 4 comparison tables print correctly
+   ✓ Zero CUDA references confirmed
+       ✓ Execution time: < 2 minutes on CPU
+
+================================================================================
+TASK ID: task-014
+TASK NAME: lecture-02: Efficiency metrics deep dive
+STATUS: complete
+TIMESTAMP: 2026-06-07T11:45:00Z
+WORKER AGENT: Worker-v2
+================================================================================
+OBJECTIVE (Acceptance Criteria):
+   main.py runs without errors on CPU. Latency measured for all three models.
+   Throughput measured for different batch sizes. Markdown report table generated
+   and printed. README.md explains the code.
+
+STEPS PROVIDED:
+   1. Create src/lecture-02/ directory
+   2. Write main.py with a custom CNN, ResNet18, MobileNetV2 benchmarking
+   3. Measure latency on CPU with batch_size=1 for each model
+   4. Compare batch_size effects on throughput (batch sizes 1, 4, 16, 32)
+   5. Generate a markdown report table
+   6. Write README.md
+
+STEPS EXECUTED:
+   ✓ Step 1: Created src/lecture-02/ directory
+   ✓ Step 2: Wrote main.py (505 lines) with CustomCNN, ResNet18, MobileNetV2
+   ✓ Step 3: Latency measured for all three models (batch=1, CPU, warmup=5, repeats=100)
+   ✓ Step 4: Throughput measured at batch sizes [1, 4, 16, 32] for all three models
+   ✓ Step 5: Markdown report with 4 tables (Model Overview, Latency, Throughput, Efficiency Ratios)
+   ✓ Step 6: Wrote README.md with full explanation of lecture concepts
+
+WORK COMPLETED:
+   1. Created CustomCNN class: 5 conv layers (16→32→64→128→256) with BN+ReLU,
+      AdaptiveAvgPool, FC(256→10), ~396K params
+   2. Loaded torchvision ResNet18 (~11.7M params) and MobileNetV2 (~3.5M params)
+   3. Implemented parameter counting: count_parameters(model) → (total, trainable)
+   4. Implemented FLOPs estimation: estimate_total_flops via Conv2d forward hooks
+   5. Implemented latency measurement: measure_latency with warmup + timed iterations
+   6. Implemented throughput measurement: measure_throughput at configurable batch sizes
+   7. Generated markdown report with 4 tables:
+      - Model Overview: params, MACs, FLOPs, size (MiB)
+      - Latency: single-sample CPU latency (ms)
+      - Throughput: samples/sec at batch sizes [1, 4, 16, 32]
+      - Efficiency Ratios: MACs/Param, MACs/ms, Params/MiB
+   8. Created comprehensive README.md explaining latency vs throughput,
+      batch size effects, roofline model, parameter efficiency, architecture details
+
+FILES MODIFIED:
+   - mit6.5940/mit6s5940-efficient-dl/src/lecture-02/main.py (created, 505 lines)
+   - mit6.5940/mit6s5940-efficient-dl/src/lecture-02/README.md (created, ~200 lines)
+   - PROGRESS.txt (modified)
+
+KEY DECISIONS:
+   - CustomCNN uses 5 conv layers (bias=False + BatchNorm) for clean architecture
+   - FLOPs estimation excludes FC layers (same convention as lecture-01)
+   - Throughput = batch_size * num_iterations / total_time (samples/sec)
+   - Markdown report uses fixed-width string formatting for proper alignment
+   - Efficiency ratios computed: MACs/Param (compute per stored weight),
+     MACs/ms (compute intensity), Params/MiB (storage density)
+   - README includes roofline model explanation and MACs ≠ latency discussion
+
+BLOCKERS RESOLVED:
+   - PyTorch not installed: created .venv in project directory, installed torch+torchvision
+     via uv pip install --index-url https://download.pytorch.org/whl/cpu
+   - Large torch download (183MB): needed 600s timeout for uv pip install
+
+REMAINING ISSUES:
+   - None
+
+NOTES FOR NEXT AGENT:
+   - CustomCNN has 395,674 params (smaller than the ~3M originally estimated,
+     which makes it a useful "tiny baseline" alongside larger models)
+   - On this CPU, throughput at batch=32 is actually lower than batch=1 for
+     MobileNetV2 (81.7 vs 135.5 samples/s), demonstrating memory bandwidth
+     saturation on CPU
+   - measure_throughput reuses the same dummy tensor for all iterations;
+     could add input data diversity for more realistic benchmarks
+   - FLOPs estimation excludes Linear layers (documented convention)
+   - .venv created at mit6.5940/mit6s5940-efficient-dl/.venv for local deps
+
+ACCEPTANCE CRITERIA VERIFICATION:
+   ✓ Criterion 1: main.py runs without errors on CPU - VERIFIED (clean execution)
+   ✓ Criterion 2: Latency measured for all three models - VERIFIED
+     (CustomCNN: 6.04ms, ResNet18: 7.67ms, MobileNetV2: 7.38ms)
+   ✓ Criterion 3: Throughput measured for different batch sizes - VERIFIED
+     (batch sizes 1, 4, 16, 32 for all three models)
+   ✓ Criterion 4: Markdown report table generated and printed - VERIFIED
+     (4 well-formatted tables printed to stdout)
+   ✓ Criterion 5: README.md explains the code - VERIFIED
+     (covers latency/throughtput, batch size effects, roofline model, efficiency ratios)
+
+TESTING RESULTS:
+   ✓ Script runs end-to-end: 0 errors, 0 warnings
+   ✓ All three models benchmarked successfully
+   ✓ CustomCNN: 395,674 params, 1,466,744,832 MACs, 1.51 MiB
+   ✓ ResNet18: 11,689,512 params, 1,813,561,344 MACs, 44.59 MiB
+   ✓ MobileNetV2: 3,504,872 params, 299,494,272 MACs, 13.37 MiB
+   ✓ All throughput values computed for batch sizes [1, 4, 16, 32]
+   ✓ Markdown report renders cleanly (proper table formatting)
+   ✓ Python: no unused imports, type annotations, English docstrings
+
+=================================================================================

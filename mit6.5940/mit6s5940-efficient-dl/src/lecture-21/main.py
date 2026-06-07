@@ -283,14 +283,18 @@ def measure_activation_memory(
         h.remove()
 
     param_mem = sum(p.numel() for p in model.parameters()) * 4
-    grad_mem = param_mem  # stored during backward
+    # Only trainable params need gradient + optimizer state buffers
+    trainable_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    grad_mem = trainable_count * 4  # gradients stored during backward
+    opt_mem = trainable_count * 8  # Adam: m + v (2x FP32 per param)
     act_mem = sum(activations)
 
     return {
         "parameters_bytes": param_mem,
         "gradients_bytes": grad_mem,
+        "optimizer_bytes": opt_mem,
         "activations_bytes": act_mem,
-        "total_bytes": param_mem + grad_mem + act_mem,
+        "total_bytes": param_mem + grad_mem + opt_mem + act_mem,
     }
 
 
@@ -353,13 +357,16 @@ def compare_memory_full_vs_tinytl(
     Returns:
         Memory comparison results.
     """
-    full_mem = measure_activation_memory(model, input_shape)
+    # Use a fresh copy for TinyTL to avoid modifying the shared backbone
+    backbone_copy = copy.deepcopy(model)
+    full_mem = measure_activation_memory(backbone_copy, input_shape)
+    trainable_full = sum(
+        p.numel() for p in backbone_copy.parameters() if p.requires_grad
+    )
 
-    # TinyTL
-    tinytl = TinyTLModel(model)
+    # TinyTL: freeze backbone of the copy, only train biases + classifier
+    tinytl = TinyTLModel(backbone_copy)
     tinytl_mem = measure_activation_memory(tinytl, input_shape)
-
-    trainable_full = sum(p.numel() for p in model.parameters() if p.requires_grad)
     trainable_tinytl = sum(p.numel() for p in tinytl.parameters() if p.requires_grad)
 
     return {
@@ -477,8 +484,10 @@ def main() -> None:
     print(
         "    - Activation memory dominates on-device training memory (grows with batch)"
     )
-    print("    - TinyTL reduces trainable params by >90% and memory by >50%")
-    print("    - Freezing backbone + training biases is practical for edge devices")
+    print("    - TinyTL reduces trainable params by ~42% and gradients by ~42%")
+    print(
+        "    - Freezing backbone saves optimizer state memory (no m/v for frozen params)"
+    )
 
     print("\nDone. All computations on CPU.\n")
 

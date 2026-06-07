@@ -24,7 +24,7 @@
       "6. Write README.md"
     ],
     "acceptance-criteria": "main.py runs without errors on CPU. Latency measured for all three models. Throughput measured for different batch sizes. Markdown report table generated and printed. README.md explains the code.",
-    "complete": false
+    "complete": true
   },
   {
     "task": "lecture-03: Fine-grained magnitude-based pruning",

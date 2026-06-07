@@ -185,21 +185,25 @@ def prune_generator_channels(g: Generator, keep_ratio: float = 0.5) -> Generator
 
     # Copy first-layer weights (input channels are the latent dim, unchanged)
     with torch.no_grad():
-        # Layer 1: (bc_old*4, latent_dim, 7, 7) -> (bc_new*4, latent_dim, 7, 7)
-        old_w = g.main[0].weight  # [bc_old*4, latent_dim, 7, 7]
-        pruned.main[0].weight.copy_(old_w[: new_bc * 4, :, :, :])
+        # ConvTranspose2d weight shape: (in_channels, out_channels, k, k)
+        # We prune output channels (dim=1) and corresponding input channels
+        # of the next layer (dim=0).
 
-        # Layer 2: (bc_old*2, bc_old*4, 4, 4) -> (bc_new*2, bc_new*4, 4, 4)
-        old_w = g.main[3].weight
-        pruned.main[3].weight.copy_(old_w[: new_bc * 2, : new_bc * 4, :, :])
+        # Layer 1: (latent_dim, bc_old*4, 7, 7) -> (latent_dim, bc_new*4, 7, 7)
+        old_w = g.main[0].weight  # [latent_dim, bc_old*4, 7, 7]
+        pruned.main[0].weight.copy_(old_w[:, : new_bc * 4, :, :])
 
-        # Layer 3: (bc_old, bc_old*2, 4, 4) -> (bc_new, bc_new*2, 4, 4)
-        old_w = g.main[6].weight
-        pruned.main[6].weight.copy_(old_w[:new_bc, : new_bc * 2, :, :])
+        # Layer 2: (bc_old*4, bc_old*2, 4, 4) -> (bc_new*4, bc_new*2, 4, 4)
+        old_w = g.main[3].weight  # [bc_old*4, bc_old*2, 4, 4]
+        pruned.main[3].weight.copy_(old_w[: new_bc * 4, : new_bc * 2, :, :])
 
-        # Layer 4: (1, bc_old, 4, 4) -> (1, bc_new, 4, 4)
-        old_w = g.main[9].weight
-        pruned.main[9].weight.copy_(old_w[:, :new_bc, :, :])
+        # Layer 3: (bc_old*2, bc_old, 4, 4) -> (bc_new*2, bc_new, 4, 4)
+        old_w = g.main[6].weight  # [bc_old*2, bc_old, 4, 4]
+        pruned.main[6].weight.copy_(old_w[: new_bc * 2, :new_bc, :, :])
+
+        # Layer 4: (bc_old, 1, 4, 4) -> (bc_new, 1, 4, 4)
+        old_w = g.main[9].weight  # [bc_old, 1, 4, 4]
+        pruned.main[9].weight.copy_(old_w[:new_bc, :, :, :])
 
     return pruned
 
