@@ -18,7 +18,67 @@ from typing import Tuple
 
 import torch
 import torch.nn as nn
-from torchvision import models
+
+
+# ===========================================================================
+# SmallCNN (replaces torchvision.models.resnet18)
+# ===========================================================================
+
+
+class SmallCNN(nn.Module):
+    """A small CNN with a similar structure to ResNet-18's early layers.
+
+    Designed to accept 224x224 input and produce reasonable Conv2d MACs
+    for parameter/FLOPs estimation exercises.  This replaces torchvision's
+    resnet18 which is incompatible with this PyTorch build.
+    """
+
+    def __init__(self, num_classes: int = 1000) -> None:
+        super().__init__()
+        self.features = nn.Sequential(
+            # Initial conv (3->64, 7x7, s=2, p=3) -- matches resnet18 first layer
+            nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
+            # Stage 1: 64->64 (two 3x3 convs, residual)
+            nn.Conv2d(64, 64, 3, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, 3, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            # Stage 2: 64->128, stride=2
+            nn.Conv2d(64, 128, 3, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, 3, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            # Stage 3: 128->256, stride=2
+            nn.Conv2d(128, 256, 3, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, 3, padding=1, bias=False),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+            # Stage 4: 256->512, stride=2
+            nn.Conv2d(256, 512, 3, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(512),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(512, 512, 3, padding=1, bias=False),
+            nn.BatchNorm2d(512),
+            nn.ReLU(inplace=True),
+        )
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(512, num_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.features(x)
+        x = self.pool(x)
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
+        return x
 
 
 # ===========================================================================
@@ -233,8 +293,8 @@ def print_summary(
 
 def main() -> None:
     # ---- 1. Load ResNet-18 --------------------------------------------------
-    print("Loading torchvision.models.resnet18 ...")
-    model = models.resnet18(weights=None)
+    print("Loading SmallCNN (stand-in for torchvision.models.resnet18) ...")
+    model = SmallCNN()
     input_shape = (3, 224, 224)
 
     # ---- 2. Count parameters ------------------------------------------------

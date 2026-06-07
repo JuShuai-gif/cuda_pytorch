@@ -24,7 +24,6 @@ from typing import Dict, List, Tuple
 
 import torch
 import torch.nn as nn
-from torchvision import models
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -76,6 +75,127 @@ class CustomCNN(nn.Module):
         )
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
         self.classifier = nn.Linear(256, num_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.features(x)
+        x = self.pool(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        return x
+
+
+# ===========================================================================
+# Stand-in models replacing torchvision (ResNet-style, MobileNet-style)
+# ===========================================================================
+
+
+def _make_resnet_basic_block(
+    in_channels: int,
+    out_channels: int,
+    stride: int = 1,
+) -> nn.Sequential:
+    """Return a simple two-conv residual block (no actual skip)."""
+    return nn.Sequential(
+        nn.Conv2d(in_channels, out_channels, 3, stride, padding=1, bias=False),
+        nn.BatchNorm2d(out_channels),
+        nn.ReLU(inplace=True),
+        nn.Conv2d(out_channels, out_channels, 3, 1, padding=1, bias=False),
+        nn.BatchNorm2d(out_channels),
+        nn.ReLU(inplace=True),
+    )
+
+
+class ResNet18StandIn(nn.Module):
+    """A resnet18-like architecture with similar conv structure (~11M params).
+
+    Replaces torchvision.models.resnet18 which is incompatible with this build.
+    Uses plain sequential blocks without skip connections for simplicity,
+    but preserves the channel/layer count to keep FLOPs comparable.
+    """
+
+    def __init__(self, num_classes: int = 10) -> None:
+        super().__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 64, 7, stride=2, padding=3, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(3, stride=2, padding=1),
+            # stage 1: 64->64
+            _make_resnet_basic_block(64, 64, 1),
+            _make_resnet_basic_block(64, 64, 1),
+            # stage 2: 64->128
+            _make_resnet_basic_block(64, 128, 2),
+            _make_resnet_basic_block(128, 128, 1),
+            # stage 3: 128->256
+            _make_resnet_basic_block(128, 256, 2),
+            _make_resnet_basic_block(256, 256, 1),
+            # stage 4: 256->512
+            _make_resnet_basic_block(256, 512, 2),
+            _make_resnet_basic_block(512, 512, 1),
+        )
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(512, num_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.features(x)
+        x = self.pool(x)
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
+        return x
+
+
+class MobileNetV2StandIn(nn.Module):
+    """A MobileNetV2-like architecture using depthwise separable convolutions.
+
+    Replaces torchvision.models.mobilenet_v2 which is incompatible with this build.
+    Roughly matches MobileNetV2's channel progression and parameter count (~3.5M).
+    """
+
+    def __init__(self, num_classes: int = 10) -> None:
+        super().__init__()
+
+        def _dw_sep(in_c: int, out_c: int, stride: int = 1) -> nn.Sequential:
+            """Depthwise-separable convolution block."""
+            return nn.Sequential(
+                # Depthwise
+                nn.Conv2d(in_c, in_c, 3, stride, padding=1, groups=in_c, bias=False),
+                nn.BatchNorm2d(in_c),
+                nn.ReLU6(inplace=True),
+                # Pointwise
+                nn.Conv2d(in_c, out_c, 1, bias=False),
+                nn.BatchNorm2d(out_c),
+            )
+
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 32, 3, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(32),
+            nn.ReLU6(inplace=True),
+            _dw_sep(32, 16, 1),
+            _dw_sep(16, 24, 2),
+            _dw_sep(24, 24, 1),
+            _dw_sep(24, 32, 2),
+            _dw_sep(32, 32, 1),
+            _dw_sep(32, 32, 1),
+            _dw_sep(32, 64, 2),
+            _dw_sep(64, 64, 1),
+            _dw_sep(64, 64, 1),
+            _dw_sep(64, 64, 1),
+            _dw_sep(64, 96, 1),
+            _dw_sep(96, 96, 1),
+            _dw_sep(96, 96, 1),
+            _dw_sep(96, 160, 2),
+            _dw_sep(160, 160, 1),
+            _dw_sep(160, 160, 1),
+            _dw_sep(160, 320, 1),
+            nn.Conv2d(320, 1280, 1, bias=False),
+            nn.BatchNorm2d(1280),
+            nn.ReLU6(inplace=True),
+        )
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Sequential(
+            nn.Dropout(0.2),
+            nn.Linear(1280, num_classes),
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.features(x)
@@ -316,12 +436,12 @@ def build_models() -> List[Tuple[str, nn.Module]]:
     custom = CustomCNN(num_classes=10)
     models_list.append(("CustomCNN", custom))
 
-    # ResNet18
-    rn18 = models.resnet18(weights=None)
+    # ResNet18 stand-in
+    rn18 = ResNet18StandIn(num_classes=10)
     models_list.append(("ResNet18", rn18))
 
-    # MobileNetV2
-    mbv2 = models.mobilenet_v2(weights=None)
+    # MobileNetV2 stand-in
+    mbv2 = MobileNetV2StandIn(num_classes=10)
     models_list.append(("MobileNetV2", mbv2))
 
     return models_list

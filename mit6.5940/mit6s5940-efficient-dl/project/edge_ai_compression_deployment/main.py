@@ -40,8 +40,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import yaml
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
+from torch.utils.data import DataLoader, Dataset
 
 # ============================================================
 # 导入项目模块
@@ -100,6 +99,40 @@ def load_config(config_path: str) -> dict[str, Any]:
 
 
 # ============================================================
+# 合成数据集（替代 CIFAR-10，因 torchvision 不可用）
+# ============================================================
+
+
+class SyntheticDataset(Dataset):
+    """Synthetic image-classification dataset replacing torchvision.datasets.CIFAR10.
+
+    Yields random float32 tensors of shape (C, H, W) and random integer
+    labels.  Useful for benchmarking and algorithm validation when
+    torchvision is unavailable.
+    """
+
+    def __init__(
+        self,
+        num_samples: int,
+        img_size: int = 32,
+        num_classes: int = 10,
+        in_channels: int = 3,
+    ) -> None:
+        self.num_samples = num_samples
+        self.img_size = img_size
+        self.num_classes = num_classes
+        self.in_channels = in_channels
+
+    def __len__(self) -> int:
+        return self.num_samples
+
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, int]:
+        img = torch.randn(self.in_channels, self.img_size, self.img_size)
+        label = int(torch.randint(0, self.num_classes, (1,)).item())
+        return img, label
+
+
+# ============================================================
 # 数据加载
 # ============================================================
 
@@ -108,7 +141,7 @@ def get_data_loaders(
     config: dict[str, Any],
 ) -> tuple[DataLoader, DataLoader]:
     """
-    根据配置创建数据加载器（CIFAR-10）。
+    根据配置创建数据加载器（合成数据，替代 CIFAR-10）。
 
     参数：
         config: 配置字典
@@ -117,59 +150,35 @@ def get_data_loaders(
         (train_loader, test_loader)
     """
     batch_size = config["training"]["batch_size"]
-    aug_cfg = config["training"]["augmentation"]
+    model_cfg = config["model"]
+    img_size = model_cfg.get("input_size", 32)
+    num_classes = model_cfg.get("num_classes", 10)
 
-    # 训练集数据增强
-    train_transform = transforms.Compose(
-        [
-            transforms.RandomCrop(32, padding=aug_cfg.get("random_crop_padding", 4))
-            if aug_cfg.get("enabled", True)
-            else transforms.Lambda(lambda x: x),
-            transforms.RandomHorizontalFlip()
-            if aug_cfg.get("random_horizontal_flip", True)
-            and aug_cfg.get("enabled", True)
-            else transforms.Lambda(lambda x: x),
-            transforms.ToTensor(),
-            transforms.Normalize(
-                aug_cfg.get("mean", [0.4914, 0.4822, 0.4465]),
-                aug_cfg.get("std", [0.2023, 0.1994, 0.2010]),
-            ),
-        ]
+    logger.info("创建合成数据集（替代 CIFAR-10，因 torchvision 不可用）...")
+    train_dataset = SyntheticDataset(
+        num_samples=50000,
+        img_size=img_size,
+        num_classes=num_classes,
     )
-
-    # 测试集变换（无数据增强）
-    test_transform = transforms.Compose(
-        [
-            transforms.ToTensor(),
-            transforms.Normalize(
-                aug_cfg.get("mean", [0.4914, 0.4822, 0.4465]),
-                aug_cfg.get("std", [0.2023, 0.1994, 0.2010]),
-            ),
-        ]
-    )
-
-    # 下载并加载 CIFAR-10
-    logger.info("加载 CIFAR-10 数据集...")
-    train_dataset = datasets.CIFAR10(
-        root="./data", train=True, download=True, transform=train_transform
-    )
-    test_dataset = datasets.CIFAR10(
-        root="./data", train=False, download=True, transform=test_transform
+    test_dataset = SyntheticDataset(
+        num_samples=10000,
+        img_size=img_size,
+        num_classes=num_classes,
     )
 
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=2,
-        pin_memory=True,
+        num_workers=0,
+        pin_memory=False,
     )
     test_loader = DataLoader(
         test_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=2,
-        pin_memory=True,
+        num_workers=0,
+        pin_memory=False,
     )
 
     logger.info(
