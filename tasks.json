@@ -38,7 +38,7 @@
       "6. Write README.md"
     ],
     "acceptance-criteria": "main.py runs without errors on CPU. magnitude_prune correctly zeros out smallest weights by magnitude. apply_pruning_to_model works on nn.Module. Sensitivity scanner runs for all sparsity levels. Matplotlib plot saved/displayed. README.md exists.",
-    "complete": false
+    "complete": true
   },
   {
     "task": "lecture-04: Channel pruning with Frobenius norm",

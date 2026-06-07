@@ -174,10 +174,11 @@ def apply_rope(
     theta = _compute_rope_frequencies(dim, base)  # (dim//2,)
 
     # Compute cos/sin for each (position, dimension-pair)
+    # Shape: (1, 1, seq_len, dim//2)  -- broadcastable over batch & heads
     pos = positions.float().unsqueeze(-1)  # (seq_len, 1)
     freqs = pos * theta.unsqueeze(0)  # (seq_len, dim//2)
-    cos = freqs.cos().unsqueeze(-2)  # (seq_len, 1, dim//2)
-    sin = freqs.sin().unsqueeze(-2)
+    cos = freqs.cos().unsqueeze(0).unsqueeze(0)  # (1, 1, seq_len, dim//2)
+    sin = freqs.sin().unsqueeze(0).unsqueeze(0)
 
     # Reshape x into pairs for rotation
     x_pairs = x.reshape(*prefix, seq_len, dim // 2, 2)  # last dim = (real, imag)
