@@ -630,6 +630,69 @@ TESTING RESULTS:
    ✓ Python: no unused imports, type annotations, English docstrings
 
 ================================================================================
+TASK ID: task-017
+TASK NAME: Fix formatting issues in 08_编译器中的优化.md
+STATUS: complete
+TIMESTAMP: 2026-06-08T00:00:00Z
+WORKER AGENT: Worker-v2
+================================================================================
+OBJECTIVE (Acceptance Criteria):
+   1. Add YAML front matter at top of file
+   2. Remove <center> and </center> HTML tags around table
+   3. Fix <br> and </br> tags in table cells: <br> → <br/>, delete </br>
+
+STEPS PROVIDED:
+   (Precise edits specified directly in task description.)
+
+STEPS EXECUTED:
+   ✓ Edit 1: Added YAML front matter (chapter, title) with blank line after
+   ✓ Edit 2: Removed <center> opening tag before table header row
+   ✓ Edit 3: Removed </center> closing tag after table caption
+   ✓ Edit 4: Fixed line 524: <br> → <br/> and removed </br>
+   ✓ Edit 5: Fixed line 552: <br> → <br/> and removed </br>
+   ✓ Verification: grep confirmed no <center>, </center>, <br>, </br> remain
+
+WORK COMPLETED:
+   1. Added YAML front matter (lines 1-5) with chapter: 8, title: "编译器中的优化"
+   2. Removed <center> tag (was line 487, before table header)
+   3. Removed </center> tag (was line 641, after table caption)
+   4. Fixed 2 occurrences of <br> to <br/> in table cells (lines 524, 552)
+   5. Removed 2 occurrences of </br> from those same table cells
+
+FILES MODIFIED:
+   - c++/zhihu_hpc/notes/08_编译器中的优化.md (modified, 5 edits)
+
+KEY DECISIONS:
+   - YAML front matter follows standard Hugo/Zola format with --- delimiters
+   - <br/> is self-closing valid HTML; </br> is not valid HTML, simply deleted
+   - Table structure preserved exactly as-is after tag removal
+
+BLOCKERS RESOLVED:
+   - None
+
+REMAINING ISSUES:
+   - None
+
+NOTES FOR NEXT AGENT:
+   - File is now valid Markdown with proper YAML front matter
+   - All HTML in the comparison table is now valid (no orphan tags)
+   - The table is large (lines 492-641) but structurally intact
+
+ACCEPTANCE CRITERIA VERIFICATION:
+   ✓ Criterion 1: YAML front matter present with proper delimiters - VERIFIED (lines 1-4)
+   ✓ Criterion 2: No <center>/</center> tags remain - VERIFIED (grep returns no matches)
+   ✓ Criterion 3: No </br> remains - VERIFIED (grep returns no matches)
+   ✓ Criterion 4: <br> changed to <br/> - VERIFIED (2 occurrences, both fixed)
+   ✓ Criterion 5: Large comparison table still correctly formatted - VERIFIED (table rows intact)
+
+TESTING RESULTS:
+   ✓ YAML front matter: properly formed with --- delimiters and blank line after
+   ✓ <center>/</center>: zero matches in file (grep verified)
+   ✓ <br>/</br>: zero matches in file (grep verified)
+   ✓ <br/>: 2 matches as expected (lines 524, 552)
+   ✓ Table structure: all rows, separators, and columns preserved
+
+================================================================================
 
 ================================================================================
 TASK ID: task-012
@@ -2612,3 +2675,234 @@ TESTING RESULTS:
    ✓ reward_model.py: compile 通过
 
 =================================================================================
+
+================================================================================
+TASK ID: task-018
+TASK NAME: Fix formatting issues in 07_不同C++结构的效率.md
+STATUS: complete
+TIMESTAMP: 2026-06-08T12:00:00Z
+WORKER AGENT: Worker-v2
+================================================================================
+OBJECTIVE (Acceptance Criteria):
+   1. Add YAML front matter at top of file
+   2. Remove <center> and </center> HTML tags around tables (2 pairs)
+   3. Fix <br> tags in table cells: <br> → <br/> and remove </br> (6 rows)
+
+STEPS PROVIDED:
+   (Precise edits specified directly in task description.)
+
+STEPS EXECUTED:
+   ✓ Edit 1: Added YAML front matter (chapter, title) with blank line after
+   ✓ Edit 2: Removed <center> before Table 7.1 (first table)
+   ✓ Edit 3: Removed </center> after Table 7.1 caption
+   ✓ Edit 4: Removed <center> before Table 7.2 (second table)
+   ✓ Edit 5: Removed </center> after Table 7.2 caption
+   ✓ Edit 6: Fixed 6 table rows: <br> → <br/>, removed </br>
+   ✓ Verification: grep confirmed no <center>, </center>, </br>, <br> remain
+
+WORK COMPLETED:
+   1. Added YAML front matter (lines 1-5) with chapter: 7, title: "不同C++结构的效率"
+   2. Removed <center> and </center> tags from both Table 7.1 and Table 7.2
+   3. Fixed 6 table rows in Table 7.1 (lines 118-124):
+      - shortint row: <br> → <br/>, </br> removed
+      - int row: <br> → <br/>, </br> removed
+      - long long row: <br> → <br/>, </br> removed
+      - unsigned short int row: <br> → <br/>, </br> removed
+      - unsigned int row: <br> → <br/>, </br> removed
+      - unsigned long long row: <br> → <br/>, </br> removed
+
+FILES MODIFIED:
+   - c++/zhihu_hpc/notes/07_不同C++结构的效率.md (modified, 10 edits)
+
+KEY DECISIONS:
+   - YAML front matter follows standard Hugo/Zola format with --- delimiters
+   - <br/> is self-closing valid HTML; </br> is not valid HTML, simply deleted
+   - Table structure preserved exactly as-is after tag removal
+   - No content changes made (only formatting fixes)
+
+BLOCKERS RESOLVED:
+   - None
+
+REMAINING ISSUES:
+   - None
+
+NOTES FOR NEXT AGENT:
+   - File is now valid Markdown with proper YAML front matter
+   - All HTML in both tables is now valid (no orphan or non-standard tags)
+   - Both Table 7.1 (integer types) and Table 7.2 (alignment) are structurally intact
+   - Note: `shortint` on line 118 is a content typo (should be `short int`) but
+     was intentionally not changed since task scope was formatting only
+
+ACCEPTANCE CRITERIA VERIFICATION:
+   ✓ Criterion 1: YAML front matter at top with proper delimiters - VERIFIED (lines 1-4, blank line 5)
+   ✓ Criterion 2: No <center>/</center> tags remain - VERIFIED (grep returns zero matches)
+   ✓ Criterion 3: No </br> tags remain - VERIFIED (grep returns zero matches)
+   ✓ Criterion 4: <br> changed to <br/> - VERIFIED (6 occurrences, all fixed)
+   ✓ Criterion 5: Both tables still properly formatted - VERIFIED (rows, separators, columns intact)
+
+TESTING RESULTS:
+   ✓ YAML front matter: properly formed with --- delimiters and blank line after
+   ✓ <center>: zero matches in file (grep verified)
+   ✓ </center>: zero matches in file (grep verified)
+   ✓ </br>: zero matches in file (grep verified)
+   ✓ <br> (without /): zero matches in file (grep verified)
+   ✓ <br/>: 6 matches as expected (lines 118-124)
+   ✓ Table structure: both Table 7.1 and Table 7.2 rows, separators, and columns preserved
+
+================================================================================
+
+================================================================================
+TASK ID: task-020
+TASK NAME: Fix formatting issues in 12_使用向量操作.md
+STATUS: complete
+TIMESTAMP: 2026-06-08T03:00:00Z
+WORKER AGENT: Worker-v2
+================================================================================
+OBJECTIVE (Acceptance Criteria):
+   1. Add YAML front matter at the very top with chapter: 12, title: "使用向量操作"
+   2. Remove <center> and </center> HTML tags around all tables (7 tables)
+   3. Fix <br> and </br> tags in table cells: <br> -> <br/>, delete </br>
+   4. Fix MathJax block: remove <center>/</center> and ```mathjax wrapper
+
+STEPS PROVIDED:
+   1. Add YAML front matter at the very top of the file
+   2. Remove <center> and </center> HTML tags around tables
+   3. Fix <br> and </br> tags in table cells
+   4. Fix MathJax blocks (e^x Taylor series formula)
+
+STEPS EXECUTED:
+   ✓ Step 1: Added YAML front matter (chapter: 12, title: "使用向量操作") with proper --- delimiters and blank line
+   ✓ Step 2: Removed <center>/</center> from 7 tables (Table 12.1 through last SVML/LIBM table)
+   ✓ Step 3: Fixed 8 <br> occurrences to <br/> and deleted 8 </br> occurrences across:
+           - Table 12.2 header file table (lines 293, 297, 299)
+           - Table 12.3 intrinsic functions table header (line 337)
+           - Table 12.4 vector class libraries license cell (line 369)
+   ✓ Step 4: Fixed MathJax block (lines 590-594): removed <center>, ```mathjax wrapper, and </center>;
+            kept only the $$...$$ math block
+
+WORK COMPLETED:
+   1. Added YAML front matter with chapter: 12, title: "使用向量操作"
+   2. Removed 14 <center>/</center> tags (7 pairs) around all 7 tables
+   3. Fixed <br> -> <br/> in 5 locations: SSE4.2 row, AMD XOP row, "all" row, Table 12.3 header, License cell
+   4. Deleted all 8 </br> tags from the same table cells
+   5. Fixed mathjax block: stripped <center> wrapper and ```mathjax code fence, kept clean $$...$$ display math
+   6. Verified all fixes with grep
+
+FILES MODIFIED:
+   - c++/zhihu_hpc/notes/12_使用向量操作.md (modified, 16 edits)
+
+KEY DECISIONS:
+   - YAML front matter follows Hugo/Zola standard with --- delimiters
+   - <br/> is valid self-closing HTML; </br> is invalid and was deleted entirely
+   - Math block kept as $$...$$ display math (standard pandoc/GFM compatible)
+   - Table structures preserved exactly as-is after tag removal
+
+BLOCKERS RESOLVED:
+   - None
+
+REMAINING ISSUES:
+   - None
+
+NOTES FOR NEXT AGENT:
+   - File is now clean Markdown with proper YAML front matter
+   - All 7 tables are cleanly formatted with no HTML wrapper tags
+   - Math formulas use standard $$...$$ syntax compatible with most renderers
+   - The file went from 764 to 740 lines (net -24: removed ~28 HTML lines, added 4 YAML lines)
+
+ACCEPTANCE CRITERIA VERIFICATION:
+   ✓ Criterion 1: YAML front matter present with proper delimiters - VERIFIED (lines 1-5)
+   ✓ Criterion 2: All <center>/</center> removed - VERIFIED (grep returns no matches for <center> or </center>)
+   ✓ Criterion 3: <br> changed to <br/> and </br> deleted - VERIFIED (grep: 5 <br/>, 0 <br>, 0 </br>)
+   ✓ Criterion 4: MathJax block cleaned (no <center>, no ```mathjax wrapper) - VERIFIED (only $$...$$ block remains)
+
+TESTING RESULTS:
+   ✓ YAML front matter: properly formed (lines 1-5)
+   ✓ <center>/</center>: zero matches in file (grep verified)
+   ✓ <br>: zero matches (all converted to <br/>)
+   ✓ </br>: zero matches (all deleted)
+   ✓ <br/>: 5 matches as expected (lines 293, 297, 299, 337, 369)
+   ✓ Math block: $$e^x=\sum_{n=0}^\infty\frac{x^n}{n!}$$ - clean, no wrappers
+   ✓ Total line count: 740 (from original 764, net -24)
+
+================================================================================
+
+================================================================================
+TASK ID: task-018
+TASK NAME: Fix formatting in 13_为不同指令集生成多个版本的关键代码.md and 18_编译器选项一览.md
+STATUS: complete
+TIMESTAMP: 2026-06-08T00:00:00Z
+WORKER AGENT: Worker-v2
+================================================================================
+OBJECTIVE (Acceptance Criteria):
+   File 1 (13_*.md): Add YAML front matter (chapter:13, title). Remove <center> and
+   </center> HTML tags. Fix <br> to <br/> and delete </br>.
+   File 2 (18_*.md): Same - YAML front matter (chapter:18, title), remove <center>
+   tags, fix <br>/</br> tags.
+
+STEPS PROVIDED:
+   None provided (precise edits specified directly in task description).
+
+STEPS EXECUTED:
+   ✓ File 1: Added YAML front matter (chapter: 13, title: "为不同指令集生成多个版本的关键代码")
+   ✓ File 1: Removed <center> tag (was line 7, before table header)
+   ✓ File 1: Removed </center> tag (was line 25, after table caption)
+   ✓ File 2: Added YAML front matter (chapter: 18, title: "编译器选项一览")
+   ✓ File 2: Removed all 6 <center> and </center> tags (3 pairs, 6 lines total)
+   ✓ File 2: Replaced all <br> with <br/> via replaceAll (~45 occurrences)
+   ✓ File 2: Deleted all </br> via replaceAll (~45 occurrences)
+   ✓ File 2: Fixed edge case <\br> typo (original misspelling) → <br/>
+   ✓ Verification: grep confirmed zero problematic patterns in both files
+
+WORK COMPLETED:
+   1. File 1 (13_*.md): Added YAML front matter (lines 1-5), removed 2 <center>/
+      </center> tags. No <br>/</br> tags were present.
+   2. File 2 (18_*.md): Added YAML front matter (lines 1-5), removed all
+      <center>/</center> tags (6 lines), fixed all <br>/</br> (~45 each)
+      across 3 tables (Table 18.1, 18.2, 18.3).
+   3. Both files verified clean with grep: no remaining <center>, </center>,
+      <br>, or </br> patterns.
+   4. Table content and structure fully preserved in both files.
+
+FILES MODIFIED:
+   - c++/zhihu_hpc/notes/13_为不同指令集生成多个版本的关键代码.md (modified, 3 edits)
+   - c++/zhihu_hpc/notes/18_编译器选项一览.md (modified, 6 edits)
+
+KEY DECISIONS:
+   - File 1 had no <br>/</br> tags, so only front matter + <center> removal needed
+   - File 2 had extensive <br>/</br> usage in table headers/cells (~45 pairs)
+   - Used replaceAll for batch <br>→<br/> and </br>→"" operations
+   - Handled edge case <\br> typo (original file misspelling) → <br/>
+   - YAML front matter follows standard Hugo/Zola format with --- delimiters and
+     blank line after
+
+BLOCKERS RESOLVED:
+   - Edge case: original file had <\br> (backslash-br instead of /br), which
+     was missed by the initial </br> deletion pass; fixed separately
+
+REMAINING ISSUES:
+   - None
+
+NOTES FOR NEXT AGENT:
+   - Both files are now clean Markdown with proper YAML front matter
+   - Table 18.1, 18.2, 18.3 in file 2 have been restructured: <br/> tags
+     remain as valid HTML self-closing line breaks within Markdown table cells
+   - The <\br> typo was a pre-existing issue in the original file; now fixed
+
+ACCEPTANCE CRITERIA VERIFICATION:
+   ✓ Criterion 1a: File 1 has YAML front matter with chapter:13 - VERIFIED (lines 1-4)
+   ✓ Criterion 1b: File 1 has no <center>/</center> tags - VERIFIED (grep: zero matches)
+   ✓ Criterion 1c: File 1 has no <br>/</br> issues - VERIFIED (none were present)
+   ✓ Criterion 2a: File 2 has YAML front matter with chapter:18 - VERIFIED (lines 1-4)
+   ✓ Criterion 2b: File 2 has no <center>/</center> tags - VERIFIED (grep: zero matches)
+   ✓ Criterion 2c: File 2 has no </br> remaining - VERIFIED (all deleted)
+   ✓ Criterion 2d: File 2 <br> changed to <br/> - VERIFIED (~45 occurrences, all fixed)
+   ✓ Criterion 3: Both files verified with grep - VERIFIED (no problematic patterns)
+
+TESTING RESULTS:
+   ✓ File 1 grep: "No problematic patterns found"
+   ✓ File 2 grep: "No problematic patterns found"
+   ✓ File 1 YAML front matter: correctly formatted
+   ✓ File 2 YAML front matter: correctly formatted
+   ✓ Both files: table structures preserved, all content intact
+
+================================================================================

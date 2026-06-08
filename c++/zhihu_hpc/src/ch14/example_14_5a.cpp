@@ -1,0 +1,6 @@
+// Chapter: 具体的优化主题
+// Example 14.5a
+
+const int min = 100, max = 110; int i;
+...
+if (i >= min && i <= max) { ...
