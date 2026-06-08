@@ -56,26 +56,23 @@ void CheckAlignment(const T* ptr, const char* name) {
 }
 
 // ---- Sequential vs strided access benchmark ----
-constexpr int MATRIX_ROWS = 1024;
-constexpr int MATRIX_COLS = 1024;
-
 // Sequential access (cache-friendly)
-double SequentialSum(const double* matrix) {
+double SequentialSum(const double* matrix, int cols) {
     double sum = 0.0;
-    for (int r = 0; r < MATRIX_ROWS; ++r) {
-        for (int c = 0; c < MATRIX_COLS; ++c) {
-            sum += matrix[r * MATRIX_COLS + c];
+    for (int r = 0; r < cols; ++r) {
+        for (int c = 0; c < cols; ++c) {
+            sum += matrix[r * cols + c];
         }
     }
     return sum;
 }
 
 // Strided access (cache-unfriendly)
-double StridedSum(const double* matrix) {
+double StridedSum(const double* matrix, int cols) {
     double sum = 0.0;
-    for (int c = 0; c < MATRIX_COLS; ++c) {
-        for (int r = 0; r < MATRIX_ROWS; ++r) {
-            sum += matrix[r * MATRIX_COLS + c];
+    for (int c = 0; c < cols; ++c) {
+        for (int r = 0; r < cols; ++r) {
+            sum += matrix[r * cols + c];
         }
     }
     return sum;
@@ -119,9 +116,9 @@ int main() {
         small_mat[i] = 1.0;
 
     auto t1 = std::chrono::high_resolution_clock::now();
-    double s1 = SequentialSum(small_mat);
+    double s1 = SequentialSum(small_mat, SMALL);
     auto t2 = std::chrono::high_resolution_clock::now();
-    double s2 = StridedSum(small_mat);
+    double s2 = StridedSum(small_mat, SMALL);
     auto t3 = std::chrono::high_resolution_clock::now();
 
     auto seq_us = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
