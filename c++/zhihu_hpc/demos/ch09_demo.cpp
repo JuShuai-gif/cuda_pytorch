@@ -5,6 +5,7 @@
 #include <cstring>
 #include <iostream>
 #include <chrono>
+#include <cstdint>
 #include <new>
 
 // ---- Example 9.1b: Merge separate arrays into struct for spatial locality ----
@@ -14,14 +15,14 @@ struct S {
 };
 
 // Original: two separate arrays (bad locality)
-void ProcessSeparate(const float *a, const float *b, float *out, int n) {
+void ProcessSeparate(const float* a, const float* b, float* out, int n) {
     for (int i = 0; i < n; ++i) {
         out[i] = a[i] + b[i];
     }
 }
 
 // Improved: single array of structs (better locality)
-void ProcessMerged(const S *data, float *out, int n) {
+void ProcessMerged(const S* data, float* out, int n) {
     for (int i = 0; i < n; ++i) {
         out[i] = data[i].a + data[i].b;
     }
@@ -30,7 +31,7 @@ void ProcessMerged(const S *data, float *out, int n) {
 // ---- Example 9.2b: Use union to share memory for non-overlapping variables ----
 union LargeBuffer {
     double matrix_a[1024];
-    double matrix_b[1024]; // Shares memory with matrix_a
+    double matrix_b[1024];  // Shares memory with matrix_a
 };
 
 // ---- Example 9.4: Aligned data allocation ----
@@ -44,11 +45,13 @@ ALIGN64 int AlignedArray[1024];
 
 // ---- Cache line alignment check ----
 template <typename T>
-void CheckAlignment(const T *ptr, const char *name) {
+void CheckAlignment(const T* ptr, const char* name) {
     auto addr = reinterpret_cast<std::uintptr_t>(ptr);
-    std::cout << name << " alignment: " << (addr % 64 == 0 ? "64-byte aligned" : addr % 32 == 0 ? "32-byte aligned" :
-                                                                             addr % 16 == 0     ? "16-byte aligned" :
-                                                                                                  "unaligned")
+    std::cout << name << " alignment: "
+              << (addr % 64 == 0   ? "64-byte aligned"
+                  : addr % 32 == 0 ? "32-byte aligned"
+                  : addr % 16 == 0 ? "16-byte aligned"
+                                   : "unaligned")
               << "\n";
 }
 
@@ -57,7 +60,7 @@ constexpr int MATRIX_ROWS = 1024;
 constexpr int MATRIX_COLS = 1024;
 
 // Sequential access (cache-friendly)
-double SequentialSum(const double *matrix) {
+double SequentialSum(const double* matrix) {
     double sum = 0.0;
     for (int r = 0; r < MATRIX_ROWS; ++r) {
         for (int c = 0; c < MATRIX_COLS; ++c) {
@@ -68,7 +71,7 @@ double SequentialSum(const double *matrix) {
 }
 
 // Strided access (cache-unfriendly)
-double StridedSum(const double *matrix) {
+double StridedSum(const double* matrix) {
     double sum = 0.0;
     for (int c = 0; c < MATRIX_COLS; ++c) {
         for (int r = 0; r < MATRIX_ROWS; ++r) {
@@ -87,10 +90,10 @@ int main() {
 
     // Merged struct demo
     constexpr int N = 1000;
-    S *merged = new S[N];
-    float *a_sep = new float[N];
-    float *b_sep = new float[N];
-    float *out = new float[N];
+    S* merged = new S[N];
+    float* a_sep = new float[N];
+    float* b_sep = new float[N];
+    float* out = new float[N];
 
     for (int i = 0; i < N; ++i) {
         merged[i].a = static_cast<float>(i);
@@ -111,8 +114,9 @@ int main() {
 
     // Cache access pattern demo (small matrix for quick test)
     constexpr int SMALL = 256;
-    double *small_mat = new double[SMALL * SMALL]();
-    for (int i = 0; i < SMALL * SMALL; ++i) small_mat[i] = 1.0;
+    double* small_mat = new double[SMALL * SMALL]();
+    for (int i = 0; i < SMALL * SMALL; ++i)
+        small_mat[i] = 1.0;
 
     auto t1 = std::chrono::high_resolution_clock::now();
     double s1 = SequentialSum(small_mat);
