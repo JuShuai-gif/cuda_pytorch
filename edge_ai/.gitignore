@@ -1,0 +1,119 @@
+# Build artifacts
+build/
+cmake-build-*/
+out/
+obj/
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dylib
+*.exe
+*.dll
+*.lib
+*.exp
+
+# Executables (binaries compiled from this project)
+src/*/rt_sim
+src/*/pipeline_sim
+*.out
+*.app
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+compile_commands.json
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# CUDA build artifacts
+*.cu.o
+*.cubin
+*.fatbin
+*.ptx
+*.cuda_*_sass
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.egg-info/
+dist/
+*.egg
+.eggs/
+*.whl
+.venv/
+venv/
+env/
+.env
+*.so  # Python C extensions
+
+# pip / uv
+pip-wheel-metadata/
+uv.lock
+
+# IDEs & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-workspace
+*.sublime-project
+.DS_Store
+Thumbs.db
+.clangd/
+.cache/
+
+# C++ coverage / sanitizer outputs
+*.gcno
+*.gcda
+*.gcov
+*.profraw
+*.profdata
+
+# Profiling output files
+perf.data*
+perf.folded
+perf.data.old
+flamegraph_output/
+*.svg
+*.qdrep
+*.qdrep-sqlite
+*.qdstrm
+callgrind.out.*
+massif.out.*
+cachegrind.out.*
+heaptrack.*.gz
+*.heaptrack
+
+# PDFs / reference documents
+*.pdf
+
+# Core dumps
+core
+core.*
+*.core
+
+# Temporary files
+/tmp/
+*.tmp
+*.temp
+*.log
+*.bak
+*.backup
+
+# Jupyter / Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# OS files
+.directory
+
+# Valgrind log
+vgcore.*
