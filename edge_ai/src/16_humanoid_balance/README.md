@@ -24,6 +24,13 @@ P3: 摆动脚 + 手末端       — 步态跟踪 + 操作任务
 P4: 姿态                  — 维持直立站立姿态
 ```
 
+## 推荐阅读顺序
+
+1. **`wbc_core.h` + `wbc_core.cpp`** — WBC 求解器：定义核心数学工具（伪逆、阻尼最小二乘、零空间投影）
+2. **`balance_control.h` + `balance_control.cpp`** — LIPM 模型、ZMP 计算、支撑多边形、摩擦锥约束
+3. **`task_stack.h` + `task_stack.cpp`** — 构建 P0→P4 任务栈的构建器，组合 WBC 求解器和平衡控制
+4. **`main.cpp`** — 最后阅读，演示 1(WBC)→2(ZMP/LIPM)→3(完整平衡回路)→4(可扩展性)
+
 ## 构建
 
 ```bash

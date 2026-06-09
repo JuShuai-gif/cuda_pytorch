@@ -30,6 +30,13 @@ image_capture -> image_preprocess -> lidar_preprocess -> detection -> postproces
 | detection | Image tensor + LiDAR voxels | Image boxes + LiDAR clusters | CNN sliding window, Euclidean clustering |
 | postprocess | Detections | Filtered boxes + projections | NMS, 3D bbox, pinhole projection |
 
+## 推荐阅读顺序
+
+1. **`timer.py`** — 基础性能分析工具类（TimerContext + @profile_func 装饰器），被其他模块导入
+2. **`tracker.py`** — 延迟记录与统计引擎（LatencyTracker），被 main.py 和 pipeline_sim.py 使用
+3. **`pipeline_sim.py`** — 实际的 5 阶段感知流水线实现，核心工作逻辑所在
+4. **`main.py`** — 最后阅读，导入上述所有模块，运行 N 帧并输出延迟报告
+
 ## Run
 
 ```bash

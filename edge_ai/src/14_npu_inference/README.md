@@ -10,6 +10,13 @@ RK3588 NPU 推理性能优化案例研究：从 13fps 到 29fps。
 2. **双 Letterbox 修复** — 纠正硬编码预处理尺寸，消除 SDK 隐式 CPU resize (22ms→0.3ms)
 3. **NEON LUT FP16 转换** — 256 元素查表法加速模型输出格式转换 (36-55ms→0.3-3.6ms)
 
+## 推荐阅读顺序
+
+1. **`io_persistence.h` + `io_persistence.cpp`** — 演示 1：模拟 rknn_input_set vs rknn_set_io_mem，以及 NEON LUT 转换
+2. **`double_letterbox.h` + `double_letterbox.cpp`** — 演示 2：展示不匹配的预处理尺寸为何导致浪费
+3. **`pipeline_sim.h` + `pipeline_sim.cpp`** — 演示 3：组合前两项，进行端到端错误 vs 正确配置对比
+4. **`main.cpp`** — 最后阅读，依次调用三个 demo_*() 函数
+
 ## 构建
 
 ```bash

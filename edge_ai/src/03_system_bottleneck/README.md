@@ -18,6 +18,14 @@ Realistic system bottleneck benchmarks using robot perception and control worklo
 └── main.cpp             # Entry point + JSON writer
 ```
 
+## 推荐阅读顺序
+
+1. **`timer.h`** — 被所有 benchmark 文件使用的共享计时工具
+2. **`cache_bench.h` + `cache_bench.cpp`** — 伪共享演示 + 缓存颠簸（行优先 vs 列优先），展示内存访问模式为何重要
+3. **`lock_bench.h` + `lock_bench.cpp`** — 在真实 NMS 工作负载下对比同步原语（自旋锁、互斥锁、无锁）
+4. **`memory_bench.h` + `memory_bench.cpp`** — 相机帧拷贝开销对比（memcpy vs 零拷贝 vs 环形缓冲区）
+5. **`main.cpp`** — 最后阅读，依次调用所有 demo_*()，将结果写入 bottleneck_metrics.json
+
 ## Build
 
 ```bash

@@ -28,6 +28,14 @@ scheduling algorithms with priority inversion/inheritance demonstrations.
 |-- README.md
 ```
 
+## 推荐阅读顺序
+
+1. **`task.h`** — 基础数据类型（Task、ScheduleEvent、SchedulerStats），被所有调度器文件包含
+2. **`rms_scheduler.h` + `rms_scheduler.cpp`** — RMS 调度器（固定优先级），先理解较简单的调度算法
+3. **`edf_scheduler.h` + `edf_scheduler.cpp`** — EDF 调度器（动态优先级），在 RMS 基础上理解
+4. **`priority_inversion.h` + `priority_inversion.cpp`** — 优先级反转与继承演示，使用真实 OS 线程
+5. **`main.cpp`** — 最后阅读，解析命令行、构造任务、运行调度器并展示时间线
+
 ## Build
 
 ```bash

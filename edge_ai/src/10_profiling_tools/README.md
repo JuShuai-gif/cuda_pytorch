@@ -171,8 +171,11 @@ python3 ebpf_trace.py --bpftrace-examples
 
 ## 推荐工作流程
 
-1. 运行 `profiling.sh` 获取快速概览（IPC、缓存行为）
-2. 若为 CPU 瓶颈，运行 `flamegraph.sh --cmd` 查找热点函数
-3. 若存在延迟问题，运行 `flamegraph.sh --offcpu` 查找阻塞点
-4. 要进行函数级别的延迟分解，运行 `ebpf_trace.py --simulate` 或在生产环境中部署真实的 bpftrace uprobe
+> 本项目是三个独立的可执行工具，彼此之间无代码依赖，无需按顺序阅读源码。以下为推荐使用流程：
+
+1. **运行 `profiling.sh`** 获取快速概览（IPC、缓存行为）
+2. 若为 CPU 瓶颈，运行 **`flamegraph.sh --cmd`** 查找热点函数
+3. 若存在延迟问题，运行 **`flamegraph.sh --offcpu`** 查找阻塞点
+4. 要进行函数级别的延迟分解，运行 **`ebpf_trace.py --simulate`** 或在生产环境中部署真实的 bpftrace uprobe
 5. 迭代优化：优化热点路径、重新测量、对比结果
+

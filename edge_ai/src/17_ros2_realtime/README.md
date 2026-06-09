@@ -27,6 +27,14 @@
 |-- README.md
 ```
 
+## 推荐阅读顺序
+
+1. **`spsc_ringbuffer.h`** — 基础通信原语：无锁 SPSC 环形缓冲区（原子操作 + 缓存行填充）
+2. **`rt_executor.h` + `rt_executor.cpp`** — 实时执行器：SCHED_FIFO 调度 + clock_nanosleep 精确定时
+3. **`lifecycle.h` + `lifecycle.cpp`** — ROS2 生命周期模拟（状态机 + 依赖顺序管理）
+4. **`qos_demo.h` + `qos_demo.cpp`** — QoS 模拟（BestEffort / Reliable / Deadline 监控）
+5. **`main.cpp`** — 最后阅读，演示 1(环形缓冲区)→2(执行器抖动)→3(生命周期)→4(QoS 管线)
+
 ## 构建
 
 ```bash

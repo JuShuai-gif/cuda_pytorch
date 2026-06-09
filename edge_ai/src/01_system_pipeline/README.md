@@ -56,6 +56,14 @@ Processes realistic robot sensor data through a 3-stage perception → planning 
 2. Lateral PID controller → steering command
 3. Longitudinal PID controller → throttle/brake commands
 
+## 推荐阅读顺序
+
+1. **`pipeline_config.h`** — 所有基础数据结构（CameraImage、PointCloud、DetectionBox 等）及 PipelineConfig，是整个项目的数据模型
+2. **`latency_stats.h` + `latency_stats.cpp`** — 自包含的度量收集工具类，后续章节均依赖它
+3. **`pipeline_stage.h` + `pipeline_stage.cpp`** — 感知、规划、控制三个阶段的真实计算实现，核心逻辑所在
+4. **`pipeline_executor.h` + `pipeline_executor.cpp`** — 编排层，将上述阶段组合为顺序/流水线两种执行模式
+5. **`main.cpp`** — 最后阅读，薄层 CLI 入口，串联所有模块
+
 ## Build
 
 ```bash

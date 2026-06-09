@@ -24,6 +24,14 @@ This directory contains production-quality C++ multithreading implementations:
   README.md
 ```
 
+## 推荐阅读顺序
+
+1. **`thread_pool.h`** — 可复用组件：工作窃取线程池 + std::future 任务提交
+2. **`lockfree_queue.h`** — 可复用组件：基于 std::atomic 的有界 MPMC 无锁队列
+3. **`benchmarks.h`** — 声明所有 demo_*() 和 benchmark_*() 函数
+4. **`benchmarks.cpp`** — 使用上述两个组件的 6 项基准测试（线程池压力测试、无锁队列、优先级反转、内存序等）
+5. **`main.cpp`** — 最后阅读，薄层入口点，仅调用 benchmarks.cpp 中定义的 6 个函数
+
 ## Build
 
 ```bash

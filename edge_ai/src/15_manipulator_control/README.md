@@ -26,6 +26,13 @@
 |-- README.md
 ```
 
+## 推荐阅读顺序
+
+1. **`kinematics.h` + `kinematics.cpp`** — 基础：DH 正运动学是 IK 和其他一切的前提，所有组件均依赖运动学引擎
+2. **`trajectory.h` + `trajectory.cpp`** — 轨迹生成（梯形/S 曲线/三次样条），建立在运动学之上但独立于控制器
+3. **`joint_controller.h` + `joint_controller.cpp`** — 控制闭环（PID+抗饱和+前馈），使用运动学和轨迹进行插补
+4. **`main.cpp`** — 最后阅读，演示 1(FK)→2(IK)→3(轨迹)→4(控制)→5(奇异点)，正是自然的阅读顺序
+
 ## 构建
 
 ```bash

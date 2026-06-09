@@ -24,6 +24,13 @@
   README.md
 ```
 
+## 推荐阅读顺序
+
+1. **`memory_bench.h` + `memory_bench.cpp`** — 内存访问模式（uncached → cached + DMA_SYNC），边缘端性能的基础课题
+2. **`neon_convert.h` + `neon_convert.cpp`** — NEON SIMD 转换（FP16↔FP32、BGR↔FP16 RGB），独立但同属边缘端优化主题
+3. **`fail_closed.h` + `fail_closed.cpp`** — 安全关键系统的错误处理模式（fail-closed vs fail-open）
+4. **`main.cpp`** — 最后阅读，按三个部分依次调用所有演示并输出 JSON 指标
+
 ## 构建 & 运行
 
 ```bash

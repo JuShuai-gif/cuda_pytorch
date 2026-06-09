@@ -28,6 +28,13 @@ PerceptionModule → PlanningModule → ControlModule
 └── main.cpp           # Pipeline execution, validation, JSON report generation
 ```
 
+## 推荐阅读顺序
+
+1. **`interface.h`** — 定义 PerformanceContract、MeasurementBatch、Violation 以及三个模块的抽象接口，为所有其他文件的基础
+2. **`modules.h` + `modules.cpp`** — 三个模块的实际实现（PerceptionModule / PlanningModule / ControlModule）
+3. **`validator.h` + `validator.cpp`** — ContractValidator：接收合约与测量值，通过百分位数计算判定违规
+4. **`main.cpp`** — 最后阅读，实例化模块、运行 100 帧流水线、调用验证器、生成 JSON 报告
+
 ## Build
 
 ```bash

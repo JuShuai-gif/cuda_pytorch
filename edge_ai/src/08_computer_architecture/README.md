@@ -22,6 +22,15 @@ This directory contains benchmarks demonstrating key computer architecture conce
   README.md
 ```
 
+## 推荐阅读顺序
+
+1. **`timer.h`** — 共享计时基础设施、`print_header()` 工具函数及 `g_sink` 防优化变量，被所有 benchmark 依赖
+2. **`sys_info.h` + `sys_info.cpp`** — 系统信息查询，逻辑最简单，最先被执行，为后续 benchmark 提供硬件上下文
+3. **`cache_bench.h` + `cache_bench.cpp`** — 核心缓存概念：缓存行探测、命中 vs 未命中、伪共享、行优先 vs 列优先遍历
+4. **`numa_bench.h` + `numa_bench.cpp`** — NUMA 拓扑感知及跨节点访问延迟，是对"内存访问成本"主题的延伸
+5. **`simd_bench.h` + `simd_bench.cpp`** — AVX2 SIMD 向量化优化（FMA、点积），独立于缓存 benchmark 但在性能分析主题内
+6. **`main.cpp`** — 最后阅读，作为入口点串联所有 benchmark 调用
+
 ## Build
 
 ```bash

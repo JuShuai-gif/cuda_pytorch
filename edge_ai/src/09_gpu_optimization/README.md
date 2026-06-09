@@ -31,6 +31,16 @@ This directory contains CUDA kernel implementations demonstrating key GPU optimi
 |-- README.md
 ```
 
+## 推荐阅读顺序
+
+1. **`timer.h`** — GPU 计时基础设施、CUDA_CHECK 宏及 NVTX 注解，被所有内核演示使用
+2. **`matmul_naive.cuh` + `matmul_naive.cu`** — 最基础的 CUDA 内核（仅全局内存），从基础理解 GPU 编程模型
+3. **`matmul_tiled.cuh` + `matmul_tiled.cu`** — 共享内存分块优化，展示 tiling 为何能提升性能
+4. **`coalesced_demo.cuh` + `coalesced_demo.cu`** — 内存合并 vs 跨步访问模式演示
+5. **`stream_pipeline.cuh` + `stream_pipeline.cu`** — CUDA 流重叠计算与传输
+6. **`kernel_fusion.cuh` + `kernel_fusion.cu`** — 内核融合（Bias + ReLU），消除内核启动开销
+7. **`main.cu`** — 最后阅读，编排所有演示并汇总输出性能对比
+
 ## Build
 
 ```bash

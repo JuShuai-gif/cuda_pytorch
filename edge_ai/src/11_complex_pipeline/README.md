@@ -37,6 +37,15 @@ SensorFrame -> Preprocess -> Detection -> Tracking -> Prediction -> Planning -> 
 | Planning | A* on 100x100 grid with 15% random obstacles, cubic spline path smoothing |
 | Control | Stanley controller (lateral) + PID (longitudinal) throttle/brake/steering |
 
+## 推荐阅读顺序
+
+1. **`pipeline_config.h` + `stage_types.h`** — 基础类型：PipelineConfig 控制执行，stage_types 定义流水线中流动的所有数据结构
+2. **`latency_stats.h` + `latency_stats.cpp`** — 自包含的度量收集器，被 executor 使用
+3. **`stage_queue.h`** — 阶段间有界队列模板，被 PipelinedExecutor 使用
+4. **`stage_ops.h` + `stage_ops.cpp`** — 核心所在：7 个阶段的真实计算实现（Sensor → Control）
+5. **`pipeline_executor.h` + `pipeline_executor.cpp`** — 编排层：SequentialExecutor 与 PipelinedExecutor
+6. **`main.cpp`** — 最后阅读，CLI 参数解析、选择执行模式、输出最终报告
+
 ## Build
 
 ```bash

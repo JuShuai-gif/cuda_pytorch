@@ -36,6 +36,14 @@ Realistic robot perception benchmark demonstrating CPU-GPU hybrid processing wit
 └── main.cu                   # Entry point: device info, benchmarks, output
 ```
 
+## 推荐阅读顺序
+
+1. **`timer.h`** — CPU 与 GPU 高分辨率计时工具类，被 pipeline_runner 和 main 共同使用
+2. **`gpu_inference.cuh` + `gpu_inference.cu`** — CUDA 内核（Conv2D、ReLU、MaxPool、DetectionHead），GPU 端核心计算
+3. **`cpu_preprocess.h` + `cpu_preprocess.cpp`** — CPU 端预处理（图像生成、resize）和后处理（NMS）
+4. **`pipeline_runner.h` + `pipeline_runner.cpp`** — 编排三种方案（naive、stream-overlapped、pinned-mapped）的实现
+5. **`main.cu`** — 最后阅读，调用所有 run_*() 函数并汇总输出性能对比
+
 ## Prerequisites
 
 - NVIDIA GPU with CUDA support
