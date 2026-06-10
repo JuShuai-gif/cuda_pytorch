@@ -87,16 +87,66 @@ static void print_stats(const std::string &label, Stats s, int iterations) {
 // 解决：绑核 + SCHED_FIFO + CPU 隔离（isolcpus）
 // ============================================================================
 
+// ============================================================================
+// Test 1: OS 调度抖动 — CFS 时间片抢占导致测量线程被踢出 CPU
+//
+// 为什么会有这个问题？
+//
+// Linux 默认使用 CFS（完全公平调度器），以时间片轮转的方式在所有
+// 就绪线程之间分配 CPU 时间。每隔一个内核 tick（CONFIG_HZ=250 时为 4ms，
+// CONFIG_HZ=1000 时为 1ms），调度器会检查当前线程是否用完了它的时间片；
+// 如果用完了，就强制把该线程从 CPU 上踢下来，换另一个线程上去。
+//
+// 当系统上的活跃线程数 > CPU 核心数时，这种抢占不可避免。如果你的
+// 实时任务恰好在线程被抢占的时间窗口内，就会出现不可控的延迟尖刺。
+//
+// 典型受影响的场景：
+//   1. 实时系统（自动驾驶、机器人控制）：需要在 100us~1ms 内响应传感器，
+//      但调度器抢占可能导致 10-100ms 的延迟尖刺，直接造成安全事故。
+//   2. 高频交易 (HFT)：纳秒级的时间窗口被调度器打断，订单延迟导致亏损。
+//   3. 流媒体 / 音视频：音频 buffer 消费线程被抢占，导致爆音 (glitch)；
+//      视频编码线程被抢占，导致丢帧。
+//   4. 边缘 AI 推理：推理线程必须满足固定的帧率 deadline
+//      （如 30fps → 每帧 33ms 预算），调度抖动会导致丢帧和体验降级。
+//
+// 解决方案：
+//   - taskset 绑核：把实时线程钉在特定 CPU 上
+//   - chrt -f / SCHED_FIFO：改用实时调度策略，禁止时间片抢占
+//   - isolcpus：在内核启动参数中隔离 CPU 核心，禁止其他任务调度上去
+//   - nohz_full：关闭被隔离核心的定时器中断
+//
+// 测试方法：创建大量忙等噪声线程竞争 CPU，观察测量循环的超时幅度。
+// 判断标准：p99/mean > 3x → 调度器抢占严重。
+// ============================================================================
 void test_os_scheduling(int num_noisy_threads, int iterations) {
+    // 原子标志位，测量结束后通知所有噪声线程退出。
+    // memory_order_relaxed 足够，因为这只是关闭信号，没有需要同步的数据。
     std::atomic<bool> stop{false};
+
+    // 所有噪声线程共享的 dummy 原子计数器。
+    // 所有核心同时对同一个缓存行做 atomic fetch_add，会触发：
+    //   - 缓存一致性协议 (MESI) 风暴：每个核心写完都需要 invalidate 其他核心的缓存行
+    //   - 流水线停顿 (pipeline stall)
+    //   - 内存排序开销
+    // 这使得噪声线程的 CPU 占用最大化，调度器更难保护测量线程。
     std::atomic<int64_t> dummy{0};
 
-    // Spawn noise threads that busy-spin (burn CPU, force scheduler to preempt)
+    // ---- 阶段 1：创建噪声线程 ----
+    // 每个噪声线程是纯粹的 CPU 燃烧器：不休眠、不做 I/O、不主动让出 CPU。
+    // 内核 CFS 必须在这些线程之间做时间片轮转，因此会产生持续不断的
+    // 定时器中断和上下文切换。
+    //
+    // 当 num_noisy_threads > 可用 CPU 核心数时，线程被迫共享核心，
+    // 测量线程会在时间片耗尽时被抢占（Linux 默认时间片 1-10ms）。
     std::vector<std::thread> noise;
     for (int i = 0; i < num_noisy_threads; i++) {
         noise.emplace_back([&]() {
+            // 噪声线程一直忙等，直到主线程发出 stop 信号
             while (!stop.load(std::memory_order_relaxed)) {
-                // Busy work that thrashes L1 and forces context switching
+                // 内层循环对共享原子变量做 1000 次 fetch_add。
+                // 故意设计成浪费的：短循环完全在 L1 内完成，
+                // 线程永远不会因为 LLC/DRAM 访问而失速，
+                // 确保它是纯粹的 CPU 计算压力。
                 for (int k = 0; k < 1000; k++) {
                     dummy.fetch_add(k, std::memory_order_relaxed);
                 }
@@ -104,23 +154,46 @@ void test_os_scheduling(int num_noisy_threads, int iterations) {
         });
     }
 
-    // Measurement thread: record the latency of a spin-wait loop
+    // ---- 阶段 2：测量循环 ----
+    // 测量线程尝试以精确 100us 为周期循环（10kHz）。
+    // 使用忙等 + PAUSE 提示而不使用 sleep，因为：
+    //   - sleep/usleep 依赖内核 tick 粒度（HZ），本身就有 µs 级抖动
+    //   - nanosleep 同样有调度延迟（至少一个 tick）
+    // 任何超过 100us deadline 的超时，都是线程被从 CPU 上踢出去导致的。
+    //
+    // 空闲系统上的典型超时 < 500ns（仅函数调用 + 时钟获取开销）；
+    // 有噪声线程时，超时可达 10-100ms（线程被调度器换出再换入）。
     std::vector<int64_t> samples;
     samples.reserve(iterations);
 
     auto start = now_ns();
     auto deadline = start;
     for (int i = 0; i < iterations; i++) {
-        deadline += 100000; // target 100us interval (10kHz)
-        // Spin-wait until deadline (precision wait)
+        // 每次迭代把 deadline 精确前移 100us。
+        // 使用绝对时间调度：如果上次迭代超时了，本次 deadline 不会顺延，
+        // 这样可以真实反映超时幅度，不会积累偏移。
+        deadline += 100000; // 目标 100us 间隔（10kHz）
+
+        // 忙等自旋直到 deadline 到达。
+        // __builtin_ia32_pause() (即 x86 的 PAUSE 指令 / rep nop) 告诉 CPU：
+        //   1. 这是一个自旋循环，不要做投机性的内存排序违规预测
+        //   2. 降低自旋期间的功耗
+        //   3. 如果开启了超线程 (HT)，给同一物理核的另一个逻辑线程更多资源
         while (now_ns() < deadline) {
-            __builtin_ia32_pause(); // PAUSE hint to CPU
+            __builtin_ia32_pause();
         }
+
         int64_t actual = now_ns();
-        int64_t error_ns = actual - deadline; // positive = overshoot (jitter)
+        // error_ns > 0 表示超时了 —— 线程在等待期间被抢占或中断，
+        // 恢复执行时 deadline 已经过去。这就是我们要量化的抖动：
+        // 内核调度器在负载下注入的额外延迟。
+        int64_t error_ns = actual - deadline;
         samples.push_back(error_ns);
     }
 
+    // ---- 阶段 3：清理 ----
+    // 通知所有噪声线程退出，然后 join 等待它们全部结束。
+    // store(true) 用 relaxed 即可，因为 join() 本身提供了 happens-before 保证。
     stop.store(true);
     for (auto &t : noise) t.join();
 
