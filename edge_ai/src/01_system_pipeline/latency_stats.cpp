@@ -42,11 +42,11 @@ void LatencyStats::write_json(const std::string &filepath,
         int64_t max_val = sorted.back();
 
         std::fprintf(f, "    \"%s\": {\n", stage.c_str());
-        std::fprintf(f, "      \"mean_ns\": %.1f,\n", mean);
-        std::fprintf(f, "      \"std_ns\": %.1f,\n", stddev);
-        std::fprintf(f, "      \"p50_ns\": %ld,\n", p50);
-        std::fprintf(f, "      \"p99_ns\": %ld,\n", p99);
-        std::fprintf(f, "      \"max_ns\": %ld\n", max_val);
+        std::fprintf(f, "      \"mean_ns\": %.1f,\n", mean);  // 均值：系统"一般"多快。容易被极端值拉偏，需配合其他指标看
+        std::fprintf(f, "      \"std_ns\": %.1f,\n", stddev); // 标准差：延迟波动幅度。值越大系统越不稳定，抖动(jitter)越严重
+        std::fprintf(f, "      \"p50_ns\": %ld,\n", p50);     // 中位数：一半请求比它快。比均值更能代表"典型体验"，不受极端值影响
+        std::fprintf(f, "      \"p99_ns\": %ld,\n", p99);     // 99分位：99% 的请求延迟≤此值。暴露尾延迟问题，是自动驾驶安全的关键指标
+        std::fprintf(f, "      \"max_ns\": %ld\n", max_val);  // 最大值：最坏情况。用于判断是否击穿实时性安全底线（如 L4 <100ms）
         std::fprintf(f, "    }");
     }
     std::fprintf(f, "\n  }");

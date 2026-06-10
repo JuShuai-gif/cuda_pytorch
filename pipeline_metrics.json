@@ -1,0 +1,58 @@
+{
+  "pipeline_name": "perception_planning_control",
+  "mode": "sequential",
+  "pipeline_depth": 3,
+  "total_frames": 3,
+  "aggregate_stats": {
+    "control": {
+      "mean_ns": 237.3,
+      "std_ns": 108.9,
+      "p50_ns": 178,
+      "p99_ns": 363,
+      "max_ns": 363
+    },
+    "end_to_end": {
+      "mean_ns": 53940517.3,
+      "std_ns": 8536531.6,
+      "p50_ns": 52077453,
+      "p99_ns": 63254717,
+      "max_ns": 63254717
+    },
+    "perception": {
+      "mean_ns": 11452833.7,
+      "std_ns": 2255359.1,
+      "p50_ns": 11852217,
+      "p99_ns": 13481822,
+      "max_ns": 13481822
+    },
+    "perception.detection": {
+      "mean_ns": 2458.7,
+      "std_ns": 1147.8,
+      "p50_ns": 1801,
+      "p99_ns": 3784,
+      "max_ns": 3784
+    },
+    "perception.image_preprocess": {
+      "mean_ns": 3644753.0,
+      "std_ns": 887847.0,
+      "p50_ns": 3974600,
+      "p99_ns": 4320468,
+      "max_ns": 4320468
+    },
+    "perception.lidar_preprocess": {
+      "mean_ns": 7805622.0,
+      "std_ns": 1389292.9,
+      "p50_ns": 7873833,
+      "p99_ns": 9159553,
+      "max_ns": 9159553
+    },
+    "planning": {
+      "mean_ns": 6111.0,
+      "std_ns": 856.1,
+      "p50_ns": 5701,
+      "p99_ns": 7095,
+      "max_ns": 7095
+    }
+  },
+  "throughput_fps": 18.54
+}
