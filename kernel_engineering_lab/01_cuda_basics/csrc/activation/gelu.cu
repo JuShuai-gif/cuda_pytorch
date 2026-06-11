@@ -41,6 +41,7 @@ __global__ void gelu_fwd_kernel(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= n_elements) return;
 
+    // __half2float: fp16 转 fp32，提升精度用于后续数学计算
     float val = __half2float(x[idx]);
 
     // 计算 inner = sqrt(2/pi) * (x + 0.044715 * x^3)
@@ -53,6 +54,7 @@ __global__ void gelu_fwd_kernel(
     // GELU(x) = 0.5 * x * (1 + tanh(inner))
     float result = 0.5f * val * (1.0f + tanh_inner);
 
+    // __float2half_rn: fp32 转回 fp16 写回全局内存，就近舍入到偶数
     out[idx] = __float2half_rn(result);
 }
 
@@ -82,6 +84,7 @@ __global__ void gelu_bwd_kernel(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= n_elements) return;
 
+    // __half2float: fp16 转 fp32，反向传播中同样需要高精度计算
     float val = __half2float(x[idx]);
     float go = __half2float(grad_out[idx]);
 
@@ -102,6 +105,7 @@ __global__ void gelu_bwd_kernel(
 
     float result = go * d_gelu;
 
+    // __float2half_rn: fp32 转回 fp16 写回全局内存
     grad_in[idx] = __float2half_rn(result);
 }
 

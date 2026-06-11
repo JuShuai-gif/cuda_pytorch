@@ -1,0 +1,34 @@
+# Build artifacts
+build/
+cmake-build-*/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Profiling output
+*.nsys-rep
+*.ncu-rep
+*.sqlite
+profiles/
+
+# Benchmark results
+*.csv
+plots/
+
+# IDE
+.vscode/
+.idea/
+
+# Compiled binaries
+*.out
+*.exe
+chapters/
+
+# Model files
+*.bin
+*.safetensors
+*.pt
+*.pth

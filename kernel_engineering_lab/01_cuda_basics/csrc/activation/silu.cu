@@ -49,10 +49,12 @@ __global__ void silu_fwd_kernel(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= n_elements) return;
 
+    // __half2float: fp16 转 fp32，提升精度用于计算
     float val = __half2float(x[idx]);
     float sig = sigmoid_stable(val);
     float result = val * sig;
 
+    // __float2half_rn: fp32 转回 fp16，就近舍入到偶数
     out[idx] = __float2half_rn(result);
 }
 
@@ -75,6 +77,7 @@ __global__ void silu_bwd_kernel(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= n_elements) return;
 
+    // __half2float: fp16 转 fp32，反向传播同样需要高精度
     float val = __half2float(x[idx]);
     float go = __half2float(grad_out[idx]);
 
@@ -83,6 +86,7 @@ __global__ void silu_bwd_kernel(
     float d_silu = sig * (1.0f + val * (1.0f - sig));
     float result = go * d_silu;
 
+    // __float2half_rn: fp32 转回 fp16 写回全局内存
     grad_in[idx] = __float2half_rn(result);
 }
 
@@ -104,6 +108,7 @@ __global__ void swiglu_fwd_kernel(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= n_elements) return;
 
+    // __half2float: fp16 转 fp32，SwiGLU 中的 gate 和 up 均需高精度计算
     float gate_val = __half2float(gate[idx]);
     float up_val = __half2float(up[idx]);
 
@@ -111,6 +116,7 @@ __global__ void swiglu_fwd_kernel(
     float silu_up = up_val * sig_up;
     float result = gate_val * silu_up;
 
+    // __float2half_rn: fp32 转回 fp16，就近舍入到偶数
     out[idx] = __float2half_rn(result);
 }
 

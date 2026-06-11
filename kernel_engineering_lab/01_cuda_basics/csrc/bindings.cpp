@@ -62,6 +62,7 @@ void run_gelu_fwd(torch::Tensor x, torch::Tensor out);
 void run_fused_bias_relu(torch::Tensor x, torch::Tensor bias, torch::Tensor out);
 void run_fused_bias_gelu(torch::Tensor x, torch::Tensor bias, torch::Tensor out);
 void run_fused_bias_silu(torch::Tensor x, torch::Tensor bias, torch::Tensor out);
+void run_precision_validation(int rows, int hidden_dim);
 
 // softmax 模块
 void run_online_softmax(torch::Tensor x, torch::Tensor out);
@@ -81,14 +82,13 @@ void run_im2col_conv2d_fwd(
     torch::Tensor output, int stride_h, int stride_w, int pad_h, int pad_w);
 
 // reduction 模块（已有）
-torch::Tensor launch_warp_reduce_sum(const torch::Tensor& input);
-torch::Tensor launch_full_warp_reduction(const torch::Tensor& input);
-torch::Tensor launch_naive_reduce_sum(const torch::Tensor& input);
+torch::Tensor launch_warp_reduce_sum(const torch::Tensor &input);
+torch::Tensor launch_full_warp_reduction(const torch::Tensor &input);
+torch::Tensor launch_naive_reduce_sum(const torch::Tensor &input);
 
 // basic 模块（已有）
-torch::Tensor launch_vector_add_cuda(const torch::Tensor& a, const torch::Tensor& b);
-torch::Tensor launch_reduce_sum_cuda(const torch::Tensor& input);
-
+torch::Tensor launch_vector_add_cuda(const torch::Tensor &a, const torch::Tensor &b);
+torch::Tensor launch_reduce_sum_cuda(const torch::Tensor &input);
 
 #define STRINGIFY(x) #x
 #define TOSTRING(x) STRINGIFY(x)
@@ -101,19 +101,17 @@ torch::Tensor launch_reduce_sum_cuda(const torch::Tensor& input);
 class VectorAddFunction : public torch::autograd::Function<VectorAddFunction> {
 public:
     static torch::Tensor forward(
-        torch::autograd::AutogradContext* ctx,
-        const torch::Tensor& a,
-        const torch::Tensor& b
-    ) {
+        torch::autograd::AutogradContext *ctx,
+        const torch::Tensor &a,
+        const torch::Tensor &b) {
         ctx->saved_data["a_shape"] = a.sizes();
         ctx->saved_data["b_shape"] = b.sizes();
         return launch_vector_add_cuda(a, b);
     }
 
     static torch::autograd::tensor_list backward(
-        torch::autograd::AutogradContext* ctx,
-        torch::autograd::tensor_list grad_outputs
-    ) {
+        torch::autograd::AutogradContext *ctx,
+        torch::autograd::tensor_list grad_outputs) {
         // d(a+b)/da = 1，d(a+b)/db = 1，所以梯度直接传递
         auto grad = grad_outputs[0];
         torch::Tensor grad_a = grad;
@@ -134,31 +132,27 @@ public:
     }
 };
 
-
 // ============================================================================
 // Torch Autograd Function：标量求和 reduction
 // ============================================================================
 class ReduceSumFunction : public torch::autograd::Function<ReduceSumFunction> {
 public:
     static torch::Tensor forward(
-        torch::autograd::AutogradContext* ctx,
-        const torch::Tensor& input
-    ) {
+        torch::autograd::AutogradContext *ctx,
+        const torch::Tensor &input) {
         ctx->saved_data["input_shape"] = input.sizes();
         return launch_reduce_sum_cuda(input);
     }
 
     static torch::autograd::tensor_list backward(
-        torch::autograd::AutogradContext* ctx,
-        torch::autograd::tensor_list grad_outputs
-    ) {
+        torch::autograd::AutogradContext *ctx,
+        torch::autograd::tensor_list grad_outputs) {
         // d(sum(x))/dx = 1，将标量梯度广播回输入形状
         auto input_shape = ctx->saved_data["input_shape"].toIntVector();
         auto grad = grad_outputs[0].expand(input_shape);
         return {grad};
     }
 };
-
 
 // ============================================================================
 // Torch Autograd Function：warp shuffle reduction
@@ -166,17 +160,15 @@ public:
 class WarpReduceSumFunction : public torch::autograd::Function<WarpReduceSumFunction> {
 public:
     static torch::Tensor forward(
-        torch::autograd::AutogradContext* ctx,
-        const torch::Tensor& input
-    ) {
+        torch::autograd::AutogradContext *ctx,
+        const torch::Tensor &input) {
         ctx->saved_data["input_shape"] = input.sizes();
         return launch_warp_reduce_sum(input);
     }
 
     static torch::autograd::tensor_list backward(
-        torch::autograd::AutogradContext* ctx,
-        torch::autograd::tensor_list grad_outputs
-    ) {
+        torch::autograd::AutogradContext *ctx,
+        torch::autograd::tensor_list grad_outputs) {
         // d(sum(x))/dx = 1，将标量梯度广播回输入形状
         auto input_shape = ctx->saved_data["input_shape"].toIntVector();
         auto grad = grad_outputs[0].expand(input_shape);
@@ -184,30 +176,29 @@ public:
     }
 };
 
-
 // ============================================================================
 // Python API 便捷包装函数
 // ============================================================================
 
 // --- 基础算子 ---
-torch::Tensor vector_add(const torch::Tensor& a, const torch::Tensor& b) {
+torch::Tensor vector_add(const torch::Tensor &a, const torch::Tensor &b) {
     return VectorAddFunction::apply(a, b);
 }
 
-torch::Tensor reduce_sum(const torch::Tensor& input) {
+torch::Tensor reduce_sum(const torch::Tensor &input) {
     return ReduceSumFunction::apply(input);
 }
 
 // --- Reduction ---
-torch::Tensor warp_reduce_sum(const torch::Tensor& input) {
+torch::Tensor warp_reduce_sum(const torch::Tensor &input) {
     return WarpReduceSumFunction::apply(input);
 }
 
-torch::Tensor full_warp_reduction(const torch::Tensor& input) {
+torch::Tensor full_warp_reduction(const torch::Tensor &input) {
     return launch_full_warp_reduction(input);
 }
 
-torch::Tensor naive_reduce_sum(const torch::Tensor& input) {
+torch::Tensor naive_reduce_sum(const torch::Tensor &input) {
     return launch_naive_reduce_sum(input);
 }
 
@@ -219,8 +210,7 @@ void flash_attention_fwd(
     torch::Tensor V,
     torch::Tensor O,
     float scale,
-    bool causal)
-{
+    bool causal) {
     run_flash_attention_fwd(Q, K, V, O, scale, causal);
 }
 
@@ -232,15 +222,13 @@ void paged_attention(
     torch::Tensor block_tables,
     torch::Tensor context_lens,
     torch::Tensor O,
-    float scale)
-{
+    float scale) {
     run_paged_attention(Q, K_cache, V_cache, block_tables, context_lens, O, scale);
 }
 
 // KV cache 分配包装
 std::vector<torch::Tensor> kv_cache_allocate(
-    int num_blocks, int block_size, int num_heads, int head_dim)
-{
+    int num_blocks, int block_size, int num_heads, int head_dim) {
     return allocate_kv_cache(num_blocks, block_size, num_heads, head_dim);
 }
 
@@ -250,8 +238,7 @@ void rmsnorm_fwd_wrapper(
     torch::Tensor x,
     torch::Tensor weight,
     torch::Tensor out,
-    float eps)
-{
+    float eps) {
     run_rmsnorm_fwd(x, weight, out, eps);
 }
 
@@ -262,8 +249,7 @@ void rmsnorm_residual_fwd_wrapper(
     torch::Tensor weight,
     torch::Tensor out,
     torch::Tensor residual_out,
-    float eps)
-{
+    float eps) {
     run_rmsnorm_residual_fwd(x, residual, weight, out, residual_out, eps);
 }
 
@@ -273,8 +259,7 @@ void layernorm_fwd_wrapper(
     torch::Tensor weight,
     torch::Tensor bias,
     torch::Tensor out,
-    float eps)
-{
+    float eps) {
     run_layernorm_fwd(x, weight, bias, out, eps);
 }
 
@@ -285,8 +270,7 @@ void fused_residual_layernorm_wrapper(
     torch::Tensor weight,
     torch::Tensor bias,
     torch::Tensor out,
-    float eps)
-{
+    float eps) {
     run_fused_residual_layernorm_fwd(x, residual, weight, bias, out, eps);
 }
 
@@ -305,21 +289,23 @@ void gelu_fwd_wrapper(torch::Tensor x, torch::Tensor out) {
 
 // --- 融合 bias + activation ---
 void fused_bias_relu_wrapper(
-    torch::Tensor x, torch::Tensor bias, torch::Tensor out)
-{
+    torch::Tensor x, torch::Tensor bias, torch::Tensor out) {
     run_fused_bias_relu(x, bias, out);
 }
 
 void fused_bias_gelu_wrapper(
-    torch::Tensor x, torch::Tensor bias, torch::Tensor out)
-{
+    torch::Tensor x, torch::Tensor bias, torch::Tensor out) {
     run_fused_bias_gelu(x, bias, out);
 }
 
 void fused_bias_silu_wrapper(
-    torch::Tensor x, torch::Tensor bias, torch::Tensor out)
-{
+    torch::Tensor x, torch::Tensor bias, torch::Tensor out) {
     run_fused_bias_silu(x, bias, out);
+}
+
+// --- 精度验证 ---
+void precision_validation_wrapper(int rows, int hidden_dim) {
+    run_precision_validation(rows, hidden_dim);
 }
 
 // --- Softmax ---
@@ -328,11 +314,9 @@ void online_softmax_wrapper(torch::Tensor x, torch::Tensor out) {
 }
 
 void masked_online_softmax_wrapper(
-    torch::Tensor x, torch::Tensor mask, torch::Tensor out, float mask_value)
-{
+    torch::Tensor x, torch::Tensor mask, torch::Tensor out, float mask_value) {
     run_masked_online_softmax(x, mask, out, mask_value);
 }
-
 
 // --- Matmul ---
 // 单 batch tiled matmul 包装函数（原地计算：结果写入 C）
@@ -349,19 +333,16 @@ void batched_matmul_wrapper(torch::Tensor A, torch::Tensor B, torch::Tensor C) {
 // 直接卷积包装函数（原地计算：结果写入 output）
 void direct_conv2d_wrapper(
     torch::Tensor input, torch::Tensor weight, torch::Tensor bias,
-    torch::Tensor output, int stride_h, int stride_w, int pad_h, int pad_w)
-{
+    torch::Tensor output, int stride_h, int stride_w, int pad_h, int pad_w) {
     run_direct_conv2d_fwd(input, weight, bias, output, stride_h, stride_w, pad_h, pad_w);
 }
 
 // im2col + GEMM 卷积包装函数
 void im2col_conv2d_wrapper(
     torch::Tensor input, torch::Tensor weight, torch::Tensor bias,
-    torch::Tensor output, int stride_h, int stride_w, int pad_h, int pad_w)
-{
+    torch::Tensor output, int stride_h, int stride_w, int pad_h, int pad_w) {
     run_im2col_conv2d_fwd(input, weight, bias, output, stride_h, stride_w, pad_h, pad_w);
 }
-
 
 // ============================================================================
 // Pybind11 模块定义：将所有 kernel 暴露给 Python
@@ -532,6 +513,15 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "    bias (Tensor): [hidden_dim] (float16, CUDA)\n"
           "    out (Tensor): [rows, hidden_dim] (float16, CUDA, 原地输出)");
 
+    m.def("precision_validation", &precision_validation_wrapper,
+          "算子融合精度验证：对比融合、非融合、CPU float 参考的误差。\n"
+          "通过减少 fp16 中间存储次数，融合版本通常精度更高。\n"
+          "参数:\n"
+          "    rows (int): 输入行数，默认 1024\n"
+          "    hidden_dim (int): 隐藏维度，默认 4096\n"
+          "输出:\n"
+          "    打印 ReLU/GELU/SiLU 三种激活函数的精度对比表格");
+
     // --- Softmax 算子 ---
     m.def("online_softmax", &online_softmax_wrapper,
           "Online safe softmax 前向传播 (CUDA)。\n"
@@ -564,8 +554,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "为每个 batch 独立调用 tiled GEMM kernel，适合 LLM 批量推理。\n"
           "参数:\n"
           "    A (Tensor): [B, M, K] (float16, CUDA)\n"
-           "    B (Tensor): [B, K, N] (float16, CUDA)\n"
-           "    C (Tensor): [B, M, N] (float16, CUDA, 原地输出)");
+          "    B (Tensor): [B, K, N] (float16, CUDA)\n"
+          "    C (Tensor): [B, M, N] (float16, CUDA, 原地输出)");
 
     // --- Convolution 算子 ---
     m.def("direct_conv2d", &direct_conv2d_wrapper,
