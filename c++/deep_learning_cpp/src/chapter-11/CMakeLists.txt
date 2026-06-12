@@ -10,25 +10,25 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ================================================================
 
 # Drift Detection: Histograms, PSI, KS, chi-squared, KL/JS, Welford
-add_executable(drift_detection 01_drift_detection.cpp)
+add_executable(ch11_drift_detection 01_drift_detection.cpp)
 
 # Observability: Structured Logging
-add_executable(structured_logging 02_structured_logging.cpp)
+add_executable(ch11_structured_logging 02_structured_logging.cpp)
 
 # Observability: In-Process Metrics
-add_executable(inprocess_metrics 03_inprocess_metrics.cpp)
+add_executable(ch11_inprocess_metrics 03_inprocess_metrics.cpp)
 
 # Observability: Distributed Tracing
-add_executable(distributed_tracing 04_distributed_tracing.cpp)
+add_executable(ch11_distributed_tracing 04_distributed_tracing.cpp)
 
 # Debugging: Reproducible Failures
-add_executable(reproducible_debugging 05_reproducible_debugging.cpp)
+add_executable(ch11_reproducible_debugging 05_reproducible_debugging.cpp)
 
 # Debugging: Numerical Stability
-add_executable(numerical_stability 06_numerical_stability.cpp)
+add_executable(ch11_numerical_stability 06_numerical_stability.cpp)
 
 # Serving: Micro-Batcher (async batching)
-add_executable(micro_batcher 07_micro_batcher.cpp)
+add_executable(ch11_micro_batcher 07_micro_batcher.cpp)
 
 # Retraining: Decision Flow, Acceptance Gates, Rollout Ladder
-add_executable(retraining_workflow 08_retraining_workflow.cpp)
+add_executable(ch11_retraining_workflow 08_retraining_workflow.cpp)

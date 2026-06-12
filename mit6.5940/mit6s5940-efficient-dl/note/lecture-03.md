@@ -113,6 +113,64 @@ NVIDIA A100 支持 **2:4 结构化稀疏**：每4个连续值中正好有2个是
 | 纯 INT8 量化 | 75% | 2-4x | 0.5-1% | 低（PTQ一行命令） | 有 INT8 指令的硬件 |
 | 剪枝+量化叠加 | ~87% | 4-8x | 1-3% | 高（需两次评估+重训练） | 极致压缩场景 |
 
+### 模型压缩工业落地
+
+工业项目里，剪枝不是“把权重变成 0”这么简单，而是围绕 **accuracy-latency-memory trade-off** 建立一条可验证闭环：
+
+```mermaid
+flowchart LR
+    A[Baseline FP32 Model] --> B[Sensitivity Analysis]
+    B --> C{Compression Policy}
+    C --> D[Unstructured Pruning]
+    C --> E[Structured / Channel Pruning]
+    C --> F[Weight Sparsification]
+    D --> G[Finetune / Distillation]
+    E --> G
+    F --> G
+    G --> H[Export: ONNX / TorchScript]
+    H --> I[Runtime: TensorRT / OpenVINO / llama.cpp]
+    I --> J[Measure: Size Params FLOPs VRAM Latency Throughput Accuracy]
+    J --> B
+```
+
+剪枝方案选择：
+
+| 技术 | English Concept | 工业解释 | 硬件收益 |
+|---|---|---|---|
+| 非结构化剪枝 | Unstructured Pruning | 单个 weight 置零，压缩率高但 sparse pattern 不规则 | 需要 sparse kernel，否则不一定加速 |
+| 结构化剪枝 | Structured Pruning | 按 block/filter/head 等结构删除 | 更容易被 TensorRT/OpenVINO/CPU kernel 加速 |
+| 通道剪枝 | Channel Pruning | 删除 Conv channel 或 MLP hidden channel | 直接减少 GEMM/Conv shape，端侧最常用 |
+| 权重稀疏化 | Weight Sparsification | 形成 N:M、block sparse、CSR/BSR 等格式 | A100/H100 的 2:4 sparsity 可获得硬件收益 |
+
+和剪枝强相关的部署链路：
+
+- **ONNX**: 适合作为 PyTorch 到 TensorRT/OpenVINO/ONNX Runtime 的中间格式，但要检查 dynamic axes、opset 和算子支持。
+- **TensorRT**: 适合 NVIDIA GPU 上 FP16/INT8/2:4 sparse 推理，需要真实 engine benchmark，不能只看 PyTorch latency。
+- **TorchScript**: 适合 PyTorch 生态内部服务化，优点是集成简单，缺点是跨平台部署能力弱于 ONNX。
+- **OpenVINO**: 适合 Intel CPU/iGPU/NPU，结构化剪枝 + INT8 PTQ 更容易得到稳定收益。
+- **llama.cpp / GGUF**: 适合 LLM 本地部署，重点不是通道剪枝，而是 INT4/INT5/INT8 weight-only quantization、KV cache 和 batch 调度。
+
+必须同时记录的指标：
+
+$$
+\text{Compression Ratio} = \frac{\text{Baseline Model Size}}{\text{Compressed Model Size}}
+$$
+
+$$
+\text{Speedup} = \frac{\text{Baseline Latency}}{\text{Compressed Latency}}, \quad
+\Delta Acc = Acc_{compressed} - Acc_{baseline}
+$$
+
+| 指标 | 为什么必须测 | 工业判断 |
+|---|---|---|
+| 模型大小 / 参数量 | 决定下载、冷启动、端侧存储 | 端侧通常先看 size budget |
+| FLOPs / MACs | 估算理论计算量 | 只能解释趋势，不能替代真实 latency |
+| 显存占用 / CPU 内存 | 决定并发 batch 和是否 OOM | LLM/VLA 部署常被 KV cache 或 action chunk buffer 卡住 |
+| 推理延迟 P50/P95/P99 | 决定用户体验和控制频率 | 机器人控制更关注 P99 deadline |
+| 吞吐 QPS/TPS | 决定服务成本 | 数据中心推理必须看 batch 下 throughput |
+| 精度下降 / 输出误差 | 决定是否能上线 | VLA 可用 action MSE 或 rollout success rate |
+
+
 ## 6. PyTorch 实现思路
 
 ### 6.1 幅度剪枝（非结构化）

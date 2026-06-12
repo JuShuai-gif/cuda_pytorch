@@ -1,37 +1,51 @@
 # Chapter 04: FlashAttention V1
 
-## Implementation
+## Scope
 
-Step-by-step CUDA implementation of FlashAttention V1:
+This chapter contains the runnable artifacts for `FlashAttention V1`. The implementation is intentionally educational: it favors explicit data movement, small reproducible examples, and clear metrics over maximum performance. Production caveats are documented in `notes/chapter_04.md`.
 
-1. `step1_tiled_matmul.cu` - Tiled matrix multiply with shared memory
-2. `step2_online_softmax.cu` - Online softmax algorithm
-3. `step3_flash_attention.cu` - Full FlashAttention V1 kernel
-4. `benchmark.py` - Compare vs naive and PyTorch SDPA
+## Files
 
-## Key Concepts
-
-- Online softmax rescaling
-- Tiling strategy (Q blocks x K/V blocks)
-- Shared memory tiling
-- Kernel fusion (avoid writing S, P to HBM)
+- `flash_attention_v1.cu` - main implementation or reading guide.
+- `CMakeLists.txt` - build configuration for this chapter.
+- `README.md` - build, run, and profiling instructions.
 
 ## Build
 
+From project root:
+
 ```bash
-mkdir build && cd build
+mkdir -p build
+cd build
 cmake .. -DCMAKE_CUDA_ARCHITECTURES=80
-make chapter_04_flash_attention
+cmake --build . --target flash_attention_v1 -j
 ```
 
-## Architecture
+For source-reading-only chapters, there is no binary target; read the chapter notes and use the listed upstream files as a checklist.
 
+## Run
+
+```bash
+./chapters/flash_attention_v1
 ```
-Q [N, d] ──┐
-            ├──> Tile Q_i [Br, d] ──┐
-K [N, d] ──┘                        ├──> S_ij [Br, Bc] (on SMEM)
-                                     │      ↓
-V [N, d] ───────────────────────────> P_ij @ V_j [Br, d] (on SMEM)
-                                            ↓
-                                         O_i += rescale * new
+
+If the target is CUDA-based, profile it with:
+
+```bash
+ncu --set full ./chapters/flash_attention_v1
+nsys profile -o chapter_04_timeline ./chapters/flash_attention_v1
 ```
+
+## Metrics To Report
+
+| Metric | Why it matters |
+|---|---|
+| Latency | End-to-end user-visible cost. |
+| Throughput | Tokens/s, requests/s, or effective TFLOPS. |
+| Memory traffic | Determines whether the kernel is bandwidth-bound. |
+| Occupancy | Helps explain latency hiding, register pressure, and SMEM pressure. |
+| Correctness check | Prevents benchmarking a broken optimization. |
+
+## Engineering Notes
+
+Keep every experiment reproducible: record shape, dtype, device, warmup, iteration count, and whether the path is prefill or decode. For attention kernels, always distinguish mathematical complexity from real HBM traffic.

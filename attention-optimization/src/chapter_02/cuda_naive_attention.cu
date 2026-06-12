@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 
 // ----------------------------------------------------------------------
@@ -120,11 +121,14 @@ __global__ void naive_attention_smem_kernel(
     int row = blockIdx.y;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (row >= N || col >= d_v) return;
+    if (row >= N) return;
+    const bool valid_col = col < d_v;
 
     // Cache Q[row] into registers
     extern __shared__ float smem[];
     float* K_tile = smem;
+    // V_tile is indexed by [tile_row, output-column lane]. Each thread in
+    // the block owns a different col, so a single V_tile[j] slot would race.
     float* V_tile = smem + SMEM_TILE_K * d_k;
 
     float scale = rsqrtf(static_cast<float>(d_k));
@@ -200,11 +204,11 @@ __global__ void naive_attention_smem_kernel(
             }
         }
 
-        // Load V tile (only the [col] column needed)
-        for (int t = 0; t < tile_size; t += blockDim.x) {
-            int jj = threadIdx.x + t;
-            if (jj < tile_size) {
-                V_tile[jj] = V[(j_start + jj) * d_v + col];
+        // Load the full V tile for this output-column lane. V_tile is laid
+        // out as [tile_row, lane] because each lane owns a different col.
+        if (valid_col) {
+            for (int jj = 0; jj < tile_size; ++jj) {
+                V_tile[jj * blockDim.x + threadIdx.x] = V[(j_start + jj) * d_v + col];
             }
         }
         __syncthreads();
@@ -215,12 +219,14 @@ __global__ void naive_attention_smem_kernel(
                 dot += Q[row * d_k + m] * K_tile[jj * d_k + m];
             }
             float weight = expf(dot * scale - max_score) * inv_sum;
-            accum += weight * V_tile[jj];
+            accum += weight * V_tile[jj * blockDim.x + threadIdx.x];
         }
         __syncthreads();
     }
 
-    O[row * d_v + col] = accum;
+    if (valid_col) {
+        O[row * d_v + col] = accum;
+    }
 }
 
 // ----------------------------------------------------------------------
@@ -284,6 +290,7 @@ static BenchResult run_kernel(void (*kernel)(const float*, const float*,
     return {elapsed_ms, bw, tf};
 }
 
+#ifndef ATTENTION_CH02_NO_MAIN
 int main() {
     // Test configurations
     struct Config {
@@ -340,7 +347,7 @@ int main() {
 
         dim3 block_smem(16, 1);           // 1D block along d_v
         dim3 grid_smem((d_v + 15) / 16, N);
-        size_t smem_bytes = SMEM_TILE_K * (d_k + 1) * sizeof(float);
+        size_t smem_bytes = SMEM_TILE_K * (d_k + block_smem.x) * sizeof(float);
 
         // Run both kernels
         auto res_global = run_kernel(naive_attention_kernel,
@@ -383,3 +390,4 @@ int main() {
 
     return 0;
 }
+#endif  // ATTENTION_CH02_NO_MAIN

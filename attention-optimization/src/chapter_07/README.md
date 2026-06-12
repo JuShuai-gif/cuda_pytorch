@@ -1,15 +1,51 @@
 # Chapter 07: KV Cache
 
-Implementation of KV Cache for autoregressive inference.
+## Scope
+
+This chapter contains the runnable artifacts for `KV Cache`. The implementation is intentionally educational: it favors explicit data movement, small reproducible examples, and clear metrics over maximum performance. Production caveats are documented in `notes/chapter_07.md`.
 
 ## Files
 
-- `kv_cache.py` - Python implementation with Prefill/Decode benchmarks
-- `kv_cache.cpp` - C++ implementation for CPU baseline
+- `kv_cache.cpp / kv_cache.py` - main implementation or reading guide.
+- `CMakeLists.txt` - build configuration for this chapter.
+- `README.md` - build, run, and profiling instructions.
 
-## Key Concepts
+## Build
 
-- Autoregressive token generation
-- Prefill phase vs Decode phase
-- KV Cache data structure and append operation
-- Memory analysis for large models
+From project root:
+
+```bash
+mkdir -p build
+cd build
+cmake .. -DCMAKE_CUDA_ARCHITECTURES=80
+cmake --build . --target kv_cache -j
+```
+
+For source-reading-only chapters, there is no binary target; read the chapter notes and use the listed upstream files as a checklist.
+
+## Run
+
+```bash
+./chapters/kv_cache
+```
+
+If the target is CUDA-based, profile it with:
+
+```bash
+ncu --set full ./chapters/kv_cache
+nsys profile -o chapter_07_timeline ./chapters/kv_cache
+```
+
+## Metrics To Report
+
+| Metric | Why it matters |
+|---|---|
+| Latency | End-to-end user-visible cost. |
+| Throughput | Tokens/s, requests/s, or effective TFLOPS. |
+| Memory traffic | Determines whether the kernel is bandwidth-bound. |
+| Occupancy | Helps explain latency hiding, register pressure, and SMEM pressure. |
+| Correctness check | Prevents benchmarking a broken optimization. |
+
+## Engineering Notes
+
+Keep every experiment reproducible: record shape, dtype, device, warmup, iteration count, and whether the path is prefill or decode. For attention kernels, always distinguish mathematical complexity from real HBM traffic.

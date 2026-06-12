@@ -7,3 +7,5 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -march=native")
 
 add_executable(mqa mqa.cpp)
 add_executable(gqa gqa.cpp)
+add_test(NAME chapter_09_mqa COMMAND mqa)
+add_test(NAME chapter_09_gqa COMMAND gqa)

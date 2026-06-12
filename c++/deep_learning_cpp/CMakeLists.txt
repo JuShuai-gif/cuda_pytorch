@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_CUDA_ARCHITECTURES "70;75;80;86;89;90" CACHE STRING "CUDA architectures to target")
 
@@ -13,6 +14,11 @@ set(LIBTORCH_ROOT "$ENV{HOME}/Downloads/libtorch" CACHE PATH "Path to LibTorch i
 set(ONNXRUNTIME_ROOT "$ENV{HOME}/Downloads/onnxruntime-linux-x64-gpu-1.25.1" CACHE PATH "Path to ONNX Runtime installation")
 
 option(BUILD_CHAPTERS "Build all chapter examples" ON)
+option(BUILD_TESTS "Register lightweight smoke tests" ON)
+
+if(BUILD_TESTS)
+    enable_testing()
+endif()
 
 if(BUILD_CHAPTERS)
     add_subdirectory(src/chapter-01)

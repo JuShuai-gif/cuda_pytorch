@@ -1,37 +1,68 @@
 # Chapter 02: GPU Attention Implementation
 
-## Implementation
+This chapter implements two educational CUDA kernels for Scaled Dot-Product Attention:
 
-- `cuda_naive_attention.cu` - Direct GPU port of naive attention
-- Maps the O(N^2) attention pattern onto CUDA thread hierarchy
-- Compares performance vs CPU baseline from Chapter 01
+- `naive_attention_kernel`: one CUDA thread computes one `O[row, col]` output element.
+- `naive_attention_smem_kernel`: same algorithm with K/V tiles staged through shared memory.
+- `unit_test.cu`: compares both GPU kernels with a CPU reference on small tensors.
 
-## Key Concepts
-
-- Matrix multiplication as the core primitive
-- GEMM mapping to GPU thread blocks
-- Tensor Core fundamentals
-- Shared Memory (SMEM) role
-- Warp-level execution
-- Thread block decomposition
+The code is intentionally simple and explicit. It is not a production FlashAttention replacement; it exists to make memory traffic, redundant softmax work, and tiling tradeoffs visible.
 
 ## Build
 
+From the project root:
+
 ```bash
-mkdir build && cd build
+mkdir -p build
+cd build
 cmake .. -DCMAKE_CUDA_ARCHITECTURES=80
-make chapter_02_naive_attention
+cmake --build . --target naive_attention_gpu chapter_02_unit_test -j
 ```
 
-## Run
+If your GPU is not Ampere/A100-class, replace `80` with your compute capability, for example `75`, `86`, or `90`.
+
+## Run Unit Tests
 
 ```bash
-./chapters/chapter_02/naive_attention
+./chapters/chapter_02_unit_test
 ```
 
-## Expected Outcome
+The tests validate:
 
-Understand:
-1. Why a naive GPU implementation is still slow
-2. Where the memory bottleneck really is
-3. How to decompose attention computation across thread blocks
+- global-memory CUDA kernel vs CPU reference;
+- shared-memory CUDA kernel vs CPU reference;
+- non power-of-two shapes and small boundary cases.
+
+## Run Benchmark
+
+```bash
+./chapters/naive_attention_gpu
+```
+
+Output columns:
+
+| Column | Meaning |
+|---|---|
+| `N` | sequence length |
+| `Time(ms)` | average kernel latency after warmup |
+| `BW(GB/s)` | estimated effective memory bandwidth |
+| `TFLOPS` | estimated effective attention throughput |
+| `Kernel` | `Global` or `SharedMem` implementation |
+
+## Profile
+
+```bash
+ncu --set full ./chapters/naive_attention_gpu
+```
+
+Recommended Nsight Compute checks:
+
+- achieved occupancy;
+- DRAM throughput;
+- SM throughput;
+- warp stall reasons;
+- shared-memory usage and occupancy interaction.
+
+## Engineering Notes
+
+The naive global kernel recomputes `Q[row] @ K^T` three times per output element: max, exp-sum, and weighted-sum phases. Because each output column repeats the same softmax work, the implementation is dominated by redundant memory traffic and redundant compute. The shared-memory version demonstrates tiling, but it does not remove the algorithmic redundancy. Chapter04 addresses this with FlashAttention-style online softmax and kernel fusion.

@@ -8,6 +8,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Thread support
 find_package(Threads REQUIRED)
 
+enable_testing()
+
 # Global include directories
 include_directories(${CMAKE_SOURCE_DIR})
 

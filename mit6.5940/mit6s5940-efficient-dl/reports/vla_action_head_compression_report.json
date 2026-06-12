@@ -1,0 +1,107 @@
+{
+  "generated_at": "2026-06-12 11:06:59",
+  "device": "cuda",
+  "config": {
+    "sparsity": 0.5,
+    "quant_bits": 8,
+    "train_steps": 50
+  },
+  "results": [
+    {
+      "name": "VLA ActionHead FP32 Baseline",
+      "latency_ms": 0.6758,
+      "throughput_sps": 10401.97,
+      "memory_mb": 57.8125,
+      "edge_deployable": false,
+      "metrics": {
+        "pos_mse": 0.0,
+        "pos_mae_mm": 0.0,
+        "ori_mse": 0.0,
+        "ori_mae_deg": 0.0,
+        "gripper_mse": 0.0,
+        "chunk_variance": 0.0,
+        "chunk_smoothness": 0.0,
+        "total_mse": 0.0,
+        "cosine_similarity": 0.0,
+        "max_action_deviation": 0.0,
+        "p99_latency_ms": 0.8079,
+        "control_loop_hz": 1237.7769525931428,
+        "params_m": 2.553,
+        "size_mb": 9.7543
+      },
+      "notes": "Baseline FP32 model"
+    },
+    {
+      "name": "VLA ActionHead Pruned (50%)",
+      "latency_ms": 0.403,
+      "throughput_sps": 28599.42,
+      "memory_mb": 67.5527,
+      "edge_deployable": true,
+      "metrics": {
+        "pos_mse": 0.004964723251760006,
+        "pos_mae_mm": 55.70976436138153,
+        "ori_mse": 0.009689979255199432,
+        "ori_mae_deg": 4.7479321501139635,
+        "gripper_mse": 0.025686167180538177,
+        "chunk_variance": 0.02452244609594345,
+        "chunk_smoothness": 0.21043173968791962,
+        "total_mse": 0.00995003990828991,
+        "cosine_similarity": 0.9544162154197693,
+        "max_action_deviation": 0.3349308967590332,
+        "p99_latency_ms": 0.7919,
+        "control_loop_hz": 1262.7857052658162,
+        "params_m": 2.553,
+        "size_mb": 9.7543
+      },
+      "notes": "Unstructured pruning: 50% weights zeroed. Requires sparse kernel for real speedup on edge devices."
+    },
+    {
+      "name": "VLA ActionHead PTQ INT8",
+      "latency_ms": 0.525,
+      "throughput_sps": 25406.38,
+      "memory_mb": 77.293,
+      "edge_deployable": true,
+      "metrics": {
+        "pos_mse": 1.8089917830366176e-06,
+        "pos_mae_mm": 1.0877015301957726,
+        "ori_mse": 1.9644651274575153e-06,
+        "ori_mae_deg": 0.0652913190707791,
+        "gripper_mse": 2.409159606031608e-06,
+        "chunk_variance": 0.04248422011733055,
+        "chunk_smoothness": 0.09890387952327728,
+        "total_mse": 1.9613612494140398e-06,
+        "cosine_similarity": 0.9999867081642151,
+        "max_action_deviation": 0.0047470927238464355,
+        "p99_latency_ms": 1.0682,
+        "control_loop_hz": 936.1542782250515,
+        "params_m": 2.553,
+        "size_mb": 9.7543
+      },
+      "notes": "PTQ INT8 quantization. Action output layer should be validated with rollout MSE on real hardware."
+    },
+    {
+      "name": "VLA ActionHead Prune+INT8",
+      "latency_ms": 0.3135,
+      "throughput_sps": 29836.79,
+      "memory_mb": 87.0332,
+      "edge_deployable": true,
+      "metrics": {
+        "pos_mse": 0.004978962242603302,
+        "pos_mae_mm": 55.7716079056263,
+        "ori_mse": 0.009776568040251732,
+        "ori_mae_deg": 4.771965878255945,
+        "gripper_mse": 0.02600165642797947,
+        "chunk_variance": 0.024413680657744408,
+        "chunk_smoothness": 0.20997276902198792,
+        "total_mse": 0.010038320906460285,
+        "cosine_similarity": 0.9543740749359131,
+        "max_action_deviation": 0.3333328068256378,
+        "p99_latency_ms": 0.3675,
+        "control_loop_hz": 2721.08843537415,
+        "params_m": 2.553,
+        "size_mb": 9.7543
+      },
+      "notes": "Combined pruning + quantization maximizes compression for edge deployment."
+    }
+  ]
+}

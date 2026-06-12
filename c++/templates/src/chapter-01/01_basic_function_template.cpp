@@ -88,16 +88,13 @@ auto max_fold_binary(T first, Ts... values) {
 }
 
 // -----------------------------------------------------------------------------
-// 6. std::complex 的重载——默认无排序，所以我们比较模长
+// 6. std::complex 的重载——默认无排序，所以用模长定义本示例的 max 语义
 // -----------------------------------------------------------------------------
-
+// 不要为标准库类型补全全局 operator<：这既不可靠，也会污染调用者语义。
+// 工业代码应把比较策略限制在本 API 内，或者显式传入 comparator。
 template <typename T>
-inline bool operator<(std::complex<T> const& a,
-                       std::complex<T> const& b) {
-  // 比较模长的平方以避免 sqrt 开销
-  auto mag_sq_a = a.real() * a.real() + a.imag() * a.imag();
-  auto mag_sq_b = b.real() * b.real() + b.imag() * b.imag();
-  return mag_sq_a < mag_sq_b;
+inline std::complex<T> max_by_val(std::complex<T> a, std::complex<T> b) {
+  return (std::norm(a) < std::norm(b)) ? b : a;
 }
 
 // -----------------------------------------------------------------------------

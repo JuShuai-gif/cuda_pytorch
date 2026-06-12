@@ -1,28 +1,29 @@
 # Attention Optimization: From Theory to Industrial Kernel
 
--- A systematic learning path for Transformer Attention optimization at the GPU kernel level
+A systematic CUDA/PyTorch learning project for Transformer Attention optimization, from baseline attention to FlashAttention, KV cache, PagedAttention, and production inference kernels.
 
-## Target
+## Goals
 
-- Read and understand FlashAttention source code
-- Read and understand xFormers source code
-- Read and understand TensorRT-LLM Attention Kernel
-- Read and understand vLLM PagedAttention
-- Write your own CUDA Attention Kernel
-- Profile and optimize Attention kernels
+- Understand Scaled Dot-Product Attention from math, memory, and kernel perspectives.
+- Build reproducible CPU/CUDA implementations chapter by chapter.
+- Learn how to profile latency, throughput, occupancy, memory traffic, and arithmetic intensity.
+- Read industrial kernels such as FlashAttention, TensorRT-LLM attention, xFormers memory-efficient attention, and vLLM PagedAttention.
 
-## Structure
+## Project Structure
 
-```
+```text
 attention-optimization/
-├── notes/                   # Chinese Markdown notes per chapter
+├── notes/                   # Chinese chapter notes with formulas and diagrams
+│   ├── chapter_01.md
+│   ├── chapter_02.md        # GPU Attention implementation, tiling, Roofline
+│   └── chapter_16.md
 ├── src/
-│   ├── chapter_01/          # Attention Basics
-│   ├── chapter_02/          # GPU Attention Implementation
-│   ├── chapter_03/          # Attention Profiling
+│   ├── chapter_01/          # CPU naive attention baseline
+│   ├── chapter_02/          # CUDA naive + shared-memory attention
+│   ├── chapter_03/          # Profiling workflow
 │   ├── chapter_04/          # FlashAttention V1
 │   ├── chapter_05/          # FlashAttention V2
-│   ├── chapter_06/          # FlashAttention V3
+│   ├── chapter_06/          # FlashAttention V3 concepts
 │   ├── chapter_07/          # KV Cache
 │   ├── chapter_08/          # PagedAttention
 │   ├── chapter_09/          # MQA / GQA
@@ -31,95 +32,114 @@ attention-optimization/
 │   ├── chapter_12/          # Linear Attention
 │   ├── chapter_13/          # Quantized Attention
 │   ├── chapter_14/          # TensorRT-LLM Attention
-│   ├── chapter_15/          # xFormers Source Analysis
-│   └── chapter_16/          # vLLM Source Analysis
-├── benchmark/               # Shared benchmarking tools
-├── profiler/                # Profiling scripts (Nsight, torch.profiler)
-├── final_project/           # Mini TensorRT-LLM Attention Engine
-├── docs/                    # Additional documentation
+│   ├── chapter_15/          # xFormers source analysis
+│   └── chapter_16/          # vLLM source analysis
+├── benchmark/               # Shared benchmark helpers
+├── profiler/                # Profiling scripts and CLI helpers
+├── docs/                    # Architecture and supporting documentation
+├── final_project/           # Mini TensorRT-LLM-style attention engine
 └── README.md
 ```
 
 ## Learning Roadmap
 
-### Phase 1: Foundations (Ch01-03)
+| Phase | Chapters | Focus |
+|---|---|---|
+| Foundations | 01-03 | attention math, CPU/GPU baseline, profiling |
+| FlashAttention | 04-06 | online softmax, tiling, fusion, FA2/FA3 ideas |
+| Inference | 07-09 | KV cache, PagedAttention, MQA/GQA |
+| Advanced Patterns | 10-13 | sliding window, sparse, linear, quantized attention |
+| Production Systems | 14-16 | TensorRT-LLM, xFormers, vLLM source reading |
 
-| Chapter | Topic | Key Takeaway |
-|---------|-------|--------------|
-| 01 | Attention Basics | O(N^2) complexity, memory bottleneck |
-| 02 | GPU Attention | GEMM mapping, Tensor Cores, Shared Memory |
-| 03 | Profiling | Nsight, torch.profiler, bottleneck identification |
+## Dependencies
 
-### Phase 2: FlashAttention Family (Ch04-06)
+Recommended environment:
 
-| Chapter | Topic | Key Takeaway |
-|---------|-------|--------------|
-| 04 | FlashAttention V1 | Online Softmax, Tiling, Kernel Fusion |
-| 05 | FlashAttention V2 | Work Partition, Warp Specialization |
-| 06 | FlashAttention V3 | Hopper TMA, WGMMA, Tensor Memory Accelerator |
+- Linux with NVIDIA GPU
+- CUDA Toolkit 11.8+ or 12.x
+- CMake 3.18+
+- C++17 compiler
+- Python 3.9+
+- PyTorch for Python benchmarks/profiling
+- Nsight Systems / Nsight Compute for GPU profiling
 
-### Phase 3: Inference Optimization (Ch07-09)
+Ampere or newer GPUs are recommended. The default CMake examples use `sm_80`; change `CMAKE_CUDA_ARCHITECTURES` for your hardware.
 
-| Chapter | Topic | Key Takeaway |
-|---------|-------|--------------|
-| 07 | KV Cache | Autoregressive inference, Prefill/Decode |
-| 08 | PagedAttention | vLLM block table, memory fragmentation |
-| 09 | MQA / GQA | Multi/Grouped Query Attention |
-
-### Phase 4: Advanced Patterns (Ch10-12)
-
-| Chapter | Topic | Key Takeaway |
-|---------|-------|--------------|
-| 10 | Sliding Window | Mistral, Long Context |
-| 11 | Sparse Attention | Longformer, Block Sparse |
-| 12 | Linear Attention | Performer, Kernel Trick |
-
-### Phase 5: Production Systems (Ch13-16)
-
-| Chapter | Topic | Key Takeaway |
-|---------|-------|--------------|
-| 13 | Quantized Attention | INT8/INT4/FP8, KV Cache Quantization |
-| 14 | TensorRT-LLM | Fused Attention, Plugin System |
-| 15 | xFormers | Memory Efficient Attention, Dispatch |
-| 16 | vLLM | PagedAttention, Continuous Batching |
-
-### Final Project
-
-Mini TensorRT-LLM Attention Engine with:
-- FlashAttention integration
-- KV Cache management
-- PagedAttention
-- MQA / GQA support
-- Continuous Batching
-- Llama-style inference
-
-## Prerequisites
-
-- C++ and CUDA C++
-- Basic PyTorch usage
-- Linear algebra fundamentals
-- NVIDIA GPU with CUDA support (compute capability >= 8.0 recommended)
-
-## Build & Run
+## Build
 
 ```bash
-cd attention-optimization
-
-# Build all chapters
-mkdir build && cd build
-cmake ..
-make -j$(nproc)
-
-# Run specific chapter
-./chapters/chapter_01/naive_attention
-
-# Run Python benchmarks
-python src/chapter_01/benchmark.py
+cd /home/hpc/ghr_code/cuda_pytorch/attention-optimization
+mkdir -p build
+cd build
+cmake .. -DCMAKE_CUDA_ARCHITECTURES=80
+cmake --build . -j
 ```
+
+Build a specific chapter target:
+
+```bash
+cmake --build . --target naive_attention_gpu chapter_02_unit_test -j
+```
+
+Run registered CTest checks:
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+## Run
+
+Chapter01 CPU baseline:
+
+```bash
+./chapters/naive_attention
+python ../src/chapter_01/benchmark.py
+```
+
+Chapter02 CUDA tests and benchmark:
+
+```bash
+./chapters/chapter_02_unit_test
+./chapters/naive_attention_gpu
+```
+
+Python benchmark/profiling examples:
+
+```bash
+python ../src/chapter_02/benchmark.py
+python ../src/chapter_03/attention_profile.py
+```
+
+Nsight Compute example:
+
+```bash
+ncu --set full ./chapters/naive_attention_gpu
+```
+
+## Chapter02 Content Example
+
+Chapter02 now demonstrates the expected quality bar for future chapters:
+
+- notes explain GPU mapping, memory hierarchy, formulas, FLOPs, memory footprint, and Roofline analysis;
+- CUDA code contains global-memory and shared-memory kernels with explicit comments on tiling and redundant work;
+- `unit_test.cu` validates GPU outputs against a CPU reference;
+- benchmark reports latency, estimated bandwidth, and estimated TFLOPS;
+- README documents build, test, benchmark, and profiling commands.
 
 ## Coding Conventions
 
-- Code comments in English
-- Notes and documentation in Chinese
-- Google C++ style (2 spaces indent)
-- Python: PEP 8 (4 spaces indent)
+- Notes: Chinese explanation with English technical terms and formulas.
+- C++/CUDA comments: English, focused on kernel mapping and memory behavior.
+- C++ standard: C++17.
+- CUDA code: explicit error checking, deterministic small tests, benchmark warmup before timing.
+- Python: PEP 8 style.
+
+## Industrial Optimization Checklist
+
+For each chapter implementation, prefer this progression:
+
+1. CPU or PyTorch reference for correctness.
+2. Small deterministic unit tests.
+3. Reproducible benchmark shapes and warmup.
+4. Nsight profile for latency, occupancy, memory, and stalls.
+5. Clear notes linking math, code, and measured bottlenecks.

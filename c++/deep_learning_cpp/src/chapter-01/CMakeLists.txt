@@ -1,27 +1,26 @@
-add_library(onnxruntime SHARED IMPORTED)
-set_target_properties(onnxruntime PROPERTIES
-    IMPORTED_LOCATION ${ONNXRUNTIME_ROOT}/lib/libonnxruntime.so
-    INTERFACE_INCLUDE_DIRECTORIES ${ONNXRUNTIME_ROOT}/include
-)
+cmake_minimum_required(VERSION 3.22)
+project(Chapter01_Environment LANGUAGES CXX CUDA)
 
-list(APPEND CMAKE_PREFIX_PATH ${LIBTORCH_ROOT})
-
-find_package(Torch REQUIRED)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(vector_add vector_add.cu)
 set_target_properties(vector_add PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+if(BUILD_TESTS)
+    add_test(NAME deep_learning_ch01_vector_add COMMAND vector_add)
+endif()
 
-add_executable(lib_torch lib_torch.cpp)
-target_link_libraries(lib_torch ${TORCH_LIBRARIES})
-target_include_directories(lib_torch PRIVATE ${TORCH_INCLUDE_DIRS})
-set_target_properties(lib_torch PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON
-)
+list(APPEND CMAKE_PREFIX_PATH ${LIBTORCH_ROOT})
+find_package(Torch QUIET)
 
-add_executable(mini_net mini_net.cpp)
-target_link_libraries(mini_net ${TORCH_LIBRARIES})
-set_target_properties(mini_net PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON
-)
+if(Torch_FOUND)
+    add_executable(lib_torch lib_torch.cpp)
+    target_link_libraries(lib_torch PRIVATE ${TORCH_LIBRARIES})
+    target_include_directories(lib_torch PRIVATE ${TORCH_INCLUDE_DIRS})
+
+    add_executable(mini_net mini_net.cpp)
+    target_link_libraries(mini_net PRIVATE ${TORCH_LIBRARIES})
+    target_include_directories(mini_net PRIVATE ${TORCH_INCLUDE_DIRS})
+else()
+    message(WARNING "LibTorch not found -- skipping chapter-01 lib_torch and mini_net targets")
+endif()

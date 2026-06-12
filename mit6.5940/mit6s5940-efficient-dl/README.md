@@ -120,6 +120,87 @@ LLM专项 (2-3周)  → Lecture 12-15 + Lab 4-5
 - **端侧 AI**: 手机端运行 LLM → AWQ/W4A16 量化 + ONNX/TensorRT
 - **TensorRT 部署**: pruning + quantization → ONNX export → TensorRT engine → latency benchmark
 
+## 模型压缩实验
+
+> 详细理论与工业实践参考：[note/model_compression_industry.md](note/model_compression_industry.md)
+
+本项目新增统一脚本 `src/model_compression/benchmark_compression.py`，用于真实测量剪枝、量化、ONNX Runtime 和 TensorRT 可选部署路径。脚本默认使用 synthetic input，不依赖外部数据下载；没有 GPU 时自动运行 CPU baseline。
+
+### 环境依赖
+
+基础依赖：
+
+```bash
+pip install -r requirements.txt
+```
+
+关键测量框架：
+
+| 框架 | 用途 |
+|---|---|
+| PyTorch | 参数量、推理延迟、torch.profiler、CUDA memory |
+| fvcore / thop | FLOPs / MACs 统计 |
+| onnxruntime | ONNX 推理延迟 |
+| psutil | CPU 内存占用 |
+| pandas | Markdown 表格生成 |
+| TensorRT / trtexec | FP16 / INT8 engine benchmark，可选 |
+
+TensorRT 依赖 NVIDIA Driver、CUDA、TensorRT SDK 和 `trtexec`。如果当前环境没有 TensorRT，脚本会跳过 TensorRT 并在报告中写明原因。
+
+### 运行命令
+
+```bash
+python src/model_compression/benchmark_compression.py \
+  --batch-size 8 \
+  --seq-len 64 \
+  --hidden-size 128 \
+  --runs 30 \
+  --warmup 10
+```
+
+可选 GPU：
+
+```bash
+python src/model_compression/benchmark_compression.py --device cuda --batch-size 16
+```
+
+快速 smoke test：
+
+```bash
+python src/model_compression/benchmark_compression.py --runs 3 --warmup 1 --train-steps 1
+```
+
+### 输出文件
+
+| 文件 | 内容 |
+|---|---|
+| `reports/model_compression_report.md` | 压缩前后参数量、模型大小、压缩率、延迟、吞吐、显存/内存、误差对比 |
+| `reports/model_compression_report.json` | 原始结构化 benchmark 数据 |
+| `reports/artifacts/model_compression/*.pt` | PyTorch baseline / pruned / quantized 权重 |
+| `reports/artifacts/model_compression/*.onnx` | ONNX 导出模型 |
+
+### 覆盖案例
+
+- SmallCNN：PyTorch 非结构化剪枝、结构化通道剪枝、动态 INT8 量化、ONNX 导出、ONNX Runtime 推理。
+- Transformer AttentionBlock：Linear-heavy attention/FFN 的动态量化和低精度推理。
+- VLAActionHead：面向机器人 action chunk 输出的 MLP action head 压缩，使用 output MSE 衡量动作偏移。
+
+### 如何解读指标
+
+- **压缩率** = baseline model size / compressed model size。压缩率高不代表一定更快，非结构化稀疏如果没有 sparse kernel，latency 可能不降反升。
+- **延迟** 看 P50/P95/P99，而不是只看平均值。机器人和自动驾驶更关注 P99 是否满足控制周期。
+- **吞吐** = batch size / average latency。数据中心推理看 throughput，端侧交互更看 batch=1 latency。
+- **显存/内存** 决定能否提高 batch、并发数或上下文长度。LLM/VLA 场景还要额外关注 KV cache 和 action buffer。
+- **精度/误差** 本脚本用 compressed output 与 FP32 baseline output 的 MSE。真实项目应替换为 task metric，例如 accuracy、mAP、perplexity、success rate 或 trajectory error。
+
+### 工业界部署建议
+
+1. 先建立 FP32 baseline，再逐步尝试 FP16/BF16、INT8 PTQ、剪枝、QAT、蒸馏。
+2. CNN/ViT 端侧部署优先尝试结构化通道剪枝 + INT8 PTQ。
+3. Transformer/LLM CPU 推理优先尝试 dynamic quantization 或 weight-only quantization；GPU 推理优先使用 TensorRT/vLLM 等 runtime。
+4. VLA/机器人 action head 可以优先量化 MLP 中间层，最后 action projection 层谨慎量化，并用 action MSE、rollout success rate 和 P99 latency 一起验收。
+5. TensorRT engine 必须用目标硬件真实构建和 benchmark，不能只凭 PyTorch eager latency 判断上线收益。
+
 ## 论文导读目录
 
 | # | 论文 | 发表 | 与课程关联 |

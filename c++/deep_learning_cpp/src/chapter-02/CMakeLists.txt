@@ -6,10 +6,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- LibTorch ---
 list(APPEND CMAKE_PREFIX_PATH ${LIBTORCH_ROOT})
-find_package(Torch REQUIRED)
+find_package(Torch QUIET)
 
 # --- Eigen 3.4+ (header-only) ---
-find_package(Eigen3 REQUIRED)
+find_package(Eigen3 QUIET)
 
 # --- Armadillo 12+ (for library-powered preprocessing demo) ---
 find_package(Armadillo QUIET)
@@ -43,12 +43,16 @@ add_executable(feature_scaling 03_feature_scaling_and_standardization.cpp)
 # Structured Data: Dimensionality Reduction
 # ================================================================
 
-add_executable(Dimensionality_reduction 04_Dimensionality_reduction.cpp)
-target_include_directories(Dimensionality_reduction PRIVATE
-    ${TORCH_INCLUDE_DIRS}
-    ${EIGEN3_INCLUDE_DIR}
-)
-target_link_libraries(Dimensionality_reduction ${TORCH_LIBRARIES})
+if(Torch_FOUND AND Eigen3_FOUND)
+    add_executable(Dimensionality_reduction 04_Dimensionality_reduction.cpp)
+    target_include_directories(Dimensionality_reduction PRIVATE
+        ${TORCH_INCLUDE_DIRS}
+        ${EIGEN3_INCLUDE_DIR}
+    )
+    target_link_libraries(Dimensionality_reduction PRIVATE ${TORCH_LIBRARIES})
+else()
+    message(WARNING "LibTorch or Eigen3 not found -- skipping Dimensionality_reduction target")
+endif()
 
 # ================================================================
 # Structured Data: Time-Series & Feature Engineering
@@ -90,13 +94,17 @@ add_executable(audio_video 15_audio_video.cpp)
 # LibTorch Examples: Autoencoder, Custom Dataset
 # ================================================================
 
-add_executable(libtorch_ae 08_libtorch.cpp)
-target_link_libraries(libtorch_ae ${TORCH_LIBRARIES})
-target_include_directories(libtorch_ae PRIVATE ${TORCH_INCLUDE_DIRS})
+if(Torch_FOUND)
+    add_executable(libtorch_ae 08_libtorch.cpp)
+    target_link_libraries(libtorch_ae PRIVATE ${TORCH_LIBRARIES})
+    target_include_directories(libtorch_ae PRIVATE ${TORCH_INCLUDE_DIRS})
 
-add_executable(custom_dataset 17_custom_dataset_demo.cpp)
-target_link_libraries(custom_dataset ${TORCH_LIBRARIES})
-target_include_directories(custom_dataset PRIVATE ${TORCH_INCLUDE_DIRS})
+    add_executable(custom_dataset 17_custom_dataset_demo.cpp)
+    target_link_libraries(custom_dataset PRIVATE ${TORCH_LIBRARIES})
+    target_include_directories(custom_dataset PRIVATE ${TORCH_INCLUDE_DIRS})
+else()
+    message(WARNING "LibTorch not found -- skipping libtorch_ae and custom_dataset targets")
+endif()
 
 # ================================================================
 # Contextual Embedding (ONNX Runtime - optional)

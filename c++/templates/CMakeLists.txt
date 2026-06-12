@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(multhread
+project(cpp_templates_cutlass_learning
     VERSION 1.0.0
     DESCRIPTION "From C++ Templates to CUTLASS to AI Inference Engines"
     LANGUAGES CXX
@@ -17,7 +17,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Options
 # ============================================================
 option(ENABLE_CUDA "Enable CUDA support" OFF)
-option(BUILD_TESTS "Build tests" OFF)
+option(BUILD_TESTS "Build tests" ON)
+
+if(BUILD_TESTS)
+    enable_testing()
+endif()
 
 # ============================================================
 # Top-level include directories
@@ -196,10 +200,19 @@ if(ENABLE_CUDA)
 endif()
 
 # ============================================================
+# Smoke tests
+# ============================================================
+if(BUILD_TESTS)
+    add_test(NAME templates_basic_function_template COMMAND chapter-01_01_basic_function_template)
+    add_test(NAME templates_gemm_basic COMMAND gemm_basic)
+    add_test(NAME templates_inference_demo COMMAND inference_demo)
+endif()
+
+# ============================================================
 # Status summary
 # ============================================================
 message(STATUS "============================================")
-message(STATUS "multhread build configuration")
+message(STATUS "cpp_templates_cutlass_learning build configuration")
 message(STATUS "  C++ Standard: 20")
 message(STATUS "  CUDA Enabled: ${ENABLE_CUDA}")
 message(STATUS "  Build Type:   ${CMAKE_BUILD_TYPE}")

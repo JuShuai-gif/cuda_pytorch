@@ -155,9 +155,9 @@ static void paged_attention(
             int phys_block = block_table.physical_blocks[logical_block];
             int tokens_in_block = std::min(BLOCK_SIZE, total_tokens - logical_block * BLOCK_SIZE);
 
-            float *k_block = cache.k_blocks.data()
+            const float *k_block = cache.k_blocks.data()
                              + phys_block * BLOCK_SIZE * n_heads * d;
-            float *v_block = cache.v_blocks.data()
+            const float *v_block = cache.v_blocks.data()
                              + phys_block * BLOCK_SIZE * n_heads * d;
 
             // Process each token in this block

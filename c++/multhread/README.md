@@ -7,7 +7,7 @@
 ## 目录结构
 
 ```text
-c++/templates/
+c++/multhread/
 ├── note/                          # 学习笔记（对应全书 11 章）
 ├── src/                           # 示例代码（每章独立可编译运行）
 │   ├── chapter-01/                # 你好，C++ 并发世界
@@ -49,7 +49,7 @@ c++/templates/
 
 ```bash
 # 进入项目目录
-cd c++/templates
+cd c++/multhread
 
 # 创建构建目录
 mkdir build && cd build

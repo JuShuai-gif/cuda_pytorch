@@ -6,3 +6,4 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -march=native")
 
 add_executable(kv_cache kv_cache.cpp)
+add_test(NAME chapter_07_kv_cache COMMAND kv_cache)

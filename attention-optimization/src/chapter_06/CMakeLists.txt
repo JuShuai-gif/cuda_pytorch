@@ -9,3 +9,4 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -O2 -gencode arch=compute_80,code=sm_80")
 
 add_executable(flash_attention_v3_sim flash_attention_v3_sim.cu)
+add_test(NAME chapter_06_flash_attention_v3_sim COMMAND flash_attention_v3_sim)

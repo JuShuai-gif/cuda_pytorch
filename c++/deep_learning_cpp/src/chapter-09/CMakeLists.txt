@@ -6,7 +6,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- LibTorch ---
 list(APPEND CMAKE_PREFIX_PATH ${LIBTORCH_ROOT})
-find_package(Torch REQUIRED)
+find_package(Torch QUIET)
+
+if(NOT Torch_FOUND)
+    message(WARNING "LibTorch not found -- skipping Chapter09 Transformer targets")
+    return()
+endif()
 
 # ================================================================
 # Attention Mechanism

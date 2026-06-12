@@ -6,3 +6,4 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -march=native")
 
 add_executable(mini_paged_attention mini_paged_attention.cpp)
+add_test(NAME chapter_08_mini_paged_attention COMMAND mini_paged_attention)

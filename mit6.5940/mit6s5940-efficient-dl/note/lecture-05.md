@@ -142,6 +142,89 @@ $$\text{MSE} \approx \frac{1}{12} \cdot \Delta^2, \quad \Delta = 2S$$
 
 > **关键结论**: FP32→INT8+剪枝，年度 GPU 成本从 2555 万美元降至 511 万美元，节省 80%（超过 2000 万美元/年）。对于推荐系统等对精度容忍度较高的场景，这是几乎无痛的成本优化。对于安全攸关场景（如支付风控），宁可多花 2000 万也要保证精度。
 
+### 模型压缩工业落地
+
+量化、剪枝、蒸馏通常不是互斥选择，而是一条逐步降低成本的 deployment ladder：
+
+```mermaid
+flowchart TD
+    A[FP32 Baseline] --> B[FP16 / BF16 Mixed Precision]
+    B --> C[INT8 PTQ Calibration]
+    C --> D{Accuracy Drop Acceptable?}
+    D -- Yes --> E[Export ONNX / TensorRT / OpenVINO]
+    D -- No --> F[QAT Finetune]
+    F --> G[Teacher-Student Distillation]
+    G --> E
+    E --> H[Runtime Benchmark: latency throughput memory accuracy]
+    H --> I[Deploy or Roll Back]
+```
+
+低精度格式的工程取舍：
+
+| 格式 | English Concept | 典型用途 | 风险 |
+|---|---|---|---|
+| FP32 | Full Precision | 训练基线、精度对照 | 模型大、显存高、吞吐低 |
+| FP16 | Half Precision | NVIDIA Tensor Core 推理/训练 | 小数动态范围较窄，可能 overflow/underflow |
+| BF16 | Brain Floating Point | 训练和推理混合精度 | 尾数少于 FP16，部分端侧硬件不支持 |
+| INT8 | 8-bit Integer | TensorRT/OpenVINO/TFLite 生产推理 | calibration 数据不匹配会掉点 |
+| INT4 | 4-bit Integer | LLM weight-only quantization, GGUF, AWQ/GPTQ | activation outlier 和 group size 选择很敏感 |
+
+PTQ 与 QAT 的落地判断：
+
+| 方法 | 训练成本 | 精度恢复能力 | 适合场景 |
+|---|---:|---:|---|
+| PTQ | 低 | 中 | CNN、检测模型、校准集覆盖充分的服务 |
+| QAT | 高 | 高 | 搜索排序、自动驾驶、机器人控制等精度敏感任务 |
+| Dynamic Quantization | 很低 | 中 | MLP、RNN、Transformer Linear-heavy CPU 推理 |
+| Weight-only INT4 | 中 | 中 | LLM 本地部署，llama.cpp/GGUF/vLLM/AWQ |
+
+蒸馏在压缩链路里的作用：
+
+- **Teacher-Student**: teacher 保持 FP32/大模型，student 是剪枝或量化后的模型。
+- **Logits Distillation**: 对齐 soft logits，常用于分类、检索和语言模型。
+- **Feature Distillation**: 对齐中间 feature map / hidden states，常用于 CNN、ViT、VLA action head。
+
+典型损失函数：
+
+$$
+\mathcal{L}_{KD} = \alpha \cdot CE(y, p_s) + (1 - \alpha) T^2 KL(softmax(z_t/T) \| softmax(z_s/T))
+$$
+
+$$
+\mathcal{L}_{feature} = \| f_t(x) - P(f_s(x)) \|_2^2
+$$
+
+部署格式选择：
+
+| Runtime | 最适合 | 量化支持 | 工业建议 |
+|---|---|---|---|
+| ONNX Runtime | 跨平台 CPU/GPU 推理 | Dynamic INT8, Static INT8 | 做 baseline 和回归测试很合适 |
+| TensorRT | NVIDIA GPU 数据中心/边缘盒子 | FP16, INT8, sparsity | 必须保存 engine build log 和真实 P50/P95/P99 |
+| TorchScript | PyTorch 服务内部署 | 有限 | 适合快速上线，不适合作为跨硬件标准格式 |
+| OpenVINO | Intel CPU/iGPU/NPU | INT8 PTQ/QAT | x86 边缘设备优先考虑 |
+| llama.cpp / GGUF | LLM 本地推理 | INT8/INT5/INT4/INT3 | 关注 tokens/s、KV cache、上下文长度和内存峰值 |
+
+上线前必须生成的压缩报告：
+
+| 指标 | Measurement | 为什么重要 |
+|---|---|---|
+| 模型大小 | serialized model size | 决定存储、下载、冷启动 |
+| 参数量 | parameter count | 判断结构是否真的变小 |
+| FLOPs / MACs | fvcore/thop | 解释理论计算变化 |
+| 显存 / 内存 | torch.cuda.memory_allocated / psutil | 决定并发和端侧可部署性 |
+| 推理延迟 | cudaEvent / time.perf_counter / onnxruntime | 决定单请求体验和控制频率 |
+| 吞吐 | samples/s 或 tokens/s | 决定服务成本 |
+| 精度下降 / 输出误差 | accuracy, mAP, perplexity, action MSE | 决定是否能上线 |
+
+对于 VLA / 机器人推理，量化不只看平均 latency。Action head 往往运行在 20-100Hz 控制回路中，必须检查：
+
+$$
+P99(\text{perception} + \text{policy} + \text{action head}) < \text{control period}
+$$
+
+如果 INT8 让 action MSE 明显上升，即使 latency 下降，也可能导致轨迹抖动或抓取失败。工业实践中通常先量化视觉 encoder 和 MLP action head，保留最后一层 action projection 为 FP16/BF16，再用 feature distillation 恢复动作分布。
+
+
 ## 6. PyTorch 实现思路
 
 ### 6.1 基础线性量化

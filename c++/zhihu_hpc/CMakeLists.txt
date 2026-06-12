@@ -16,6 +16,10 @@ option(ENABLE_AVX512  "Build with AVX512 support" OFF)
 option(BUILD_TESTS    "Build test programs"       OFF)
 option(BUILD_DEMOS    "Build demonstration programs" ON)
 
+if(BUILD_TESTS)
+    enable_testing()
+endif()
+
 # Common compile options
 add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
 
@@ -119,4 +123,13 @@ if(HAS_X86)
     message(STATUS "  SSE4.1:       ${ENABLE_SSE4_1}")
     message(STATUS "  AVX2:         ${ENABLE_AVX2}")
     message(STATUS "  AVX512:       ${ENABLE_AVX512}")
+endif()
+
+# ---------------------------------------------------------------------------
+# Smoke tests
+# ---------------------------------------------------------------------------
+if(BUILD_TESTS AND BUILD_DEMOS)
+    add_test(NAME zhihu_hpc_ch07_demo COMMAND ch07_demo)
+    add_test(NAME zhihu_hpc_ch09_demo COMMAND ch09_demo)
+    add_test(NAME zhihu_hpc_ch16_demo COMMAND ch16_demo)
 endif()

@@ -11,14 +11,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # --- Explainability Concepts (pure STL) ---
 add_executable(explainability_concepts 01_explainability_concepts.cpp)
 
-# --- LIME Tabular (needs Eigen) ---
-find_package(Eigen3 REQUIRED)
-add_executable(lime_tabular 02_lime_tabular.cpp)
-target_include_directories(lime_tabular PRIVATE ${EIGEN3_INCLUDE_DIR})
+# --- LIME / KernelSHAP (need Eigen) ---
+find_package(Eigen3 QUIET)
+if(Eigen3_FOUND)
+    add_executable(lime_tabular 02_lime_tabular.cpp)
+    target_include_directories(lime_tabular PRIVATE ${EIGEN3_INCLUDE_DIR})
 
-# --- KernelSHAP (needs Eigen) ---
-add_executable(shap_kernelshap 03_shap_kernelshap.cpp)
-target_include_directories(shap_kernelshap PRIVATE ${EIGEN3_INCLUDE_DIR})
+    add_executable(shap_kernelshap 03_shap_kernelshap.cpp)
+    target_include_directories(shap_kernelshap PRIVATE ${EIGEN3_INCLUDE_DIR})
+else()
+    message(WARNING "Eigen3 not found -- skipping lime_tabular and shap_kernelshap targets")
+endif()
 
 # --- Grad-CAM (needs LibTorch + OpenCV) ---
 find_package(OpenCV QUIET)

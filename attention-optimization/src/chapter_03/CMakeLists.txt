@@ -8,7 +8,7 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -O2 -lineinfo")
 
-# NVTX benchmark helper
-add_library(nvtx_benchmark STATIC benchmark.cu)
-target_include_directories(nvtx_benchmark PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_compile_options(nvtx_benchmark PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-gencode arch=compute_80,code=sm_80>)
+add_executable(profiling_benchmark benchmark.cu)
+target_compile_options(profiling_benchmark PRIVATE
+  $<$<COMPILE_LANGUAGE:CUDA>:-gencode arch=compute_80,code=sm_80>)
+add_test(NAME chapter_03_profiling_benchmark COMMAND profiling_benchmark)
