@@ -28,6 +28,17 @@ MIT 6.5940 (Efficient Deep Learning Computing / TinyML) 由 MIT HAN Lab 的 **Pr
 第 22-23 讲: 课程总结与前沿  → 量子 ML 等前沿方向
 ```
 
+## 学习路线总览
+
+```
+入门 (1-2周)     → Lecture 01-02 + Lab 0
+核心压缩 (2-4周) → Lecture 03-09 + Lab 1-3  （剪枝/量化/NAS/知识蒸馏）
+系统部署 (1-2周) → Lecture 10-11            （MCUNet + TinyEngine 端侧部署）
+LLM专项 (2-3周)  → Lecture 12-15 + Lab 4-5  （Transformer/LLM 压缩与部署）
+高级专题 (2-3周) → Lecture 16-21            （ViT/Diffusion/分布式/端侧训练）
+工业项目 (2-4周) → project/edge_ai_compression_deployment
+```
+
 ## 目录结构
 
 ```
@@ -200,6 +211,24 @@ python src/model_compression/benchmark_compression.py --runs 3 --warmup 1 --trai
 3. Transformer/LLM CPU 推理优先尝试 dynamic quantization 或 weight-only quantization；GPU 推理优先使用 TensorRT/vLLM 等 runtime。
 4. VLA/机器人 action head 可以优先量化 MLP 中间层，最后 action projection 层谨慎量化，并用 action MSE、rollout success rate 和 P99 latency 一起验收。
 5. TensorRT engine 必须用目标硬件真实构建和 benchmark，不能只凭 PyTorch eager latency 判断上线收益。
+
+## 工作中注意事项
+
+### 指标解读（别只看表面数字）
+
+- **压缩率高不代表更快**: 非结构化稀疏如果没有 sparse kernel，latency 可能不降反升
+- **延迟看 P50/P95/P99，不看平均值**: 机器人和自动驾驶更关注 P99 是否满足控制周期
+- **吞吐 vs 延迟场景不同**: 数据中心推理看 throughput，端侧交互看 batch=1 latency
+- **显存/内存决定上限**: 影响 batch size、并发数、上下文长度；LLM/VLA 额外关注 KV cache 和 action buffer
+- **精度用 task metric 衡量**: 不要只用 MSE，替换为 accuracy、mAP、perplexity、success rate 等真实业务指标
+
+### 部署铁律
+
+1. 先建 FP32 baseline，再逐步尝试 FP16/BF16 → INT8 PTQ → 剪枝 → QAT → 蒸馏
+2. CNN/ViT 端侧部署优先尝试结构化通道剪枝 + INT8 PTQ
+3. Transformer/LLM CPU 推理优先 dynamic/weight-only quantization；GPU 推理优先 TensorRT/vLLM 等 runtime
+4. VLA/机器人 action head 优先量化 MLP 中间层，action projection 层谨慎量化，用 action MSE + rollout success rate + P99 latency 一起验收
+5. TensorRT engine 必须在目标硬件上真实 build + benchmark，不能只凭 PyTorch eager latency 判断上线收益
 
 ## 论文导读目录
 
