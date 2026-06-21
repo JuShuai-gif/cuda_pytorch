@@ -1,0 +1,47 @@
+# Build directories
+build/
+build-*/
+cmake-build-*/
+out/
+
+# CMake artifacts
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+*.ninja
+.ninja_deps
+.ninja_log
+
+# TableGen / generated
+*.inc
+
+# Object / binary
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.exe
+
+# Editor / IDE
+.vscode/
+.idea/
+.cache/
+*.swp
+*~
+
+# Python (importer / calibration scripts)
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Reports / profiling artifacts that are regenerated
+benchmarks/results/
+reports/*.json
+*.trace
+*.prof
+
+# OS
+.DS_Store

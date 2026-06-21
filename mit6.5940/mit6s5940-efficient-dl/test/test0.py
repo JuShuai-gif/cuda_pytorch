@@ -2,6 +2,9 @@ import torch
 import torchvision.models as models
 
 model = models.resnet50()
+
+print(model)
+
 total_params = sum(p.numel() for p in model.parameters())
 trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 

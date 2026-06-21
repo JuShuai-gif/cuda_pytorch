@@ -1,0 +1,17 @@
+.announcement {
+  @extend %card;
+
+  h1, h2 {
+    @extend .text-gamma;
+  }
+
+  .announcement-meta {
+    @extend .text-epsilon;
+  }
+}
+
+.announcement-highlight {
+  p:last-child {
+    margin-bottom: 0;
+  }
+}

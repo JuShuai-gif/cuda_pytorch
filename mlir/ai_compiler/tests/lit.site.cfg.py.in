@@ -1,0 +1,14 @@
+@LIT_SITE_CFG_IN_HEADER@
+
+# LLVM 工具目录: 指向 LLVM 构建目录 (含 FileCheck/count/not/mlir-opt),
+# 因为本地 install 未安装这些测试工具.
+config.llvm_tools_dir = "/home/ghr/code/llvm-project/build/bin"
+config.mlir_obj_dir = "@MLIR_BINARY_DIR@"
+config.edge_obj_root = "@EDGE_BINARY_DIR@"
+config.llvm_shlib_ext = "@SHLIBEXT@"
+
+import lit.llvm
+lit.llvm.initialize(lit_config, config)
+
+# 交由主配置完成实际工作
+lit_config.load_config(config, "@EDGE_SOURCE_DIR@/tests/lit.cfg.py")

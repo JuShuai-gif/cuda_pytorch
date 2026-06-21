@@ -97,6 +97,20 @@ def production_model_audit(
 model = models.resnet50()
 audit = production_model_audit(model, (1, 3, 224, 224), "cuda")
 print(f"Latency: {audit['latency_ms']}ms | Memory: {audit['peak_memory_mb']}MB")
+print(
+    f"Total params: {audit['total_params']:,} | Trainable: {audit['trainable_params']:,}"
+)
+print(f"Params by dtype: { {str(k): v for k, v in audit['params_by_dtype'].items()} }")
+# 道理：此处的 WARNING 是「待办提醒」而非报错，模型仍可正常推理，但提示
+# 量化流水线还差一步 Conv-BN fusion。含义说明如下：
+#   - 检出的 BN 数量（ResNet50 为 53）= 16 个 Bottleneck × 3 + 4 个 downsample
+#     的 BN + stem 的 bn1，共 53 个 BatchNorm2d
+#   - BN 推理公式 y = (x - μ)/sqrt(σ²+ε) * γ + β 是一组固定的线性缩放/偏移，
+#     可在数学上等价地折叠进前一层 Conv 的 weight/bias（即 Conv-BN fusion）
+#   - 若「不融合」就做 INT8 量化：每个独立 BN 都要插入额外的 quantize/dequantize，
+#     既拖慢推理，又因多一次量化误差导致精度严重下降
+#   - PyTorch 中可用 torch.quantization.fuse_modules 或 torch.ao.quantization
+#     的 fuse 接口自动完成 Conv+BN(+ReLU) 的融合
 if audit["unfused_bn_layers"]:
     print(
         f"WARNING: {len(audit['unfused_bn_layers'])} BN layers need fusion before INT8 quantization!"
