@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 
 
-@torch.no_grad()
+@torch.no_grad()  # 剪枝是纯权重操作，不需要梯度，禁用 autograd 省内存
 def global_magnitude_prune(model: nn.Module, sparsity: float):
     """对整个模型做全局非结构化幅度剪枝。
 
@@ -25,8 +25,8 @@ def global_magnitude_prune(model: nn.Module, sparsity: float):
     返回：
         原地修改后的 model。
     """
-    weights = []
-    modules = []
+    weights = []  # 收集每个可剪层的权重绝对值（已展平）
+    modules = []  # 同步收集对应的模块引用，便于后面写回 mask
 
     # 只剪 Conv2d 和 Linear 的 weight；BN/LayerNorm 通常不在这里剪。
     for m in model.modules():
@@ -36,8 +36,9 @@ def global_magnitude_prune(model: nn.Module, sparsity: float):
 
     # 将所有可剪层的权重绝对值拼在一起，做“全局”阈值选择。
     flat = torch.cat(weights)
-    k = int(flat.numel() * sparsity)
+    k = int(flat.numel() * sparsity)  # 需要置零的权重总数
     if k <= 0:
+        # sparsity 太小（或为 0）导致一个都不用剪，直接返回。
         return model
 
     # 第 k 小的绝对值作为剪枝阈值。
@@ -45,24 +46,25 @@ def global_magnitude_prune(model: nn.Module, sparsity: float):
 
     # 小于等于阈值的权重被置零，大于阈值的权重保留。
     for m in modules:
+        # 大于阈值 -> 1，否则 -> 0，转成与权重相同 dtype 的 mask。
         mask = (m.weight.detach().abs() > threshold).to(m.weight.dtype)
-        m.weight.mul_(mask)
+        m.weight.mul_(mask)  # 原地置零
     return model
 
 
 @torch.no_grad()
 def prunable_sparsity(model: nn.Module):
-    """统计 Conv2d/Linear 权重中的实际稀疏度。"""
+    """统计 Conv2d/Linear 权重中的实际稀疏度（零值占比）。"""
     total = zeros = 0
     for m in model.modules():
         if isinstance(m, (nn.Conv2d, nn.Linear)):
             w = m.weight.detach()
-            total += w.numel()
-            zeros += int((w == 0).sum())
-    return zeros / max(total, 1)
+            total += w.numel()  # 累加权重总数
+            zeros += int((w == 0).sum())  # 累加零值个数
+    return zeros / max(total, 1)  # max(...,1) 防止除零
 
 
 # 构造一个最小 MLP，用于演示剪枝前后稀疏度。
 model = nn.Sequential(nn.Linear(128, 64), nn.ReLU(), nn.Linear(64, 10))
-global_magnitude_prune(model, sparsity=0.5)
-print(f"actual sparsity = {prunable_sparsity(model):.2%}")
+global_magnitude_prune(model, sparsity=0.5)  # 全局剪掉 50% 权重
+print(f"actual sparsity = {prunable_sparsity(model):.2%}")  # 打印实际稀疏度

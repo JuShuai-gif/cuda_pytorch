@@ -19,20 +19,23 @@ def production_sparse_inference_setup(
     在 50% 稀疏度附近，values + col_idx + row_ptr 的索引开销可能很高。
     这也是为什么 2:4 稀疏更依赖硬件原生支持，而不是普通 CSR。
     """
-    original_size = dense_weight.numel() * dense_weight.element_size()
+    original_size = dense_weight.numel() * dense_weight.element_size()  # dense 字节数
 
     # 生成 2:4 稀疏 mask：每连续 4 个元素中保留幅度最大的 2 个。
-    dense_reshaped = dense_weight.view(-1, 4)
+    dense_reshaped = dense_weight.view(-1, 4)  # 拉平后每 4 个一组
 
     # 对每组 4 个元素按绝对值排序，第二小作为阈值：小的 2 个被剪掉。
+    # sorted_mag 形状 (-1, 4)，列 0..3 从小到大；取列 1 即“第二小”。
     sorted_mag, _ = dense_reshaped.abs().sort(dim=1)
-    threshold = sorted_mag[:, 1:2]
+    threshold = sorted_mag[:, 1:2]  # 保持成 (-1, 1) 以便广播比较
+    # >= 阈值的保留：每组恰好保留最大的 2 个 -> 50% 稀疏（2:4 模式）。
     mask_2_4 = (dense_reshaped.abs() >= threshold).float()
-    sparse_weight = (dense_reshaped * mask_2_4).view_as(dense_weight)
+    sparse_weight = (dense_reshaped * mask_2_4).view_as(dense_weight)  # 还原形状
 
     # 转成 CSR 只是为了估算通用稀疏存储开销；TensorRT 的 2:4 路径不是这样部署。
     sparse_csr = sparse_weight.to_sparse_csr()
 
+    # CSR 总开销 = 非零值 + 列索引 + 行指针 三部分字节数之和。
     csr_size = (
         sparse_csr.values().numel() * sparse_csr.values().element_size()
         + sparse_csr.col_indices().numel() * sparse_csr.col_indices().element_size()
@@ -40,16 +43,16 @@ def production_sparse_inference_setup(
     )
 
     return {
-        'dense_size_mb': original_size / (1024**2),
-        'csr_size_mb': csr_size / (1024**2),
-        'sparsity': (sparse_weight == 0).float().mean().item(),
-        'break_even': csr_size < original_size,
+        "dense_size_mb": original_size / (1024**2),  # dense 大小(MB)
+        "csr_size_mb": csr_size / (1024**2),  # CSR 大小(MB)
+        "sparsity": (sparse_weight == 0).float().mean().item(),  # 实际稀疏度
+        "break_even": csr_size < original_size,  # CSR 是否真的更省
     }
 
 
 # 关键教训：必须在目标硬件和真实 batch size 上 benchmark。
 # 纸面上快 3x 的 CSR matmul，在真实 GPU batch=1 场景下可能因为不规则访存变慢。
 if __name__ == "__main__":
-    weight = torch.randn(1024, 1024)
-    report = production_sparse_inference_setup(weight)
+    weight = torch.randn(1024, 1024)  # 构造一个 1024x1024 的稠密权重
+    report = production_sparse_inference_setup(weight)  # 做 2:4 剪枝并估算存储开销
     print(report)
