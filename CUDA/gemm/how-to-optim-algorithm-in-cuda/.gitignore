@@ -29,8 +29,6 @@ __pycache__/
 *.qdrep
 
 # Large assets
-*.pdf
-*.pptx
 *.pt
 *.pth
 *.onnx
