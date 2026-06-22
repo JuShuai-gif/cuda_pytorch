@@ -1,0 +1,123 @@
+{
+  "generated_at": "2026-06-22T11:36:40.880964",
+  "stages": {
+    "baseline": {
+      "stage": "baseline",
+      "model": "tinycnn",
+      "accuracy": 0.0859375,
+      "timestamp": "2026-06-22T11:36:40.880172",
+      "params_M": 0.0,
+      "flops_M": 0.86,
+      "size_MB": 0.02,
+      "latency_ms": 0.184,
+      "memory_MB": "N/A"
+    },
+    "pruned": {
+      "stage": "pruned",
+      "model": "tinycnn-pruned",
+      "accuracy": 0.1015625,
+      "timestamp": "2026-06-22T11:36:40.880209",
+      "params_M": 0.0,
+      "flops_M": 0.86,
+      "size_MB": 0.02,
+      "latency_ms": 0.195,
+      "memory_MB": "N/A",
+      "extra": {
+        "sparsity": 0.5
+      }
+    },
+    "quantized": {
+      "stage": "quantized",
+      "model": "tinycnn-quantized-8bit",
+      "accuracy": 0.0859375,
+      "timestamp": "2026-06-22T11:36:40.880237",
+      "params_M": 0.0,
+      "flops_M": 0.86,
+      "size_MB": 0.02,
+      "latency_ms": 0.187,
+      "memory_MB": "N/A",
+      "extra": {
+        "model": "TinyCNN(\n  (conv1): Conv2d(3, 16, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)\n  (bn1): BatchNorm2d(16, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)\n  (dwconv1): Conv2d(16, 16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), groups=16, bias=False)\n  (pwconv1): Conv2d(16, 32, kernel_size=(1, 1), stride=(1, 1), bias=False)\n  (bn2): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)\n  (dwconv2): Conv2d(32, 32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), groups=32, bias=False)\n  (pwconv2): Conv2d(32, 64, kernel_size=(1, 1), stride=(1, 1), bias=False)\n  (bn3): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)\n  (avgpool): AdaptiveAvgPool2d(output_size=(1, 1))\n  (classifier): Conv2d(64, 10, kernel_size=(1, 1), stride=(1, 1))\n)",
+        "bits": 8,
+        "scheme": "per_channel",
+        "accuracy": 0.0859375
+      }
+    },
+    "distilled": {
+      "stage": "distilled",
+      "model": "tinycnn-distilled",
+      "accuracy": 0.03125,
+      "timestamp": "2026-06-22T11:36:40.880340",
+      "params_M": 0.0,
+      "flops_M": 0.86,
+      "size_MB": 0.02,
+      "latency_ms": 0.18,
+      "memory_MB": "N/A"
+    },
+    "final": {
+      "stage": "final",
+      "model": "tinycnn-final",
+      "accuracy": 0.03125,
+      "timestamp": "2026-06-22T11:36:40.880364",
+      "params_M": 0.0,
+      "flops_M": 0.86,
+      "size_MB": 0.02,
+      "latency_ms": 0.211,
+      "memory_MB": "N/A",
+      "extra": {
+        "export": {
+          "onnx_export": {
+            "success": false,
+            "error": "ONNX 库未安装"
+          },
+          "size_report": {
+            "pytorch_pt": {
+              "path": "./output/model.pt",
+              "size_bytes": 24233,
+              "size_mb": 0.02
+            },
+            "torchscript": {
+              "path": "./output/model_scripted.pt",
+              "size_bytes": 50118,
+              "size_mb": 0.05
+            },
+            "parameters": {
+              "total": 4298,
+              "fp32_memory_mb": 0.02,
+              "int8_memory_mb": 0.0,
+              "int4_memory_mb": 0.0
+            }
+          },
+          "tensorrt_simulation": {
+            "simulated": true,
+            "note": "本报告为 TensorRT 工作流的概念验证模拟，无实际 GPU 环境。",
+            "steps": [
+              "1. 解析 ONNX 模型图",
+              "2. 识别可融合的层（Conv+BN+ReLU → CBR 融合）",
+              "3. 消除不必要的 reshape/transpose 操作",
+              "4. 常量折叠（预计算常量表达式）",
+              "5. 选择最优 kernel 实现（精度校准中）",
+              "6. INT8 校准表生成（需要校准数据集）"
+            ],
+            "original_size_mb": 0.0,
+            "estimated_optimizations": {
+              "FP32": {
+                "size_mb": 0.0,
+                "latency_improvement": "1.5x"
+              },
+              "FP16": {
+                "size_mb": 0.0,
+                "latency_improvement": "2.0x"
+              },
+              "INT8": {
+                "size_mb": 0.0,
+                "latency_improvement": "3.0x"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "num_stages": 5
+}
