@@ -436,3 +436,90 @@ print(f"Arithmetic intensity: {arithmetic_intensity:.2f} MAC/byte")
 
 工业解读：如果 arithmetic intensity 很低，模型更可能 memory-bound；此时减少 FLOPs 不一定有效，应该优先减少中间 tensor、做 fusion 或改 layout。
 
+## 14. 常用 MACs / FLOPs 统计工具
+
+第 13 节的手算只适用于单层。真实模型有几十上百层、分支、自定义算子，手算不现实。工业界用现成的 profiler 库自动统计。**关键在于：不同工具的统计原理不同，适用的模型类型也不同**——选错工具会导致 MACs 漏算或重复计数。
+
+### 14.1 工具对比与适用模型类型
+
+| 工具 | 统计原理 | 最适用模型 | 优点 | 局限 |
+|------|---------|-----------|------|------|
+| **thop** | 注册 module 级 hook | CNN（ResNet/VGG/MobileNet） | 极轻量，一行出结果 | Transformer/自定义 op 需手写 hook，attention 易漏算 |
+| **ptflops** | 同 thop（hook） | CNN / 简单前馈结构 | 输出格式友好，带逐层表 | 同 thop，动态控制流不支持 |
+| **fvcore** (`FlopCountAnalysis`) | 基于 `torch.jit` trace + 算子级规则 | CNN / 检测 / 分割（Detectron2 系）、ViT | 逐模块统计，会列出未支持算子（`unsupported ops`），Transformer 支持好 | 需模型可 trace；自定义 op 要注册 handle |
+| **torchprofile** | TorchScript trace + 算子级 | 通用，含 Transformer / 含复杂分支 | 算子覆盖最全、精度最高 | 模型必须能被 trace（动态 shape/控制流受限） |
+| **calflops** | trace + 算子规则 | LLM / Transformer / CNN 通用 | 直接支持 HuggingFace 模型，输出 FLOPs+MACs+Params | 较新，生态不如前者成熟 |
+| **torch.profiler** (`with_flops=True`) | 运行时真实算子采集 | 任意（实测 GPU/CPU 算子） | 测真实执行的 FLOPs+延迟+内存，不漏运行时算子 | 偏 profiling，需真实跑一次；理论 FLOPs 不如 trace 类精确 |
+
+> 经验法则：
+> - **纯 CNN** → thop / ptflops 够用，最省事
+> - **Transformer / ViT / 检测分割** → fvcore 或 torchprofile（attention 的 matmul 不能漏）
+> - **LLM (HuggingFace)** → calflops
+> - **要真实硬件数据** → torch.profiler
+
+### 14.2 三种主流工具代码示例
+
+```python
+import torch
+import torchvision.models as models
+
+model = models.resnet50().eval()
+dummy = torch.randn(1, 3, 224, 224)
+
+# --- 1. thop: lightest, best for plain CNNs ---
+from thop import profile, clever_format
+macs, params = profile(model, inputs=(dummy,), verbose=False)
+macs, params = clever_format([macs, params], "%.3f")
+print(f"[thop]        MACs={macs}  Params={params}")  # ~4.1 GMac, ~25.5 M
+
+# --- 2. fvcore: per-module, lists unsupported ops (good for ViT/detection) ---
+from fvcore.nn import FlopCountAnalysis, parameter_count
+flops = FlopCountAnalysis(model, dummy)
+print(f"[fvcore]      FLOPs={flops.total() / 1e9:.3f} G")  # note: fvcore counts FLOPs ~= MACs here
+print("unsupported ops:", flops.unsupported_ops())          # critical: check what was missed
+
+# --- 3. torchprofile: trace-based, most accurate op coverage ---
+from torchprofile import profile_macs
+macs = profile_macs(model, dummy)
+print(f"[torchprofile] MACs={macs / 1e9:.3f} G")
+```
+
+### 14.3 MACs 与 FLOPs 单位陷阱
+
+不同工具对 "1 次乘加" 的计法不一致，对比数字前必须对齐口径：
+
+| 工具 | 返回值含义 | 换算到 MACs |
+|------|-----------|------------|
+| thop / torchprofile | 返回 **MACs** | 直接用 |
+| fvcore | 返回 **FLOPs**，但其 1 MAC = 1 FLOP（不乘 2） | 数值 ≈ MACs |
+| 学术论文常见 "FLOPs" | 多数指 1 MAC = 2 FLOPs | MACs = FLOPs / 2 |
+
+> 这是工业对比里最高频的 "数字对不上" 来源：A 团队报 4.1 GMac，B 团队报 8.2 GFLOPs，其实是同一个 ResNet50。比较前先问清单位。
+
+### 14.4 工具使用的常见坑
+
+1. **Transformer 用 thop 会严重漏算**：thop 默认不识别 `torch.matmul` / `scaled_dot_product_attention`，attention 的 QK^T 和 AV 两次大矩阵乘会被算成 0 → MACs 偏低数倍。Transformer 优先用 fvcore / torchprofile。
+2. **永远检查 `unsupported_ops()`**：fvcore 会显式列出没统计的算子。如果里面有 `aten::matmul`、`aten::bmm` 这种大头，说明结果不可信，需注册自定义 handle。
+3. **动态控制流 / 可变 shape 无法 trace**：torchprofile / fvcore 依赖 trace，遇到 `if` 分支、`for` 循环依赖输入的模型会报错或只统计一条路径，此时退回 torch.profiler 实测。
+4. **MACs 只是理论值**：它不反映 memory-bound、kernel launch、算子是否走 Tensor Core。MACs 减半 ≠ 延迟减半（呼应第 8 节误区）。理论用 thop/fvcore，决策仍要 torch.profiler + 真实延迟。
+5. **batch 与输入分辨率敏感**：MACs 随输入尺寸线性/平方变化，报告时必须连同 input shape 一起记录（呼应第 12.2 节测量规范）。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
