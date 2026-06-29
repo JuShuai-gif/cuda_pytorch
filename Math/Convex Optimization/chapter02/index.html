@@ -1,0 +1,1954 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>第二章 凸集 | 交互式凸优化笔记</title>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<script>
+MathJax={tex:{inlineMath:[["$","$"],["\\(","\\)"]],displayMath:[["$$","$$"],["\\[","\\]"]]}};
+</script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<style>
+:root{--bg:#fdfbf7;--text:#2c2c2c;--sb-bg:#1a1a2e;--sb-text:#e0e0e0;--sb-hov:#16213e;--accent:#8b5cf6;--ac-lit:#ede9fe;--card-bg:#fff;--card-sh:0 2px 12px rgba(0,0,0,.06);--brd:#e8e8e8;--code-bg:#f5f5f5;--h1:#1a1a2e;--h2:#2d2d44;--h3:#4a4a6a;--def-bg:#f0f9ff;--intu-bg:#fefce8;--ex-bg:#f0fdf4;--ctr-bg:#fef2f2;--sum-bg:#f5f3ff;--tag-bg:#e8e8e8;--tog-bg:#e5e5e5}
+.dark{--bg:#0f0f1a;--text:#d4d4d8;--sb-bg:#050510;--sb-text:#b0b0c0;--card-bg:#1a1a2e;--card-sh:0 2px 12px rgba(0,0,0,.3);--brd:#2a2a3e;--code-bg:#1e1e2e;--h1:#e0e0f0;--h2:#c8c8da;--h3:#a8a8be;--def-bg:#0c1a2a;--intu-bg:#1a1a0a;--ex-bg:#0a1a10;--ctr-bg:#1a0a0a;--sum-bg:#120a1a;--tag-bg:#2a2a3e;--tog-bg:#3a3a4e}
+*{box-sizing:border-box;margin:0;padding:0}html{scroll-behavior:smooth}
+body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;transition:background .3s,color .3s}
+#sidebar{width:280px;min-width:280px;background:var(--sb-bg);color:var(--sb-text);position:fixed;top:0;left:0;height:100vh;overflow-y:auto;z-index:100;padding:24px 0;transition:transform .3s}
+#sidebar h2{font-size:1rem;padding:0 20px 16px;color:#8b5cf6;font-weight:700;letter-spacing:.5px}
+#sidebar nav a{display:block;padding:6px 20px;font-size:.82rem;color:var(--sb-text);text-decoration:none;transition:background .2s,color .2s;border-left:3px solid transparent}
+#sidebar nav a:hover,#sidebar nav a.active{background:var(--sb-hov);color:#fff;border-left-color:#8b5cf6}
+#sidebar nav a.sub{font-size:.76rem;padding-left:36px}
+#dark-toggle{position:fixed;top:16px;right:24px;z-index:200;width:40px;height:40px;border-radius:50%;border:2px solid var(--brd);background:var(--card-bg);cursor:pointer;font-size:1.2rem;display:flex;align-items:center;justify-content:center;box-shadow:var(--card-sh);transition:all .2s}
+#dark-toggle:hover{transform:scale(1.1)}
+#main{margin-left:280px;padding:40px 48px;max-width:1100px;width:100%}
+#main h1{font-size:2.2rem;color:var(--h1);margin-bottom:8px;font-weight:800;letter-spacing:-.5px}
+#main h2{font-size:1.5rem;color:var(--h2);margin:48px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--accent);font-weight:700}
+#main h3{font-size:1.15rem;color:var(--h3);margin:32px 0 12px;font-weight:600}
+#main h3::before{content:"§ ";color:var(--accent);font-size:.85rem}
+.chapter-desc{font-size:1rem;color:var(--h3);margin-bottom:32px;line-height:1.7}
+.sec-card{background:var(--card-bg);border:1px solid var(--brd);border-radius:10px;padding:24px 28px;margin:20px 0;box-shadow:var(--card-sh)}
+.def{background:var(--def-bg);border-left:4px solid #3b82f6;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.def .label,.intuition .label,.example-box .label,.counter .label,.summary .label{font-weight:700;font-size:.85rem;margin-bottom:6px}
+.def .label{color:#3b82f6}
+.intuition{background:var(--intu-bg);border-left:4px solid #eab308;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.intuition .label{color:#ca8a04}
+.example-box{background:var(--ex-bg);border-left:4px solid #22c55e;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.example-box .label{color:#16a34a}
+.counter{background:var(--ctr-bg);border-left:4px solid #ef4444;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.counter .label{color:#dc2626}
+.summary{background:var(--sum-bg);border-left:4px solid #8b5cf6;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.summary .label{color:#7c3aed}
+.viz{position:relative;margin:20px 0;border:1px solid var(--brd);border-radius:10px;overflow:hidden;background:var(--card-bg);box-shadow:var(--card-sh)}
+.viz canvas{display:block;width:100%}
+.viz .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 16px;background:var(--code-bg);border-top:1px solid var(--brd)}
+.viz .controls label{font-size:.8rem;color:var(--h3);font-weight:500;white-space:nowrap}
+.viz .controls input[type=range]{flex:1;min-width:80px;accent-color:var(--accent)}
+.viz .controls .val{font-size:.78rem;font-weight:600;color:var(--accent);min-width:36px;text-align:center}
+.viz .controls button{font-size:.78rem;padding:4px 12px;border:1px solid var(--brd);border-radius:6px;background:var(--card-bg);color:var(--text);cursor:pointer;transition:all .15s}
+.viz .controls button:hover{background:var(--ac-lit);border-color:var(--accent)}
+.formula-block{overflow-x:auto;padding:8px 0}
+.plotly-viz{margin:16px 0;border-radius:10px;overflow:hidden}
+@media(max-width:768px){#sidebar{transform:translateX(-280px)}#sidebar.open{transform:translateX(0)}#main{margin-left:0;padding:20px 16px}}
+#menu-btn{display:none;position:fixed;top:16px;left:16px;z-index:200;width:40px;height:40px;border-radius:8px;border:2px solid var(--brd);background:var(--card-bg);cursor:pointer;font-size:1.2rem;align-items:center;justify-content:center;box-shadow:var(--card-sh)}
+</style></head><body>
+<button id="menu-btn" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+<button id="dark-toggle" onclick="toggleDark()" title="dark mode">🌙</button>
+<aside id="sidebar"><h2>📐 凸优化 · 第二章</h2><nav>
+<div class="toc-section"><a href="#s2">2. 凸集</a></div>
+<div class="toc-section"><a href="#s2_1">2.1 仿射集合和凸集</a></div>
+<a href="#s2_1_1" class="sub">2.1.1 直线与线段</a>
+<a href="#s2_1_2" class="sub">2.1.2 仿射集合</a>
+<a href="#s2_1_3" class="sub">2.1.3 仿射维数与相对内部</a>
+<a href="#s2_1_4" class="sub">2.1.4 凸集</a>
+<a href="#s2_1_5" class="sub">2.1.5 锥</a>
+<div class="toc-section"><a href="#s2_2">2.2 重要的例子</a></div>
+<a href="#s2_2_1" class="sub">2.2.1 超平面与半空间</a>
+<a href="#s2_2_2" class="sub">2.2.2 Euclid球和椭球</a>
+<a href="#s2_2_3" class="sub">2.2.3 范数球和范数锥</a>
+<a href="#s2_2_4" class="sub">2.2.4 多面体</a>
+<a href="#s2_2_5" class="sub">2.2.5 半正定锥</a>
+<div class="toc-section"><a href="#s2_3">2.3 保凸运算</a></div>
+<a href="#s2_3_1" class="sub">2.3.1 交集</a>
+<a href="#s2_3_2" class="sub">2.3.2 仿射函数</a>
+<a href="#s2_3_3" class="sub">2.3.3 线性分式及透视函数</a>
+<div class="toc-section"><a href="#s2_4">2.4 广义不等式</a></div>
+<a href="#s2_4_1" class="sub">2.4.1 正锥与广义不等式</a>
+<a href="#s2_4_2" class="sub">2.4.2 最小元与极小元</a>
+<div class="toc-section"><a href="#s2_5">2.5 分离与支撑超平面</a></div>
+<a href="#s2_5_1" class="sub">2.5.1 超平面分离定理</a>
+<a href="#s2_5_2" class="sub">2.5.2 支撑超平面</a>
+<div class="toc-section"><a href="#s2_6">2.6 对偶锥与广义不等式</a></div>
+<a href="#s2_6_1" class="sub">2.6.1 对偶锥</a>
+<a href="#s2_6_2" class="sub">2.6.2 广义不等式的对偶</a>
+<a href="#s2_6_3" class="sub">2.6.3 对偶不等式下的最小元与极小元</a>
+</nav></aside>
+<main id="main">
+
+<h1 id="s2">第二章 凸集</h1>
+<div class="chapter-desc">凸集是凸优化的基本语言。掌握它意味着你能用"凸"的眼睛看世界——你会发现许多看似复杂的集合，本质上都是凸的。本章将带你从最简单的直线线段出发，逐步建立凸集、锥、保凸运算、广义不等式、分离定理直到对偶锥的完整框架。</div>
+
+
+
+<h2 id="concepts">💡 关键概念速查 — 这些话让抽象变具体</h2>
+<div class="sec-card">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+
+<div style="background:#f0f9ff;border-radius:8px;padding:14px;">
+<div style="font-weight:700;color:#2563eb;margin-bottom:6px;">ℓ₂ 范数 ‖x‖₂ = √(∑xᵢ²)</div>
+<p style="font-size:.82rem;line-height:1.7;"><b>就是"直线距离"。</b>你家到公司的直线距离=√(Δx²+Δy²)。GPS导航说的"5公里"就是ℓ₂范数。<br><b>为什么叫ℓ₂：</b>"2"来自平方再开方。ℓ₂是唯一旋转不变的范数——你转个角度看，距离不变。</p>
+</div>
+
+<div style="background:#f0f9ff;border-radius:8px;padding:14px;">
+<div style="font-weight:700;color:#2563eb;margin-bottom:6px;">ℓ₁ 范数 ‖x‖₁ = ∑|xᵢ|</div>
+<p style="font-size:.82rem;line-height:1.7;"><b>就是"曼哈顿距离"。</b>你在方格街区开车——只能东西走再南北走，不能斜穿。总路程=|东-西|+|南-北|。<br><b>为什么重要：</b>ℓ₁产生稀疏解——很多分量精确为0。这就是LASSO能自动选特征的原因。</p>
+</div>
+
+<div style="background:#f0f9ff;border-radius:8px;padding:14px;">
+<div style="font-weight:700;color:#2563eb;margin-bottom:6px;">ℓ∞ 范数 ‖x‖∞ = max|xᵢ|</div>
+<p style="font-size:.82rem;line-height:1.7;"><b>就是"最差分量"。</b>你的考试成绩=最低那科的分。短板效应——水桶容量由最短木板决定。<br><b>为什么重要：</b>ℓ∞保证每个分量偏差都不超过最优值。Chebyshev逼近="公平对待每个点"。</p>
+</div>
+
+<div style="background:#f0f9ff;border-radius:8px;padding:14px;">
+<div style="font-weight:700;color:#2563eb;margin-bottom:6px;">凸集 = "没有坑的集合"</div>
+<p style="font-size:.82rem;line-height:1.7;"><b>一句话：</b>集合里随便选两点，整条直线都在里面。<br><b>凸的：</b>圆形、正方形、整个空间、一条线段。<br><b>不凸的：</b>月牙、五角星、圆环（中间有洞）。<br><b>为什么重要：</b>凸可行域→局部最优=全局最优。</p>
+</div>
+
+<div style="background:#f0f9ff;border-radius:8px;padding:14px;">
+<div style="font-weight:700;color:#2563eb;margin-bottom:6px;">半正定矩阵 X⪰0</div>
+<p style="font-size:.82rem;line-height:1.7;"><b>就是"矩阵版的非负数"。</b>非负数a≥0→对所有正数w，a·w≥0。半正定矩阵X⪰0→对所有向量v，vᵀXv≥0。<br><b>通俗验证：</b>2×2矩阵[[x,y],[y,z]]⪰0 ⇔ x≥0,z≥0,xz≥y²（类比：一维a≥0）。</p>
+</div>
+
+<div style="background:#f0f9ff;border-radius:8px;padding:14px;">
+<div style="font-weight:700;color:#2563eb;margin-bottom:6px;">对偶锥 K*</div>
+<p style="font-size:.82rem;line-height:1.7;"><b>就是"能与K中所有向量友好相处的向量集"。</b>K*= {y | y与K中每个x的内积≥0}。<br><b>形象理解：</b>K是手电筒光束，K*是能看到整束光的方向。K越窄，K*越宽——互补关系。</p>
+</div>
+
+</div></div>
+
+
+<div class="example-box"><div class="label">💻 CVXPY实战：验证凸集：检查线段是否在集合内</div>
+<pre>import cvxpy as cp, numpy as np
+# 验证集合 {x | ||x||_2 <= 1} 是否凸
+# 方法：随机采样点对，检查凸组合是否在集合内
+np.random.seed(42)
+for _ in range(1000):
+    x1 = np.random.randn(2); x1 = x1 / np.linalg.norm(x1) * 0.9
+    x2 = np.random.randn(2); x2 = x2 / np.linalg.norm(x2) * 0.9
+    theta = np.random.rand()
+    xm = theta * x1 + (1 - theta) * x2
+    assert np.linalg.norm(xm) <= 1.001, "Not convex!"
+print("All checks passed: L2 ball is convex")</pre><p style="font-size:.78rem;color:#374151;margin-top:4px;">凸集判定的数值验证：在集合内随机取1000对点，验证任意theta下的凸组合仍在集合内。L2球通过验证，月牙形会失败。</p></div>
+<h2 id="s2_1">2.1 仿射集合和凸集</h2>
+
+<h3 id="s2_1_1">2.1.1 直线与线段</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>给定两点 $x_1 \neq x_2 \in \mathbb{R}^n$，</p>
+<ul style="margin-left:20px;line-height:1.8;">
+<li><strong>直线</strong>：集合 $\{y \mid y = \theta x_1 + (1-\theta)x_2,\; \theta \in \mathbb{R}\}$。即经过 $x_1$ 和 $x_2$ 的整条直线，$\theta$ 可取任意实数。</li>
+<li><strong>线段</strong>：集合 $\{y \mid y = \theta x_1 + (1-\theta)x_2,\; \theta \in [0,1]\}$。即 $\theta$ 只能取 0 到 1 之间，构成 $x_1$ 和 $x_2$ 之间的所有点。</li>
+</ul>
+<p style="margin-top:8px;">换句话说：<strong>线段是直线的"截断"</strong>——$\theta$ 从 $\mathbb{R}$ 约束到 $[0,1]$。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>想象教室里的两个学生。连接他们的那条无限延伸的激光就是<b>直线</b>，而他们之间那段恰好触手可及的部分就是<b>线段</b>。如果把 $\theta$ 看作"配比旋钮"，旋到 0 就在 $x_1$，旋到 1 就在 $x_2$，旋到 0.5 就在中点。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>$\mathbb{R}^2$ 中，$x_1=(0,0), x_2=(2,2)$，$\theta=0.3$ 给出点 $(0.6,0.6)$，位于线段之上。</li>
+<li>$\mathbb{R}^3$ 中，$x_1=(1,0,0), x_2=(0,1,0)$，所有 $\theta \in [0,1]$ 的点构成从 $(1,0,0)$ 到 $(0,1,0)$ 的线段。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 反例</div>
+<p>若限定 $\theta \in [0, 0.5]$，得到的是线段的一部分（从 $x_1$ 到中点），不包含完整的 $x_1$ 到 $x_2$ 之间的所有点。这不是通常意义下 $x_1$ 和 $x_2$ 之间的完整线段。</p></div>
+<div class="formula-block">
+<strong>数学公式：</strong>
+$$ y = \theta x_1 + (1-\theta) x_2 = x_2 + \theta(x_1 - x_2) $$
+当 $\theta \in \mathbb{R}$ → 直线；当 $\theta \in [0,1]$ → 线段。
+</div>
+
+<div style="background:#f0f9ff;border:1px solid #93c5fd;border-radius:10px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#2563eb;font-size:.9rem;margin-bottom:10px;">📖 公式解读 — 为什么 $y = \theta x_1 + (1-\theta)x_2$？</div>
+<ul style="line-height:2.0;margin-left:16px;">
+<li><b>拆解符号：</b> $x_1$ 是起点，$x_2$ 是终点。$\theta$ 是一个旋钮——拧到 0 得到 $x_2$，拧到 1 得到 $x_1$，拧到 0.5 得到中点。</li>
+<li><b>通俗类比：</b> 你和朋友各站在房间的两端。$\theta=0$ 你就在朋友的位置，$\theta=1$ 你就在自己的位置，$\theta=0.3$ 你走了从朋友到你之间 30% 的路程。</li>
+<li><b>为什么重要：</b> 这是凸优化的"第一公式"。后面所有的仿射集、凸集、锥、凸函数都是对它做微调得到的——仿射集放开 $\theta$ 范围到 $\mathbb{R}$，凸集缩窄到 $[0,1]$。</li>
+<li><b>数值代入：</b> $x_1=(2,3), x_2=(10,7)$，取 $\theta=0.25$：$y = 0.25\cdot(2,3) + 0.75\cdot(10,7) = (0.5+7.5,\; 0.75+5.25) = (8,6)$。你位于从 $(2,3)$ 到 $(10,7)$ 这条路上走了 25% 的位置。</li>
+</ul>
+</div>
+
+<div class="viz" id="viz-211">
+  <canvas id="cv211" height="320"></canvas>
+  <div class="controls">
+    <label>θ 参数</label>
+    <input type="range" id="th211" min="-50" max="150" value="80" step="1">
+    <span class="val" id="tv211">0.80</span>
+    <button id="pb211">▶ 播放</button>
+    <label>显示直线</label><input type="checkbox" id="sl211" checked>
+    <label>显示线段</label><input type="checkbox" id="ss211" checked>
+  </div>
+</div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;">机器学习中的<b>线性插值</b>（图像缩放、数据增强）、计算机图形学的<b>贝塞尔曲线</b>、路径规划中的<b>轨迹生成</b>。线段公式是凸组合的基础——后续LASSO、SVM、神经网络中的权重衰减都依赖它。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>直线是无限延伸的，线段是被两个端点夹住的。$\theta$ 就是你在两端之间滑动的刻度盘。</strong></p></div>
+</div>
+
+
+<h3 id="s2_1_2">2.1.2 仿射集合</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>集合 $C \subseteq \mathbb{R}^n$ 是<strong>仿射集合(affine set)</strong>，当且仅当：对任意 $x_1, x_2 \in C$ 和任意 $\theta \in \mathbb{R}$，有 $\theta x_1 + (1-\theta) x_2 \in C$。</p>
+<p>等价定义：$C$ 是一个线性方程组的解集，即 $C = \{x \mid Ax = b\}$，其中 $A \in \mathbb{R}^{m \times n}, b \in \mathbb{R}^m$。<strong>仿射集合 = 线性方程组解集 = 子空间的平移。</strong></p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>仿射集合就是"平坦"的东西——直线、平面、超平面——它们不需要经过原点。你可以把它们想象成"子空间 + 位移"。例如，$y=2x+1$ 这条线不经过原点，所以它不是子空间，但它是仿射集合。用解集 $Ax=b$ 来看更直观：$b$ 就是平移量，$A$ 决定方向约束。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>$\mathbb{R}^2$ 中直线 $3x_1 + 4x_2 = 5$，写成 $Ax=b$ 即 $[3\; 4]\begin{bmatrix}x_1\\x_2\end{bmatrix}=5$。</li>
+<li>$\mathbb{R}^3$ 中平面 $x_1 + x_2 + x_3 = 1$。</li>
+<li>$\mathbb{R}^n$ 中的单个点 $\{x_0\}$ 也是仿射集合（零维仿射子空间）。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 反例</div>
+<p>单位圆 $\{x \in \mathbb{R}^2 \mid x_1^2 + x_2^2 = 1\}$ 不是仿射集合。取 $x_1=(1,0), x_2=(0,1)$，在 $\theta=0.5$ 时得到 $(0.5,0.5)$，其模长为 $\sqrt{0.5} \neq 1$，不在圆上。圆是"弯的"——仿射必须是"平的"。</p></div>
+<div class="formula-block">$$C = \{x \mid Ax = b\}$$</div>
+
+<div style="background:#f0f9ff;border:1px solid #93c5fd;border-radius:10px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#2563eb;font-size:.9rem;margin-bottom:10px;">📖 公式解读 — $Ax=b$ 到底在说什么？</div>
+<ul style="line-height:2.0;margin-left:16px;">
+<li><b>拆解符号：</b> $A$ 是一个 $m\times n$ 的矩阵（$m$ 个方程，$n$ 个未知数），$b$ 是常数向量。每一行 $a_i^T x = b_i$ 是一个线性方程。</li>
+<li><b>通俗类比：</b> 你去超市买菜，买了 $x_1$ 斤西红柿和 $x_2$ 斤黄瓜。西红柿 3元/斤、黄瓜 4元/斤，总共花了 5元 → $3x_1+4x_2=5$。反过来，一切满足"总价=5元"的购买方案构成一条仿射直线。</li>
+<li><b>二维直觉：</b> 一个方程 $a_1 x_1 + a_2 x_2 = b$ 就是平面上的直线；两个方程就是两条直线的交点（通常是一个点）；三个方程如果相容就是同一个点。</li>
+<li><b>为什么重要：</b> <b>所有仿射集合都是 $Ax=b$ 的解集</b>——这是仿射集与线性代数之间的桥梁。"子空间+平移" 这一本质也来自于此：先把 $b$ 移项得到零空间，再由 $b$ 做平移。</li>
+</ul>
+</div>
+
+<div class="viz"><canvas id="cv212" height="320"></canvas>
+<div class="controls">
+<label>a₁</label><input type="range" id="a1_212" min="-10" max="10" value="3" step="1"><span class="val" id="a1v212">3</span>
+<label>a₂</label><input type="range" id="a2_212" min="-10" max="10" value="-2" step="1"><span class="val" id="a2v212">-2</span>
+<label>b</label><input type="range" id="b_212" min="-10" max="10" value="4" step="1"><span class="val" id="bv212">4</span>
+</div></div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;">信号处理中的<b>子空间方法</b>（PCA、MUSIC算法）、控制理论中的<b>不变子空间</b>、经济学中的<b>线性预算约束</b>。写出Ax=b形式是建模的第一步——任何线性约束都可以写成仿射集。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>仿射集合 = 线性方程组 $Ax=b$ 的解集 = 一个子空间经过平移。所有仿射集合都是"平"的。</strong></p></div>
+</div>
+
+<h3 id="s2_1_3">2.1.3 仿射维数与相对内部</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>仿射集合 $C$ 的<strong>仿射维数(affine dimension)</strong>定义为与其关联的子空间的维数。即若 $C = V + x_0$，$V$ 是子空间，则 $\text{affdim}(C) = \dim(V)$。</p>
+<p>$C$ 的<strong>相对内部(relative interior)</strong>定义为：$\text{relint}(C) = \{x \in C \mid \exists \epsilon > 0,\; B(x,\epsilon) \cap \text{aff}(C) \subseteq C\}$。</p>
+<p>简单说：在 $C$ 的仿射壳内部看，有点"胖"的地方就是相对内部。这解决了一个核心问题——很多凸集在 $\mathbb{R}^n$ 中没有内部（如 $\mathbb{R}^3$ 中的线段），但它们在自身仿射壳中总是有内部的。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>想象 $\mathbb{R}^3$ 中的一张纸（2维仿射集合）。在 $\mathbb{R}^3$ 中这张纸没有"内部"——因为它太薄了，任何3维球都会戳穿它。但在纸张自身的2维世界里，它当然有内部。这就是<b>相对内部</b>的精髓——降维到集合自身所在的世界去看。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>$\mathbb{R}^3$ 中的线段，仿射维数为 1，其相对内部是去掉两端点的线段。</li>
+<li>$\mathbb{R}^2$ 中的三角形内部（不含边界）仿射维数为 2，而边的仿射维数为 1。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 反例</div>
+<p>$\mathbb{R}^2$ 中的一个孤立点（一个单点集合）：其仿射维数为 0，相对内部就是该点自身。一个单点的相对内部不是"空心"的，因为它没有比你所在维度更低的空间来讨论"体积"。这显示了相对内部定义的微妙之处。</p></div>
+<div class="formula-block">$$\text{relint}(C) = \{x \in C \mid \exists \epsilon > 0: B(x,\epsilon) \cap \text{aff}(C) \subseteq C\}$$</div>
+<div class="viz"><canvas id="cv213" height="280"></canvas>
+<div class="controls">
+<label>显示相对内部</label><input type="checkbox" id="ri213" checked>
+<label>显示球邻域</label><input type="checkbox" id="sb213" checked>
+<span style="font-size:.72rem;color:var(--h3)">3D中的线段在自身1D世界里有内部</span>
+</div></div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;">降维后的<b>流形学习</b>、概率分布的<b>支撑集</b>分析、退化约束下的优化。理解"相对内部"是处理半正定规划(SDP)中严格可行点(Slater条件)的前提——SDP求解器依赖于此。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>相对内部 = 在集合自身维度里看的"内部"。线段在3D里没有内部，但在自己的1D世界里，去掉端点就是内部。</strong></p>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.2 (Boyd) R³中的正方形</div>
+<p>考虑 R³ 中 (x₁,x₂)-平面上的正方形：</p>
+$$C = \{x \in \mathbb{R}^3 \mid -1 \le x_1 \le 1,\; -1 \le x_2 \le 1,\; x_3 = 0\}$$
+<p>其仿射壳为 $\text{aff}\;C = \{x \mid x_3=0\}$，仿射维数为 2。在 R³ 中 $C$ 的内部为空（int $C = \emptyset$），但相对内部为：</p>
+$$\text{relint}\;C = \{x \in \mathbb{R}^3 \mid -1 < x_1 < 1,\; -1 < x_2 < 1,\; x_3 = 0\}$$
+<p>相对边界（relative boundary） = 正方形的四条边框：$\{x \mid \max\{|x_1|,|x_2|\} = 1,\; x_3=0\}$</p>
+<p><b>关键启示：</b>内部(int)和相对内部(relint)的区别在于维度——正方形在3D中没有内部，但在它自己的2D平面中有相对内部。</p>
+</div>
+</div>
+</div>
+
+<h3 id="s2_1_4">2.1.4 凸集</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>集合 $C \subseteq \mathbb{R}^n$ 是<strong>凸集(convex set)</strong>，当且仅当：对任意 $x_1, x_2 \in C$ 和任意 $\theta \in [0,1]$，有 $\theta x_1 + (1-\theta) x_2 \in C$。</p>
+<p>直观理解：<strong>集合内任意两点之间的线段完全包含在该集合中</strong>。没有"缺口"、没有"凹陷"、没有"洞"。</p>
+<p>更一般地，对任意 $x_1,\ldots,x_k \in C$ 和 $\theta_i \ge 0, \sum \theta_i = 1$，凸组合 $\sum \theta_i x_i \in C$。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>拿一只笔画一个集合——如果你能在里面随便选两个点，然后用直尺连接它们，而直尺上的每一点都还在集合里面——那这个集合就是凸的。凹进去的部分、孔洞、断开的区域都会破坏凸性。凸集就像一个"鼓胀的气球"——从任何角度打光，影子都是连续的，没有缺口。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>$\mathbb{R}^n$ 本身、空集、单点集、直线、线段都是凸的。</li>
+<li>任何仿射集合都是凸的（凸集推广了仿射集，把 $\theta \in \mathbb{R}$ 放宽为 $\theta \in [0,1]$）。</li>
+<li>所有 Euclid 球 $\{x \mid \|x - x_c\|_2 \le r\}$ 是凸的。</li>
+<li>概率单纯形 $\{x \mid x \ge 0,\; \mathbf{1}^T x = 1\}$ 是凸的。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 反例</div>
+<p>$\mathbb{R}^2$ 中的月牙形、五角星、圆环(annulus)、整数点集 $\mathbb{Z}^2$。它们都在内部存在"缺口"或"凹陷"，某些点对之间的线段会跑出集合。$S = \{0,1\} \subset \mathbb{R}$（只有两个端点），取 $x_1=0, x_2=1, \theta=0.5$ 得到 0.5，不在 $S$ 中，所以不凸。</p></div>
+<div class="formula-block">
+<strong>凸组合的一般形式：</strong>
+$$ \sum_{i=1}^{k} \theta_i x_i,\quad \theta_i \ge 0,\; \sum_{i=1}^{k} \theta_i = 1 $$
+<strong>凸包(convex hull)：</strong>包含集合 $S$ 的所有凸组合的集合，记为 $\text{conv}(S)$。它是包含 $S$ 的最小凸集。
+</div>
+
+<div style="background:#f0f9ff;border:1px solid #93c5fd;border-radius:10px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#2563eb;font-size:.9rem;margin-bottom:10px;">📖 公式解读 — 凸组合 $\sum \theta_i x_i$ 是什么意思？</div>
+<ul style="line-height:2.0;margin-left:16px;">
+<li><b>拆解符号：</b> $\theta_i \ge 0$ 是权重（非负），$\sum\theta_i=1$ 是归一化条件。$x_i$ 是集合中的点。$\sum\theta_i x_i$ 就是这些点的"加权平均"。</li>
+<li><b>通俗类比：</b> 把 $\theta_i$ 想象成你在 $x_i$ 这个地点停留的时间比例。如果你在 A 点 30% 时间、B 点 50% 时间、C 点 20% 时间，你的"等效位置"（加权平均）必须在凸集内部。</li>
+<li><b>几何验证法：</b> 判断一个形状是否凸：拿一支笔随便选两个边界点，画一条线段——如果线段 <b>全部在形状里面</b>，就是凸的。凹进去的地方，线段会"飞出去"。</li>
+<li><b>数值例子：</b> 矩形 $[0,2]\times[0,2]$ 取 $x_1=(0,0), x_2=(2,2), \theta=0.5$ → $(1,1)$ 在矩形内 ✓。但月牙形取 $x_1=(-1,0.5), x_2=(1,0.5), \theta=0.5$ → $(0,0.5)$ 在月牙外 ✗ → 不凸。</li>
+</ul>
+</div>
+
+<div class="viz"><canvas id="cv214" height="380"></canvas>
+<div class="controls">
+<label>θ (凸组合参数)</label>
+<input type="range" id="th214" min="0" max="100" value="40" step="1"><span class="val" id="tv214">0.40</span>
+<button id="pb214">▶ 播放</button>
+<button id="reset214">🔄 重置点</button>
+<span style="font-size:.72rem;color:var(--h3)">拖拽图中任意点来改变位置</span>
+</div></div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;">凸性是<b>全局最优的保证</b>。在深度学习（损失函数设计）、投资组合（风险最小化）、通信（功率分配）中，只有凸问题才能保证梯度下降找到的局部解就是全局最优。非凸问题需要凸松弛（如压缩感知的ℓ₁松弛）。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>凸集 = 任意两点间线段始终在集合内部。凸性是比仿射更"宽容"的条件（$\theta$ 只需在 $[0,1]$ 内）。</strong></p></div>
+</div>
+
+<h3 id="s2_1_5">2.1.5 锥</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>集合 $C$ 是<strong>锥(cone)</strong>，当且仅当：对任意 $x \in C$ 和任意 $\theta \ge 0$，有 $\theta x \in C$。即 <strong>从原点出发的射线完全包含在集合中</strong>。</p>
+<p>集合 $C$ 是<strong>凸锥(convex cone)</strong>，当且仅当：对任意 $x_1, x_2 \in C$ 和任意 $\theta_1, \theta_2 \ge 0$，有 $\theta_1 x_1 + \theta_2 x_2 \in C$。即 <strong>"既是凸的，也是锥"</strong>。等价条件是：包含其元素的所有非负线性组合。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>锥就像一个手电筒的光束——从原点（或顶点）射出去，光束内的任何方向你都可以沿着它走任意远，而且还在光束里。如果两束光叠加后还在光束内，那就是<b>凸锥</b>。日常生活中，冰淇淋的锥形蛋卷就是典型的凸锥外形。</p>
+<p>另一个重要直觉：<strong>凸锥同时是锥和凸集</strong>——把两条射线之间的扇形区域全部填满。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>第一象限 $\mathbb{R}^2_+ = \{x \mid x_1 \ge 0, x_2 \ge 0\}$ 是凸锥。</li>
+<li>半正定锥 $\mathbb{S}^n_+$（所有 $n \times n$ 半正定对称矩阵的集合）。</li>
+<li>范数锥 $\{(x,t) \mid \|x\| \le t\} \subseteq \mathbb{R}^{n+1}$（二阶锥，也叫冰淇淋锥）。</li>
+<li>原点、整个空间、任意经过原点的射线都是锥（但不一定是凸锥）。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 反例</div>
+<p>由两条不同方向的射线组成的"×"形（x轴和y轴）：它关于原点缩放是闭合的（是锥），但取 $x_1=(1,0)$ 和 $x_2=(0,1)$ 的锥组合 $1\cdot(1,0) + 1\cdot(0,1) = (1,1)$ 在第一象限，不在坐标轴上。所以它是锥，但<strong>不是凸锥</strong>。这说明"锥"和"凸锥"是不同的概念。</p></div>
+<div class="formula-block">$$\theta_1 x_1 + \theta_2 x_2 \in C,\; \forall \theta_1,\theta_2 \ge 0$$</div>
+
+<div style="background:#f0f9ff;border:1px solid #93c5fd;border-radius:10px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#2563eb;font-size:.9rem;margin-bottom:10px;">📖 公式解读 — $\theta x$ 和 $\theta_1 x_1 + \theta_2 x_2$ 分别意味着什么？</div>
+<ul style="line-height:2.0;margin-left:16px;">
+<li><b>锥的定义 $\theta x \in C$（$\theta\ge0$）：</b> 意思是：你在锥里找到一条射线，沿着它你随便走多远（$\theta$ 放大任意倍），永远还在锥里。不是锥的集合——走太远就"出界"了。</li>
+<li><b>凸锥的定义 $\theta_1 x_1 + \theta_2 x_2 \in C$：</b> 在锥的基础上要求"两条射线之间的扇形区域也都填满"。取两条射线各选一点，用任意非负系数组合——得到的点还得在锥内。</li>
+<li><b>通俗类比：</b> 手电筒的光束是锥——光束里的任何方向你都可以走无限远。如果两个光束重叠后还在原光束内，就是<b>凸锥</b>。如果你把手电筒的光做成十字形（×），光在 x 轴和 y 轴上——但组合 $(1,1)$ 不在十字上，所以 x 轴+y 轴是锥但不是凸锥。</li>
+<li><b>数值例子：</b> 第一象限 $\{x\mid x_1\ge0,x_2\ge0\}$：取 $(1,0)$ 放 3 倍 → $(3,0)$ 还在；取 $(0,2)$ 放 0.5 倍 → $(0,1)$ 还在；组合 $2\cdot(1,0)+3\cdot(0,2) = (2,6)$ 还在 ✓。所以第一象限是凸锥。</li>
+</ul>
+</div>
+
+<div class="viz"><canvas id="cv215" height="340"></canvas>
+<div class="controls">
+<label>射线角度 α</label><input type="range" id="ang215" min="5" max="170" value="60" step="1"><span class="val" id="av215">60°</span>
+<label>显示凸锥</label><input type="checkbox" id="sc215" checked>
+<label>显示锥组合</label><input type="checkbox" id="sco215" checked>
+</div></div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;">半正定规划(SDP)的基础——SDP约束就是要求变量在半正定锥中。信号处理中的<b>协方差矩阵估计</b>、控制中的<b>Lyapunov稳定性</b>、量子信息中的<b>密度矩阵</b>都依赖于锥的性质。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>锥 = 对原点缩放闭合的集合。凸锥 = 既锥又凸 = 包含所有非负线性组合。</strong></p></div>
+</div>
+
+
+
+<div class="eng-box"><div class="label">🔧 四大工程系统映射</div>
+<div class="system-grid">
+<div class="sys-card"><span class="sys-label sys-robot">🤖 机器人</span>SLAM中的位姿约束: 每个回环=超平面约束(相对位姿=测量值)。多面体=关节限位+速度上限+力矩上限的交集。</div>
+<div class="sys-card"><span class="sys-label sys-dl">🧠 深度学习</span>VLA模型量化: 权重范围约束=箱约束(多面体)。激活值剪切=半空间约束。BatchNorm统计=仿射等式约束。</div>
+<div class="sys-card"><span class="sys-label sys-hpc">⚡ HPC</span>GPU内存约束: 每线程块共享内存上限=半空间。寄存器文件容量=箱约束。线程块调度=整点多面体上的LP。</div>
+<div class="sys-card"><span class="sys-label sys-arch">🏗 体系结构</span>缓存映射约束: 数组访问不冲突=多面体可行性。Cache way分配=整数多面体。分支预测器表大小=半空间。</div>
+</div></div>
+
+<div style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:22px 26px;margin:16px 0;"><div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📖 多层公式解读 —— 超平面 aᵀx=b 的三种等价理解</div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第1层：代数理解</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">aᵀx = a₁x₁+...+aₙxₙ = b。一个线性方程=削去一个自由度。在Rⁿ中定义n-1维仿射子空间。a是系数向量(法向量),b是右端项(截距)。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第2层：几何理解</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">法向量a垂直于超平面上的所有方向。将原点代入: aᵀ0=0与b比较→0<b则原点在超平面的"负侧"(aᵀx≤b), 0>b则在"正侧"。改变b=沿a方向平移超平面。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第3层：物理理解</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">aᵀx=b可以理解为"资源约束": a_i是资源i的单价, x_i是数量, b是总预算。超平面=刚好花完预算的方案;半空间=不超过预算的方案。</p></div></div>
+<h2 id="s2_2">2.2 重要的例子</h2>
+
+<h3 id="s2_2_1">2.2.1 超平面与半空间</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p><strong>超平面(hyperplane)</strong>：集合 $\{x \mid a^T x = b\}$，其中 $a \in \mathbb{R}^n, a \neq 0, b \in \mathbb{R}$。它是 $n-1$ 维仿射集合，法向量为 $a$，截距为 $b$。</p>
+<p><strong>（闭）半空间(halfspace)</strong>：集合 $\{x \mid a^T x \le b\}$。超平面把空间"劈"成两半，$a^T x \le b$ 取了其中一半（包括边界）。开半空间：$\{x \mid a^T x < b\}$（不含边界）。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>在二维平面中，超平面是一条直线；在三维中是一个平面。法向量 $a$ 就像垂直于这个平面的"箭头"——它指向 $a^T x > b$ 那一侧。$a^T x \le b$ 的半空间就是法向量"背对"的那一半（按不等式方向）。<br><b>超平面 = 刀，半空间 = 被刀切开的一半西瓜。</b></p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>$\mathbb{R}^2$: $2x_1 + 3x_2 = 5$ 是一条直线（1维超平面）；$2x_1 + 3x_2 \le 5$ 是下半平面。</li>
+<li>$\mathbb{R}^3$: $x_1 - x_2 + 2x_3 = 4$ 是一个平面（2维超平面）；不等式形式给出一个半空间。</li>
+<li>非负象限 $\{x \mid x_i \ge 0,\; i=1,\ldots,n\}$ 是 $n$ 个半空间 $\{-e_i^T x \le 0\}$ 的交集。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 反例</div>
+<p>由曲线 $x_1^2 + x_2^2 \le 1$ 定义的集合不是半空间——因为它的"切面"不是直线，而是弯曲的。只有线性不等式才定义半空间。</p></div>
+<div class="formula-block">$$\text{超平面: } a^T x = b \qquad \text{半空间: } a^T x \le b$$</div>
+
+<div style="background:#f0f9ff;border:1px solid #93c5fd;border-radius:10px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#2563eb;font-size:.9rem;margin-bottom:10px;">📖 公式解读 — $a^T x = b$ 为什么叫"超平面"？</div>
+<ul style="line-height:2.0;margin-left:16px;">
+<li><b>拆解符号：</b> $a$ 是法向量（垂直于超平面的方向），$x$ 是空间中的点，$b$ 是一个标量（截距）。$a^T x = a_1 x_1 + \cdots + a_n x_n$ 是内积。</li>
+<li><b>二维直觉（$a_1 x_1 + a_2 x_2 = b$）：</b> 在纸上画一条直线——$a=(a_1,a_2)$ 是垂直于这条直线的一个箭头，$b$ 决定了直线离原点"多远"。如果改变 $b$ 而保持 $a$ 不变，直线平行移动。</li>
+<li><b>$a^T x \le b$ 的半空间：</b> 不等式 $\le$ 取了超平面的"一侧"。判断哪一侧的方法：把原点代入——若 $a^T 0 \le b$（即 $0\le b$），则原点在被选中的那一侧。</li>
+<li><b>为什么重要：</b> 半空间是凸优化的"原子"——<b>每个凸集都可以写成（无限多个）半空间的交集</b>。多面体是有穷多个半空间的交。理解半空间 = 理解一切凸约束的起点。</li>
+</ul>
+</div>
+
+<div class="viz"><canvas id="cv221" height="360"></canvas>
+<div class="controls">
+<label>a₁</label><input type="range" id="a1_221" min="-10" max="10" value="2" step="0.5"><span class="val" id="a1v221">2.0</span>
+<label>a₂</label><input type="range" id="a2_221" min="-10" max="10" value="3" step="0.5"><span class="val" id="a2v221">3.0</span>
+<label>b</label><input type="range" id="b_221" min="-10" max="10" value="2" step="0.5"><span class="val" id="bv221">2.0</span>
+<label>方向</label><select id="dir221"><option value="le">≤ 左半空间</option><option value="ge">≥ 右半空间</option></select>
+</div></div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;">SVM(支持向量机)的决策边界就是超平面。感知器、线性分类器、推荐系统中的<b>协同过滤</b>都用超平面做决策。半空间约束是凸优化中<b>最常见</b>的约束形式——几乎每个工程约束都是若干半空间之交。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>超平面 = $a^T x = b$（n-1维平坦）；半空间 = $a^T x \le b$（超平面的一侧）。</strong></p></div>
+</div>
+
+<h3 id="s2_2_2">2.2.2 Euclid球和椭球</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p><strong>Euclid球(Euclidean ball)</strong>：$B(x_c, r) = \{x \mid \|x - x_c\|_2 \le r\} = \{x_c + r u \mid \|u\|_2 \le 1\}$。中心 $x_c$，半径 $r > 0$。</p>
+<p><strong>椭球(ellipsoid)</strong>：$\mathcal{E} = \{x \mid (x - x_c)^T P^{-1} (x - x_c) \le 1\}$，其中 $P \in \mathbb{S}^n_{++}$（对称正定矩阵）。等价地，$\mathcal{E} = \{x_c + A u \mid \|u\|_2 \le 1\}$，其中 $A$ 非奇异方阵且 $P = AA^T$。</p>
+<p><strong>椭球 = 球经过线性变形（旋转+拉伸）后的结果。</strong></p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>球是对称的、完美的"圆胖"。矩阵 $P$ 的特征值决定了椭球各轴的长度（$\sqrt{\lambda_i}$），特征向量决定各轴的方向。把球想象成面团，$A$ 就是你可以朝不同方向拉伸/压缩它的变换。正定性保证它不会退化成一个扁平的面。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>$\mathbb{R}^2$ 中单位圆盘 $B(0,1) = \{x \mid x_1^2 + x_2^2 \le 1\}$（$P=I, r=1$）。</li>
+<li>$\mathbb{R}^2$ 中椭球 $\{(x_1,x_2) \mid 4x_1^2 + x_2^2 \le 1\}$，$P = \text{diag}(1/4, 1)$，沿着 $x_1$ 方向被拉伸。</li>
+<li>$\mathbb{R}^n$ 中，任何对称正定矩阵 $P$ 定义的椭球都是凸的。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 反例</div>
+<p>若 $P$ 只是半正定（奇异矩阵），则椭球在某个方向退化为零长度（变成低维椭球，甚至线段）。在退化方向上，仿射维数下降。更关键的是，如果 $P$ 不是正定的（比如不定矩阵），集合 $\{x \mid (x-x_c)^T P^{-1}(x-x_c) \le 1\}$ 甚至不再有界——变成双曲面的一部分——不再是凸集。</p></div>
+<div class="formula-block">$$\mathcal{E} = \{x \mid (x-x_c)^T P^{-1}(x-x_c) \le 1\},\; P \succ 0$$</div>
+<div class="viz"><canvas id="cv222" height="360"></canvas>
+<div class="controls">
+<label>半轴a √λ₁</label><input type="range" id="ax222" min="10" max="150" value="80" step="1"><span class="val" id="axv222">80</span>
+<label>半轴b √λ₂</label><input type="range" id="ay222" min="10" max="150" value="50" step="1"><span class="val" id="ayv222">50</span>
+<label>旋转θ°</label><input type="range" id="rt222" min="0" max="180" value="30" step="1"><span class="val" id="rtv222">30°</span>
+<label>显示球</label><input type="checkbox" id="sball222">
+<label>显示椭球</label><input type="checkbox" id="sell222" checked>
+</div></div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;">GPS定位的<b>置信椭球</b>、卡尔曼滤波的<b>误差椭球</b>、鲁棒控制中的<b>不变椭球</b>。椭球是描述"不确定性区域"的标准几何工具——当你说"精度在5米内"，数学上就是椭球。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>Euclid球是完美的各向同性圆球，椭球是球被拉伸后的"鹅卵石"。它们都是凸的。</strong></p></div>
+</div>
+
+<h3 id="s2_2_3">2.2.3 范数球和范数锥</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>设 $\|\cdot\|$ 是 $\mathbb{R}^n$ 上的范数（不必是Euclid范数）。</p>
+<ul style="margin-left:20px;line-height:1.8;">
+<li><strong>范数球(norm ball)</strong>：$\{x \mid \|x - x_c\| \le r\}$。</li>
+<li><strong>范数锥(norm cone)</strong>：$C = \{(x, t) \in \mathbb{R}^{n+1} \mid \|x\| \le t\}$。也称为<strong>二阶锥(second-order cone)</strong>或<strong>冰淇淋锥(ice-cream cone)</strong>。</li>
+</ul>
+<p>常见的 $\ell_p$ 范数：$\|x\|_p = (\sum |x_i|^p)^{1/p}$ 对于 $p \ge 1$；$\|x\|_\infty = \max_i |x_i|$。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>$\ell_1$ 范数球在2D是菱形、在3D是八面体；$\ell_2$ 范数球是圆/球；$\ell_\infty$ 范数球是正方形/立方体。它们的样子体现了不同"距离"度量下的"单位球"。</p>
+<p>范数锥 $(x,t)$ 的几何解释：在 $(n+1)$ 维空间中，以 $t$ 为垂直轴，所有满足 $\|x\| \le t$ 的点构成一个<b>圆锥体</b>（像冰淇淋蛋筒），顶点在原点。为什么叫二阶锥？因为 $\|x\|_2 \le t \iff x^T x \le t^2$（二次不等式）。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>$\ell_2$ 范数锥 $\{(x,t) \in \mathbb{R}^3 \mid \sqrt{x_1^2+x_2^2} \le t\}$——这是经典的3D冰淇淋蛋筒，在凸优化中大量用到（二阶锥规划 SOCP）。</li>
+<li>$\ell_1$ 范数球在 $\mathbb{R}^3$ 中是一个正八面体。</li>
+<li>$\ell_\infty$ 范数球在 $\mathbb{R}^2$ 中是一个边与坐标轴平行的正方形。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 反例</div>
+<p>$p < 1$ 时的 $\ell_p$ "范数球"（如 $\ell_{0.5}$）：集合 $\{x \mid (\sum |x_i|^{0.5})^2 \le 1\}$ 不是凸的，因为它生成的是内凹的星形。只有 $p \ge 1$ 时 $\ell_p$ 范数才满足三角不等式，此时范数球和范数锥才是凸的。</p></div>
+<div class="formula-block">$$\|x\|_p = \left(\sum |x_i|^p\right)^{1/p},\; p \ge 1$$</div>
+<div class="viz"><canvas id="cv223" height="360"></canvas>
+<div class="controls">
+<label>p 值</label><input type="range" id="p223" min="10" max="100" value="100" step="5"><span class="val" id="pv223">∞</span>
+<label>半径r</label><input type="range" id="r223" min="20" max="150" value="100" step="1"><span class="val" id="rv223">100</span>
+<button id="btn223">切换: ℓ_p范数锥</button>
+</div></div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;">ℓ₁范数球→<b>稀疏信号恢复</b>（压缩感知）；ℓ₂范数球→<b>高斯噪声最优</b>；ℓ∞范数球→<b>最坏情况鲁棒</b>。范数锥(二阶锥)是<b>SOCP</b>的基础——用于天线波束成形、投资组合、机器人运动规划中的约束。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>范数球 = 不同"距离"定义下的单位球体。范数锥 = 把范数球沿t轴堆叠成圆锥。p≥1时它们都是凸的。</strong></p></div>
+</div>
+
+<h3 id="s2_2_4">2.2.4 多面体</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p><strong>多面体(polyhedron)</strong> 定义为有限个线性不等式和等式的交集的解集：</p>
+$$ \mathcal{P} = \{x \mid a_i^T x \le b_i,\; i=1,\ldots,m,\; c_j^T x = d_j,\; j=1,\ldots,p\} $$
+<p>等价表示为 $\mathcal{P} = \{x \mid Ax \preceq b,\; Cx = d\}$。多面体是半空间和超平面的交。它是凸的（半空间和超平面的交集保持凸性）。</p>
+<p><strong>有界多面体</strong>也被称为<strong>多胞形(polytope)</strong>——可以看作是有限个点凸包的结果。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>多面体就是"用平面切出来的形状"。在2D中是多边形（三角形、矩形等），在3D中是多面体（立方体、棱锥等）。每条不等式 $a_i^T x \le b_i$ 都是一把刀，把空间削掉一半；$c_j^T x = d_j$ 是把解约束到一个超平面上。所有刀切剩下的共同部分就是多面体。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>$\mathbb{R}^2$ 中的单位正方形：$\{x \mid -1 \le x_1 \le 1,\; -1 \le x_2 \le 1\}$（4个不等式）。</li>
+<li>概率单纯形：$\{x \mid x \ge 0,\; \sum x_i = 1\}$（$n$ 个不等式 + 1个等式）。</li>
+<li>非负象限：$\{x \mid x \ge 0\}$（$n$ 个不等式，是多面体但无界）。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 反例</div>
+<p>Euclid球 $\{x \mid \|x\|_2 \le 1\}$ 不是多面体——它由无限个"切面"构成（你需要无穷多个半空间才能精确描述它）。正定锥也不是多面体。实际上，可以用多面体来<b>逼近</b>这些曲面集合，但永远无法精确等于。</p></div>
+<div class="formula-block">$$\mathcal{P} = \{x \mid Ax \preceq b,\; Cx = d\}$$</div>
+<div class="viz"><canvas id="cv224" height="340"></canvas>
+<div class="controls">
+<label>边数N</label><input type="range" id="n224" min="3" max="12" value="6" step="1"><span class="val" id="nv224">6</span>
+<label>半径r</label><input type="range" id="rv_range_224" min="30" max="140" value="100" step="1"><span class="val" id="rv224">100</span>
+<button id="btn224">显示圆逼近</button>
+</div></div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;"><b>线性规划(LP)</b>的基础。供应链优化、物流调度、网络流、生产计划——这些每年节约数十亿美元的问题都是LP。多面体的每个面=一个资源约束，顶点=最优生产方案。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>多面体 = 用有限个"刀切"（线性不等式）削出来的凸多面形状。是线性规划(LP)的基础可行域。</strong></p>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.4 非负象限 (Boyd)</div>
+<p>$\mathbb{R}^n_+ = \{x \in \mathbb{R}^n \mid x_i \ge 0,\; i=1,\ldots,n\} = \{x\in\mathbb{R}^n \mid x \succeq 0\}$</p>
+<p>非负象限既是一个多面体也是一个锥（因此称为<b>多面体锥 polyhedral cone</b>）。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.5 单纯形 (Boyd)</div>
+<p>设 $k+1$ 个点 $v_0,\ldots,v_k \in \mathbb{R}^n$ 仿射独立（即 $v_1-v_0,\ldots,v_k-v_0$ 线性无关）。它们确定的<b>单纯形(simplex)</b>为：</p>
+$$C = \text{conv}\{v_0,\ldots,v_k\} = \{\theta_0 v_0 + \cdots + \theta_k v_k \mid \theta \succeq 0,\; \mathbf{1}^T\theta = 1\}$$
+<p>单纯形的仿射维数是 $k$，称为 $\mathbb{R}^n$ 中的 $k$ 维单纯形。</p>
+<p><b>常见单纯形：</b>1维→线段；2维→三角形（含内部）；3维→四面体</p>
+<p><b>单位单纯形</b>（由 $0, e_1, \ldots, e_n$ 确定）：$\{x \mid x \succeq 0,\; \mathbf{1}^T x \le 1\}$</p>
+<p><b>概率单纯形</b>（由 $e_1,\ldots,e_n$ 确定）：$\{x \mid x \succeq 0,\; \mathbf{1}^T x = 1\}$</p>
+<p>概率单纯形是 $(n-1)$ 维的，其中向量对应 $n$ 个元素的概率分布。</p>
+</div>
+</div>
+</div>
+
+<h3 id="s2_2_5">2.2.5 半正定锥</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>$\mathbb{S}^n$ 表示所有 $n \times n$ 实对称矩阵的集合（维数为 $n(n+1)/2$）。</p>
+<ul style="margin-left:20px;line-height:1.8;">
+<li>$\mathbb{S}^n_+ = \{X \in \mathbb{S}^n \mid X \succeq 0\}$ 是<strong>半正定锥(positive semidefinite cone)</strong>。</li>
+<li>$\mathbb{S}^n_{++} = \{X \in \mathbb{S}^n \mid X \succ 0\}$ 是<strong>正定锥(positive definite cone)</strong>（$\mathbb{S}^n_+$ 的相对内部）。</li>
+</ul>
+<p>$\mathbb{S}^n_+$ 是凸锥。$X \succeq 0 \iff$ 所有特征值 $\ge 0$。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>对于最简单的 $n=2$ 的情况，对称矩阵可参数化为 $X = \begin{bmatrix} x & y \\ y & z \end{bmatrix}$。$X \succeq 0$ 等价于 $x \ge 0, z \ge 0, xz \ge y^2$。这在 $(x,y,z)$ 空间中是一个<b>实心的抛物面区域</b>——像一个被曲面包裹的锥形。它从原点出发，截面是椭圆。</p>
+<p><b>关键直觉：</b>半正定锥把矩阵的"正定性"这个概念可视化了。在 $(x,y,z)$ 坐标中，边界是 $xz = y^2$（抛物面），内部是 $xz > y^2$。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>$2 \times 2$ 单位矩阵 $\begin{bmatrix}1&0\\0&1\end{bmatrix} \in \mathbb{S}^2_{++}$（$(x,z)=(1,1), y=0$，在锥内部）。</li>
+<li>$2 \times 2$ 半正定边界矩阵 $\begin{bmatrix}1&1\\1&1\end{bmatrix} \in \mathbb{S}^2_+$（特征值 2 和 0，在锥的边界上）。</li>
+<li>对角矩阵集合 $\{X = \text{diag}(\lambda_1,\ldots,\lambda_n) \mid \lambda_i \ge 0\}$ 是 $\mathbb{S}^n_+$ 的一个子集（$n$ 维非负象限嵌入）。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 反例</div>
+<p>矩阵 $\begin{bmatrix}1&2\\2&1\end{bmatrix}$ 不是半正定的（其特征值 $3$ 和 $-1$，有一个负的）。在 $(x,y,z)$ 空间中对应 $(1,2,1)$，代入条件 $xz \ge y^2 \to 1\cdot 1 \ge 4$ 不满足，所以它在锥外部。不定矩阵对应在锥外，负定矩阵在"相反的"锥中。</p></div>
+<div class="formula-block">$$\mathbb{S}^n_+ = \{X \in \mathbb{S}^n \mid X \succeq 0\}$$</div>
+
+<div style="background:#f0f9ff;border:1px solid #93c5fd;border-radius:10px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#2563eb;font-size:.9rem;margin-bottom:10px;">📖 公式解读 — $X = \begin{bmatrix}x&y\\y&z\end{bmatrix} \succeq 0$ 到底是什么意思？</div>
+<ul style="line-height:2.0;margin-left:16px;">
+<li><b>拆解条件：</b> $x \ge 0$（左上角非负），$z \ge 0$（右下角非负），$xz \ge y^2$（行列式非负）。三个条件缺一不可。</li>
+<li><b>通俗类比：</b> 想象旋转抛物面：条件 $xz = y^2$ 是这个抛物面的曲面，$xz > y^2$ 是曲面<b>内部</b>（正定），$xz < y^2$ 是曲面<b>外部</b>（不定/负定）。</li>
+<li><b>数值验证：</b> $X = \begin{bmatrix}4&2\\2&1\end{bmatrix}$：$x=4\ge0✓, z=1\ge0✓, xz=4\ge y^2=4✓$ → 半正定，在锥的<b>边界</b>上。$X = \begin{bmatrix}4&3\\3&1\end{bmatrix}$：$xz=4 < y^2=9✗$ → 不在锥内。</li>
+<li><b>为什么重要：</b> 这 3 个不等式给出了 $2\times2$ 半正定锥的<b>完整解析描述</b>。它是理解 SDP（半正定规划）约束的最简入口。高维 PSD 锥虽然没有这么简单的显式描述，但直觉完全相同。</li>
+</ul>
+</div>
+
+<div class="viz" style="height:460px">
+<div id="plt225" class="plotly-viz" style="width:100%;height:460px"></div>
+<div class="controls">
+<label>方位角</label><input type="range" id="az225" min="0" max="360" value="45" step="5"><span class="val" id="azv225">45°</span>
+<label>仰角</label><input type="range" id="el225" min="0" max="90" value="20" step="5"><span class="val" id="elv225">20°</span>
+<button id="btn225">切换边界</button>
+</div></div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;"><b>半正定规划(SDP)</b>的核心。SDP用于：矩阵完备化(Netflix推荐)、相位恢复(成像)、图的最大割、量子态层析。PSD锥把"非负实数"推广到了"非负特征值"——这是从标量到矩阵的维度跃迁。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>半正定锥 = 所有半正定对称矩阵构成的凸锥。在2×2情况下它是一个被抛物面包裹的立体区域。</strong></p>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.6 S²₊ 的显式刻画 (Boyd)</div>
+<p>对于 $X = \begin{bmatrix} x & y \\ y & z \end{bmatrix} \in \mathbb{S}^2$，$X \succeq 0$ 等价于三个条件：</p>
+$$x \ge 0,\qquad z \ge 0,\qquad xz \ge y^2$$
+<p>这给出了半正定锥在 $(x,y,z)\in\mathbb{R}^3$ 中的精确描述。边界曲面 $xz = y^2$ 是一个旋转抛物面。锥内的点满足严格不等式 $xz > y^2$（正定）。</p>
+<p><b>验证方法：</b>计算特征值，$X$ 的特征值为 $\lambda = \frac{x+z}{2} \pm \sqrt{\left(\frac{x-z}{2}\right)^2 + y^2}$。当 $x\ge0, z\ge0, xz\ge y^2$ 时两特征值均非负。</p>
+</div>
+</div>
+</div>
+
+
+
+<div style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:22px 26px;margin:16px 0;"><div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📖 多层公式解读 —— 为什么仿射变换保凸而非线性变换不保凸</div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第1层：仿射=直线→直线</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">f(x)=Ax+b把直线映射为直线(或点)。凸集中任意两点的线段→仿射后仍为线段→仍在像集中。所以像保持凸性。旋转、缩放、平移都不产生"弯曲"。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第2层：非线性=直线→曲线</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">g(x)=(x,x²)把直线上的点映射到抛物线上。线段[-1,1]映射为抛物线弧——弦脱离弧(在弧上方)→像不是凸的。这就是为什么非线性激活函数(ReLU/Sigmoid)不保凸。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第3层：工程意义</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">坐标变换(机器人关节↔世界)如果仿射→凸问题保持凸。但前向运动学不是仿射→IK比FK难。数据预处理(标准化=仿射)不破坏凸性→可以安全使用。</p></div></div>
+<h2 id="s2_3">2.3 保凸运算</h2>
+
+<h3 id="s2_3_1">2.3.1 交集</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>若 $S_\alpha$（$\alpha \in \mathcal{A}$）是一族凸集，则它们的交集 $\bigcap_{\alpha \in \mathcal{A}} S_\alpha$ 也是凸集。</p>
+<p><strong>这是最重要的保凸运算</strong>——没有之一。几乎所有凸集的构造（多面体、范数球等）都可以追溯到交集运算。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>想象几个透明的凸形塑料片叠在一起——它们重合的部分就是交集。如果原来每片塑料片里的任意两点之间的线段都在该塑料片内部，那么在所有重合区域里，这条线段自然也同时在所有塑料片里。因此交集保持了凸性。</p>
+<p>如果一个集合能写成 $\bigcap$ 一堆简单凸集，那它自己也是凸的。这就是证明凸性的"交集大法"。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>多面体 = 有限个半空间 $\cap$ 有限个超平面的交集 → 凸。</li>
+<li>概率单纯形 = 非负象限 $\cap$ 归一化超平面 → 凸。</li>
+<li>范数球可以看作多个凸集的交集。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 反例</div>
+<p>两个凸集的<b>并集</b>通常不凸。例如两个不相交的圆的并集是"哑铃形"——取一个圆内的一点和另一个圆内的一点的线段就会经过两圆之间的空白区域。并集只在特殊情况下凸（如嵌套关系 $S_1 \subseteq S_2$）。</p></div>
+<div class="formula-block">$$\bigcap_{\alpha \in \mathcal{A}} S_\alpha \text{ 是凸的, 若每个 } S_\alpha \text{ 是凸的}$$</div>
+<div class="viz"><canvas id="cv231" height="340"></canvas>
+<div class="controls">
+<label>A半径</label><input type="range" id="ra231" min="20" max="140" value="100" step="1"><span class="val" id="rav231">100</span>
+<label>B半径</label><input type="range" id="rb231" min="20" max="140" value="80" step="1"><span class="val" id="rbv231">80</span>
+<label>B偏移</label><input type="range" id="off231" min="0" max="150" value="60" step="1"><span class="val" id="offv231">60</span>
+<br><label>高亮交集</label><input type="checkbox" id="si231" checked>
+</div></div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;">问题建模的核心技巧：把复杂可行域分解为<b>简单凸集的交</b>。例：一个电路设计问题 = 功率约束(半空间) ∩ 热约束(线性) ∩ 尺寸约束(箱约束)→ LP/SOCP可解。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>任意多个凸集的交集仍然是凸集（凸性证明的"万能钥匙"）。但并集一般不行。</strong></p>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.7 半正定锥的无公共交集表示 (Boyd)</div>
+<p>半正定锥 $\mathbb{S}^n_+$ 可以表示为无穷多个半空间的交集：</p>
+$$\mathbb{S}^n_+ = \bigcap_{z \neq 0} \{X \in \mathbb{S}^n \mid z^T X z \ge 0\}$$
+<p>对每一个 $z \neq 0$，$z^T X z$ 是 $X$ 的一个（非恒零的）线性函数，因此 $\{X \in \mathbb{S}^n \mid z^T X z \ge 0\}$ 是 $\mathbb{S}^n$ 中的一个半空间。半正定锥是无穷多个半空间的交，因此是凸的。</p>
+<p><b>核心意义：</b>这不是多面体（因为需要无穷多个半空间来描述），但仍然是凸的——交集保持凸性无论交多少集合。</p>
+</div>
+</div>
+</div>
+
+<h3 id="s2_3_2">2.3.2 仿射函数</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>设 $f: \mathbb{R}^n \to \mathbb{R}^m$ 是仿射函数，即 $f(x) = Ax + b$，其中 $A \in \mathbb{R}^{m \times n}, b \in \mathbb{R}^m$。</p>
+<ul style="margin-left:20px;line-height:1.8;">
+<li>若 $S \subseteq \mathbb{R}^n$ 是凸集，则 $f(S) = \{Ax+b \mid x \in S\}$ 也是凸集（<strong>像保持凸性</strong>）。</li>
+<li>若 $T \subseteq \mathbb{R}^m$ 是凸集，则 $f^{-1}(T) = \{x \mid Ax+b \in T\}$ 也是凸集（<strong>原像保持凸性</strong>）。</li>
+</ul>
+<p>仿射变换包括：<strong>平移、旋转、缩放、投影、剪切</strong>——它们是空间中最"温和"的变形。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>把凸集想象成橡胶印章。仿射变换就像平动、转动、均匀或非均匀缩放这块橡胶——它可能拉长、压扁、旋转，但<b>不会产生凹陷或撕裂</b>。印章上的凸图案变形后仍然是凸图案。</p>
+<p><strong>直观法则：仿射函数 = 保持"凸性DNA"的变换。</strong></p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>将正方形旋转 45° 得到菱形——仍是凸的。</li>
+<li>椭球 = 单位球的仿射像（$x \mapsto P^{1/2}x + x_c$）。</li>
+<li>多面体 $\{x \mid Ax \preceq b\}$ 是仿射函数 $x \mapsto Ax$ 对非负象限 $\{y \mid y \preceq b\}$ 的原像。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 反例</div>
+<p>非线性变换（如 $f(x) = x^2$）不保持凸性。$f(x) = (x, x^2)$ 把凸集 $[-1,1]$ 映射到抛物线弧——这个弧不是凸集（因为弧形是弯的，两点间线段会落在弧的上方之外）。</p></div>
+<div class="formula-block">$$f(x) = Ax + b,\quad S\text{ 凸} \Rightarrow f(S)\text{ 凸},\quad T\text{ 凸} \Rightarrow f^{-1}(T)\text{ 凸}$$</div>
+<div class="viz"><canvas id="cv232" height="340"></canvas>
+<div class="controls">
+<label>sx</label><input type="range" id="sx232" min="10" max="200" value="100" step="1"><span class="val" id="sxv232">1.00</span>
+<label>sy</label><input type="range" id="sy232" min="10" max="200" value="100" step="1"><span class="val" id="syv232">1.00</span>
+<label>旋转°</label><input type="range" id="rt232" min="0" max="180" value="0" step="1"><span class="val" id="rtv232">0°</span>
+<label>tx</label><input type="range" id="tx232" min="-100" max="100" value="0" step="1"><span class="val" id="txv232">0</span>
+<label>ty</label><input type="range" id="ty232" min="-100" max="100" value="0" step="1"><span class="val" id="tyv232">0</span>
+</div></div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;">数据预处理中的<b>归一化/标准化</b>、图像处理中的<b>仿射变换</b>（旋转缩放）、坐标系转换。保持凸性意味着预处理不会破坏问题的可解性——这是CVXPY等建模工具自动验证DCP规则的基础。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>仿射变换 $Ax+b$ 同时保持凸集的像和原像的凸性。凸集被仿射变换后仍然是凸的。</strong></p>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.9 多面体 = 非负象限的原像 (Boyd)</div>
+<p>多面体 $\{x \mid Ax \preceq b,\; Cx = d\}$ 可以写为仿射函数 $f(x) = (b-Ax,\; d-Cx)$ 对 $\mathbb{R}^m_+ \times \{0\}$ 的原像：</p>
+$$\{x \mid Ax \preceq b,\; Cx = d\} = \{x \mid f(x) \in \mathbb{R}^m_+ \times \{0\}\}$$
+<p>因为 $\mathbb{R}^m_+ \times \{0\}$ 是凸的，且仿射原像保持凸性，所以多面体是凸的。这种表达方式统一了多面体的凸性证明。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.10 线性矩阵不等式(LMI) (Boyd)</div>
+<p>条件 $A(x) = x_1 A_1 + \cdots + x_n A_n \preceq B$，其中 $B, A_i \in \mathbb{S}^m$，称为 $\mathbb{R}^n$ 上的<b>线性矩阵不等式(LMI)</b>。</p>
+<p>解集 $\{x \mid A(x) \preceq B\}$ 是凸集。因为它是对正半定锥 $\mathbb{S}^m_+$ 在仿射函数 $f(x) = B - A(x)$ 下的原像：</p>
+$$\{x \mid A(x) \preceq B\} = \{x \mid B - A(x) \in \mathbb{S}^m_+\} = f^{-1}(\mathbb{S}^m_+)$$
+<p>LMI 是 <b>半正定规划(SDP)</b> 的核心约束形式。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.12 椭球 = 单位球的仿射像 (Boyd)</div>
+<p>椭球 $\mathcal{E} = \{x \mid (x-x_c)^T P^{-1}(x-x_c) \le 1\}$（$P \succ 0$）是单位 Euclid 球</p>
+$$\{u \mid \|u\|_2 \le 1\}$$
+<p>在仿射映射 $f(u) = P^{1/2}u + x_c$ 下的像。由于仿射映射的像保持凸性，因此椭球是凸的。同时，它也是单位球在仿射映射 $g(x) = P^{-1/2}(x - x_c)$ 下的原像，这也证明了凸性。</p>
+</div>
+</div>
+</div>
+
+<h3 id="s2_3_3">2.3.3 线性分式及透视函数</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p><strong>透视函数(perspective function)</strong>：$P: \mathbb{R}^{n+1} \to \mathbb{R}^n$，定义为 $P(z, t) = z/t$，其中 $\text{dom} P = \{(z,t) \mid t > 0\}$。它将 $(n+1)$ 维空间映射到 $n$ 维。</p>
+<p><strong>线性分式函数(linear-fractional function)</strong>：$f(x) = \frac{Ax+b}{c^T x + d}$，其中 $\text{dom} f = \{x \mid c^T x + d > 0\}$。它可以分解为仿射变换 + 透视函数：先做仿射映射 $(Ax+b,\; c^T x + d)$ 到 $\mathbb{R}^{n+1}$，再应用透视函数。</p>
+<p>线性分式函数保持凸性——它将凸集映射为凸集。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>透视函数就像<b>针孔相机成像</b>：3D世界的物体通过小孔投影到2D胶片上。$(z,t)$ 是物体在3D中的坐标，投影到 $z/t$ 的2D平面上。$t$ 是"深度"——深度越大，投影越靠近原点。远处的大物体 → 投影成一个点。这就是为什么铁轨在远处汇聚。</p>
+<p>线性分式函数则进一步允许先进行仿射变换（旋转、平移、缩放）再透视投影。最终效果是凸集依然凸——针孔相机不会把凸物体扭曲成非凸图像。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>函数 $f(x) = \frac{1}{x}$ 在 $(0,\infty)$ 上是线性分式函数（一维情况 $c=1, d=0, A=0, b=1$）。它将凸区间映射为凸区间。</li>
+<li>$\mathbb{R}^3$ 中的单位立方体经过透视函数映射到 $\mathbb{R}^2$ 平面上，得到一个四边形区域（投影）。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 反例/注意</div>
+<p>若去掉定义域限制 $c^T x + d > 0$，函数在 $c^T x + d = 0$ 处发散，会导致从凸集映射到不连通的像（甚至可能无定义）。所以线性分式函数保持凸性的前提是<b>定义域必须选择在分母符号不变的一侧</b>。</p></div>
+<div class="formula-block">$$P(z,t) = \frac{z}{t},\; t>0 \qquad f(x) = \frac{Ax+b}{c^Tx+d}$$</div>
+<div class="viz"><canvas id="cv233" height="340"></canvas>
+<div class="controls">
+<label>深度t₀</label><input type="range" id="t0233" min="20" max="200" value="120" step="1"><span class="val" id="t0v233">120</span>
+<label>缩放</label><input type="range" id="sc233" min="10" max="200" value="100" step="1"><span class="val" id="scv233">1.00</span>
+<button id="btn233">切换投影线</button>
+</div></div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;">计算机视觉中的<b>相机成像模型</b>（3D→2D透视投影）、机器人中的<b>视觉伺服</b>。线性分式函数保持凸性意味着透视投影后的图像区域仍是凸的——这在视觉SLAM和多视角几何中有用。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>透视函数 $P(z,t)=z/t$ 像针孔相机一样把高维凸集投影到低维——投影依然是凸的。</strong></p></div>
+</div>
+
+
+
+<div class="interview-q"><div class="label" style="color:#dc2626">🎤 面试高频问题 & 工程落地陷阱</div><p style="margin:6px 0;"><b>Q: 如何判断一个工程中的约束集是否凸？</b><br><b>A:</b> 三个步骤：1)检查每个约束函数是否凸(二阶条件/Hessian); 2)等式约束必须仿射(Ax=b); 3)多个凸约束取交集→凸。反例: 无人机避障约束\|x-obs\|>=d是非凸的→需要凸分解或混合整数规划。</p><p style="margin:6px 0;"><b>Q: 为什么SLAM的位姿图优化是非凸的但可以求解？</b><br><b>A:</b> 位姿图涉及SO(3)旋转群→非凸。但通过SDP松弛(把旋转矩阵R松弛为PSD矩阵X⪰0, rank(X)=3去掉→凸)可以得到全局最优的近似。实践中，用Gauss-Newton从好的初始点开始局部优化通常也能收敛到全局最优。</p><p style="margin:6px 0;"><b>Q: 什么时候必须用非凸优化？</b><br><b>A:</b> 1)离散决策(是否建厂=0/1)→整数规划; 2)凹约束(不低于某值)→需要bilinear或DC规划; 3)秩约束→需要核范数松弛。凸优化的边界: 障碍回避、接触动力学(互补约束)、多模态感知都是非凸的。</p></div>
+<h2 id="s2_4">2.4 广义不等式</h2>
+
+<h3 id="s2_4_1">2.4.1 正锥与广义不等式</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>一个锥 $K \subseteq \mathbb{R}^n$ 称为<strong>正锥(proper cone)</strong>，如果它满足：(1) $K$ 是凸的 (2) $K$ 是闭的 (3) $K$ 是实心的（内部非空）(4) $K$ 是尖的（$x \in K, -x \in K \Rightarrow x = 0$）——即"不包含完整直线"。</p>
+<p>借助正锥 $K$，定义<strong>广义不等式(generalized inequality)</strong>：</p>
+$$ x \preceq_K y \iff y - x \in K, \qquad x \prec_K y \iff y - x \in \text{int}(K) $$
+<p>这就是把标量 $\le$ 推广到向量/矩阵。核心思想：<strong>用锥定义"序"。</strong></p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>在 $\mathbb{R}$ 中，$x \le y$ 等价于 $y-x \in [0,\infty)$。这里 $K = [0,\infty)$ 是正锥。广义不等式就是把 $[0,\infty)$ 替换成任意正锥。</p>
+<p>在 $\mathbb{R}^2$ 中，取 $K = \mathbb{R}^2_+$（第一象限），则 $x \preceq_K y$ 意味着每个分量都满足 $x_i \le y_i$（<b>分量不等式</b>）。如果取 $K$ 为二阶锥，$x \preceq_K y$ 表示 $(y_1 - x_1) \ge \sqrt{(y_2-x_2)^2 + \cdots}$。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>$K = \mathbb{R}^n_+$（非负象限）→ 分量不等式 $x \preceq y \iff x_i \le y_i, \forall i$。</li>
+<li>$K = \mathbb{S}^n_+$（半正定锥）→ 矩阵不等式 $X \preceq_K Y \iff Y - X$ 半正定。</li>
+<li>$K = \{(x,t) \mid \|x\|_2 \le t\}$（二阶锥）→ 二阶锥不等式。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 反例</div>
+<p>$K = \{(x_1,x_2) \mid x_1 \ge 0\}$（一个闭半空间）不是正锥——它不是尖的：$\pm (0,1)$ 都在 $K$ 中但不等于 0。用这样的 $K$ 来定义序关系，会出现 $x \preceq_K y$ 且 $y \preceq_K x$ 但 $x \neq y$ 的情况——破坏了偏序的反称性。</p></div>
+<div class="formula-block">$$x \preceq_K y \iff y-x \in K$$</div>
+<div class="viz"><canvas id="cv241" height="340"></canvas>
+<div class="controls">
+<label>锥类型</label><select id="ct241"><option value="orthant">非负象限 K=R²₊</option><option value="soc">二阶锥</option></select>
+<button id="rst241">🔄 重设点</button>
+<span style="font-size:.72rem;color:var(--h3)">拖拽点 x 和 y 来观察序关系</span>
+</div></div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;">多目标优化中的<b>偏序</b>定义。分量不等式→多标准决策(成本≤预算,重量≤限制)；矩阵不等式→控制器设计中"系统A比系统B更稳定"。广义不等式让你能<b>比较不能直接比较的东西</b>。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>广义不等式 = 用正锥 $K$ 代替 $[0,\infty)$ 来定义"序"。$y-x \in K$ 就是 $x \preceq_K y$。</strong></p>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.14 分量不等式 (Boyd)</div>
+<p>$K = \mathbb{R}^n_+$（非负象限），则广义不等式 $\preceq_K$ 就是通常的<b>分量不等式(componentwise inequality)</b>：</p>
+$$x \preceq_K y \iff x_i \le y_i,\; i=1,\ldots,n$$
+<p>偏序性质：$\preceq_K$ 满足反称性($x\preceq y$ 且 $y\preceq x \Rightarrow x=y$)、传递性。许多向量不等式就自然地以这种广义不等式的形式出现。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.15 矩阵不等式 (Boyd)</div>
+<p>$K = \mathbb{S}^n_+$（半正定锥），则广义不等式 $\preceq_K$ 即为常用的<b>矩阵不等式(matrix inequality)</b>：$X \preceq_K Y \iff Y - X$ 半正定（通常简写作 $X \preceq Y$）。</p>
+<p>在控制理论、信号处理等领域中，Lyapunov 不等式 $A^T P + P A \preceq 0$ 就是典型的矩阵不等式形式。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.16 [0,1]上非负多项式的锥 (Boyd)</div>
+<p>令 $K$ 为 $[0,1]$ 上所有系数在 $\mathbb{R}^n$ 中的非负多项式：</p>
+$$K = \{c \in \mathbb{R}^n \mid c_1 + c_2 t + \cdots + c_n t^{n-1} \ge 0,\; \forall t \in [0,1]\}$$
+<p>$K$ 是一个正锥。对应的广义不等式 $x \preceq_K y$ 表示 $x$ 和 $y$ 分别作为多项式系数，且 $y-x$ 的多项式在 $[0,1]$ 上处处非负。</p>
+</div>
+</div>
+</div>
+
+<h3 id="s2_4_2">2.4.2 最小元与极小元</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>设 $S$ 是某个集合，$K$ 是正锥。</p>
+<ul style="margin-left:20px;line-height:1.8;">
+<li>$x \in S$ 是 $S$ 的<strong>最小元(minimum element)</strong>，如果对所有 $y \in S$，有 $x \preceq_K y$。等价地：$S \subseteq x + K$（$S$ 完全落在以 $x$ 为起点的锥里面）。</li>
+<li>$x \in S$ 是 $S$ 的<strong>极小元(minimal element)</strong>，如果 $y \preceq_K x$ 且 $y \in S$ 蕴含 $y = x$。等价地：$(x - K) \cap S = \{x\}$（没有比 $x$ "更小"的元素在 $S$ 中）。</li>
+</ul>
+<p>关键区别：<strong>最小元</strong>可以与所有元素比较（最强），<strong>极小元</strong>只是没有严格小于它的元素（Pareto 意义下的）。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>在分量不等式 $K = \mathbb{R}^2_+$ 下：</p>
+<ul style="margin-left:20px;line-height:1.8;">
+<li>$x$ 是最小元 → $S$ 中所有点都在 $x$ 的"右上角"（每个分量都不小于 $x$ 的对应分量）。这意味着 $x$ 是所有分量同时最小的点——现实中几乎不存在。</li>
+<li>$x$ 是极小元 → 在 $S$ 中没有点在 $x$ 的"左下角"（不存在所有分量都 $\le x$ 且至少一个严格 < 的点）。这更常见——Pareto 最优就是极小元。</li>
+</ul>
+<p>极小元可能有很多个，它们之间可能<b>无法比较</b>。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>在标量中（$K = \mathbb{R}_+$），极小元和最小元是一致的：最小值。</li>
+<li>在 $\mathbb{R}^2$ 中，集合 $S = \{(1,2), (2,1), (3,3)\}$ 在分量不等式下：$(1,2)$ 和 $(2,1)$ 都是极小元（互相不可比较），没有最小元。</li>
+<li>集合 $S = \{(x_1,x_2) \mid x_1 + x_2 \ge 1, x_1 \ge 0, x_2 \ge 0\}$ 的边界上有很多点都是极小元。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 反例/陷阱</div>
+<p>新手常犯的错误：以为极小元就是"最小"的。在偏序下，极小元可能有很多个，它们之间可能<b>无法比较</b>。比如 Pareto 前沿上的所有点都是极小元——不能说其中哪个更好。</p></div>
+<div class="formula-block">$$\text{最小元: } S \subseteq x + K \qquad \text{极小元: } (x-K) \cap S = \{x\}$$</div>
+<div class="viz"><canvas id="cv242" height="360"></canvas>
+<div class="controls">
+<label>集合类型</label><select id="st242"><option value="disk">圆盘区域</option><option value="pareto">Pareto前沿</option></select>
+<button id="rst242">🔄 重设</button>
+<span style="font-size:.72rem;color:var(--h3)">点击切换示例</span>
+</div></div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;">多目标优化的<b>Pareto前沿</b>。工程中几乎不存在"所有指标都最优"的方案（最小元），但存在大量Pareto最优方案（极小元）。理解两者区别是做多目标优化和权衡分析的前提。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>最小元 = 比所有元素都小（全局最优）。极小元 = 不存在更小的可比元素（Pareto最优）。两者在偏序下不同！</strong></p>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.17 R²₊ 下的最小元 (Boyd)</div>
+<p>考虑 $K = \mathbb{R}^2_+$（分量不等式）。设 $S$ 为如图所示的集合。$S$ 中的点 $x_1$ 是最小元：$S \subseteq x_1 + K$（即 $S$ 中所有点都在 $x_1$ 的右上角）。</p>
+<p>$S$ 中还存在许多极小元（位于左下边界上），每个极小元在 $S$ 中没有任意分量都 ≤ 它且至少一个分量 < 它的点。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.18 对称矩阵的最小元与极小元 (Boyd)</div>
+<p>考虑 $K = \mathbb{S}^n_+$，$S$ 为所有 $n \times n$ 对称矩阵的一个子集。</p>
+<ul style="margin-left:20px;line-height:1.8">
+<li><b>最小元</b> $X \in S$：对所有 $Y \in S$，$Y - X \succeq 0$，即 $Y - X$ 半正定。这意味着 $X$ 在所有矩阵中都"最小"。</li>
+<li><b>极小元</b> $X \in S$：如果 $Y \in S$ 满足 $Y \preceq X$（即 $X - Y \succeq 0$），则必有 $Y = X$。极小元在偏序下是 Pareto 最优的。</li>
+</ul>
+</div>
+</div>
+</div>
+
+
+<div class="example-box"><div class="label">💻 CVXPY实战：锥规划：半正定锥中的矩阵优化</div>
+<pre># 求解 min c^T x  s.t. x1*F1 + x2*F2 + G >>= 0 (LMI约束)
+import cvxpy as cp, numpy as np
+n = 2
+F1 = np.array([[1,0],[0,0]]); F2 = np.array([[1,1],[1,0]])
+G = np.array([[2,-1],[-1,2]]); c = np.array([1.0, -1.0])
+x = cp.Variable(n)
+# PSD cone constraint: x1*F1 + x2*F2 + G >>= 0
+constraint = [x[0]*F1 + x[1]*F2 + G >> 0]
+prob = cp.Problem(cp.Minimize(c @ x), constraint)
+prob.solve(solver=cp.SCS)
+print(f"x* = [{x[0].value:.3f}, {x[1].value:.3f}]")
+# 验证: eigenvalues of x1*F1 + x2*F2 + G
+M = x[0].value*F1 + x[1].value*F2 + G
+print(f"Eigenvalues: {np.linalg.eigvalsh(M)}")  # all >= 0</pre><p style="font-size:.78rem;color:#374151;margin-top:4px;">PSD锥约束=LMI(线性矩阵不等式)。CVXPY中>>0表示半正定。这是SDP的核心约束——Lyapunov稳定性、矩阵完备化、量子态层析都用它。</p></div>
+<h2 id="s2_5">2.5 分离与支撑超平面</h2>
+
+<h3 id="s2_5_1">2.5.1 超平面分离定理</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p><strong>超平面分离定理(separating hyperplane theorem)</strong>：设 $C, D \subseteq \mathbb{R}^n$ 是两个不相交的凸集（$C \cap D = \emptyset$）。则存在 $a \in \mathbb{R}^n, a \neq 0$ 和 $b \in \mathbb{R}$，使得：</p>
+$$ a^T x \le b,\; \forall x \in C \qquad\text{且}\qquad a^T x \ge b,\; \forall x \in D $$
+<p>即存在一个超平面 $\{x \mid a^T x = b\}$ 将 $C$ 和 $D$ 分离。</p>
+<p><strong>严格分离(strict separation)</strong>：如果 $C$ 和 $D$ 至少有一个是闭的且另一个是紧的，则可以严格分离：$a^T x < b$ 对所有 $x \in C$，$a^T x > b$ 对所有 $x \in D$。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>如果你和你的朋友各拿一个凸形气球（不重合），我一定能在你们之间插一张硬纸板，使得两个气球在纸板的两侧。这张硬纸板就是分离超平面。</p>
+<p>这个定理是凸优化理论的<b>基石</b>——它保证了对偶理论（Lagrange 对偶）的几何合理性。它实际上就是<b>Hahn-Banach 定理</b>的几何版本。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>两个不相交的圆盘——它们的公切线之一可以作为分离超平面。</li>
+<li>点 $\{x_0\}$ 和闭凸集 $C$（$x_0 \notin C$）：存在分离超平面把点和集合分开。这是对偶理论的基础构造。</li>
+<li>两个不相交的多面体总能被严格分离（因为它们都是闭的且具有合适条件）。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 反例</div>
+<p>关键条件：两个集合都必须是对凸的。如果其中一个不是凸的（比如月牙形），那么两个不相交的非凸集合可能无法被超平面分离。</p>
+<p>另外，两个不相交的开集（如两个开半空间）可能无法被严格分离——分离超平面会碰到共同的边界点。</p></div>
+<div class="formula-block">$$\exists a \neq 0, b:\; a^T x \le b\;(x\in C),\; a^T x \ge b\;(x\in D)$$</div>
+
+<div style="background:#f0f9ff;border:1px solid #93c5fd;border-radius:10px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#2563eb;font-size:.9rem;margin-bottom:10px;">📖 公式解读 — 分离不等式 $a^T x \le b \le a^T y$ 怎么理解？</div>
+<ul style="line-height:2.0;margin-left:16px;">
+<li><b>拆解符号：</b> $a$ 是分离超平面的法向量。$b$ 是"分界线"的截距。$C$ 在超平面的一侧（$\le$），$D$ 在另一侧（$\ge$）。</li>
+<li><b>通俗类比：</b> 两个互不侵犯的气球——你在它们之间插一张硬纸板。纸板的一侧是气球 C（$a^T x \le b$），另一侧是气球 D（$a^T x \ge b$）。这张纸板就是分离超平面。</li>
+<li><b>为什么重要：</b> 分离定理是<b>对偶理论</b>的几何根基。Lagrange 乘子本质上就是分离超平面的法向量。没有分离定理就没有 KKT 条件，就没有 SVM，也没有凸对偶。</li>
+<li><b>分离一定存在吗？</b> 两个<b>凸</b>且<b>不相交</b>的集合：一定有分离超平面！但如果其中一个是月牙形（非凸），可能分不开。</li>
+<li><b>数值例子：</b> $C$ 是单位圆盘 $(x_1-1)^2+x_2^2\le1$，$D$ 是 $(x_1+1)^2+x_2^2\le1$。它们不相交，存在分离线 $x_1=0$：对 $C$ 中所有点 $x_1\ge0$（$a^T x\ge0$），对 $D$ 中所有点 $x_1\le0$（$a^T x\le0$），取 $b=0$。</li>
+</ul>
+</div>
+
+<div class="viz"><canvas id="cv251" height="380"></canvas>
+<div class="controls">
+<label>A位移X</label><input type="range" id="ax251" min="-120" max="120" value="-50" step="1"><span class="val" id="axv251">-50</span>
+<label>A位移Y</label><input type="range" id="ay251" min="-120" max="120" value="-30" step="1"><span class="val" id="ayv251">-30</span>
+<label>B位移X</label><input type="range" id="bx251" min="-120" max="120" value="60" step="1"><span class="val" id="bxv251">60</span>
+<label>B位移Y</label><input type="range" id="by251" min="-120" max="120" value="20" step="1"><span class="val" id="byv251">20</span>
+<label>B半径</label><input type="range" id="br251" min="10" max="100" value="50" step="1"><span class="val" id="brv251">50</span>
+</div></div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;">SVM的核心数学基础——最大间隔分类器就是找分离两个点集的超平面。对偶理论、博弈论的minimax定理、公平分配问题都依赖分离定理。没有分离定理，就没有Lagrange对偶。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>任何两个不相交的凸集可以被一个超平面分离。这是凸优化对偶理论的几何根基。</strong></p>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.19 仿射集与凸集的分离 (Boyd)</div>
+<p>设 $C$ 是凸集，$D = \{x \mid Cx = d\}$ 是仿射集（$C$ 满行秩）。如果 $C \cap D = \emptyset$，则分离定理给出了分离超平面的存在性。</p>
+<p>这是<b>线性规划(LP)对偶性</b>的几何基础——当一个凸集和一个仿射集不相交时，可以用超平面来"证明"它们不相交。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.20 点与闭凸集的严格分离 (Boyd)</div>
+<p>设 $C$ 是闭凸集，$x_0 \notin C$。则存在严格分离超平面：</p>
+$$\exists a \neq 0,\; b:\; a^T x_0 > b,\; a^T x < b,\; \forall x \in C$$
+<p>这是对偶理论和最优性条件的<b>最关键工具</b>。它等价于：如果 $x_0 \notin C$，则 $x_0$ 和 $C$ 可以被分离。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.21 严格线性不等式的择一性定理 (Boyd)</div>
+<p>分离定理的一个重要推论是不等式系统的<b>择一定理(Theorem of alternatives)</b>：</p>
+<p>严格线性不等式系统 $Ax \prec b$ 无解 $\iff$ 存在 $\lambda \succeq 0, \lambda \neq 0$ 满足 $\lambda^T A = 0, \lambda^T b \le 0$</p>
+<p>这体现了凸优化中"原始问题有解 vs 对偶问题有解"的二择一法则。</p>
+</div>
+</div>
+</div>
+
+<h3 id="s2_5_2">2.5.2 支撑超平面</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>超平面 $\{x \mid a^T x = b\}$ 称为凸集 $C$ 在边界点 $x_0 \in \partial C$ 处的<strong>支撑超平面(supporting hyperplane)</strong>，如果 $a^T x \le b$ 对所有 $x \in C$ 成立，且 $a^T x_0 = b$。</p>
+<p>即：该超平面与 $C$ 相切于 $x_0$，且 $C$ 完全在超平面的一侧。</p>
+<p><strong>支撑超平面定理</strong>：凸集 $C$ 边界上的任意一点都存在支撑超平面。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>想象一个凸气球。在气球表面任何一点，你都可以放置一张纸板刚好贴在气球上，而整个气球都在纸板的同一侧。这张纸板就是支撑超平面。如果你站在气球里面往外看，你永远看不到"凹陷"——因为在凹陷处你会看到气球的那部分在纸板的另一侧。</p>
+<p><strong>支撑超平面的存在与否是区分凸集和非凸集的方法</strong>：非凸集总有一些边界点无法找到支撑超平面。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>单位圆在任意边界点 $(x_1,x_2)$ 处的切线就是支撑超平面（该点的切线方向是法向量为 $(x_1,x_2)$ 的直线）。</li>
+<li>多面体的每个面都是一个支撑超平面的子集。</li>
+<li>对于非负象限 $\mathbb{R}^n_+$，坐标轴上的每个点都对应一个"边界"超平面（其中一个坐标为0）。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 反例——关键！</div>
+<p>非凸集可能在某些边界点没有支撑超平面。例如月牙形凹进去的部分——在那里的边界点，任何经过该点的超平面都会把月牙切成两半（一部分在一边，另一部分在另一边）。这恰好是区分凸和非凸的<b>判定方式</b>：如果边界上的每一点都存在支撑超平面，则集合是凸的。</p></div>
+<div class="formula-block">$$a^T x \le b = a^T x_0,\; \forall x \in C$$</div>
+<div class="viz"><canvas id="cv252" height="360"></canvas>
+<div class="controls">
+<label>边界点角度</label><input type="range" id="ang252" min="0" max="360" value="45" step="1"><span class="val" id="av252">45°</span>
+<label>形状</label><select id="sh252"><option value="circle">凸: 圆</option><option value="ellipse">凸: 椭球</option><option value="nc">非凸: 月牙</option></select>
+<button id="anim252">▶ 动画</button>
+</div></div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;">最优性条件(KKT)的几何基础。支撑超平面告诉你"在最优解处，目标函数的负梯度是可行集的支撑方向"。这是理解拉格朗日乘子几何意义的<b>唯一正确方式</b>。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>支撑超平面 = 与凸集边界相切且凸集完全在它一侧的超平面。凸集边界每点都存在支撑超平面。</strong></p></div>
+</div>
+
+
+<div style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:22px 26px;margin:16px 0;"><div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📖 多层公式解读 —— 对偶锥 K* 的互补张角关系</div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第1层：构造方法</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">对每个x∈K, 条件yᵀx≥0定义了一个经过原点的半空间。K*=所有这样的半空间的交集=凸。即使K本身不是凸的, K*永远是凸的。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第2层：张角互补</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">如果K的角度=α, 那么K*的角度=π-α。K很窄(如激光30°)→K*很宽(150°泛光灯)。K=整个半空间(180°)→K*=正交射线(0°)。K=整个空间→K*={0}。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第3层：三大自对偶锥</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">Rⁿ₊自对偶: yᵀx≥0对所有x≥0→yᵢ≥0→y≥0。二阶锥自对偶: 范数自对偶性。Sⁿ₊自对偶: tr(XY)≥0对所有X≥0→Y≥0。SDP原始对偶依赖此性质。</p></div></div>
+<h2 id="s2_6">2.6 对偶锥与广义不等式</h2>
+
+<h3 id="s2_6_1">2.6.1 对偶锥</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>设 $K$ 是一个锥。$K$ 的<strong>对偶锥(dual cone)</strong> 定义为：</p>
+$$ K^* = \{y \mid y^T x \ge 0,\; \forall x \in K\} $$
+<p>$K^*$ 也是锥，且总是凸的（即使 $K$ 本身不是凸锥）。如果 $K$ 是正锥（proper cone），则 $K^*$ 也是正锥。</p>
+<p><strong>自对偶锥(self-dual cone)</strong>：如果 $K^* = K$。例如 $\mathbb{R}^n_+$、二阶锥 $\{(x,t) \mid \|x\|_2 \le t\}$、半正定锥 $\mathbb{S}^n_+$。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>在 $\mathbb{R}^2$ 中，取 $K$ 为第一象限。$y^T x \ge 0$ 对所有 $x \in K$ 意味着 $y$ 也必须落在第一象限——所以 $K^* = K$。</p>
+<p>如果 $K$ 是角度很窄的一个尖锥，则 $y^T x \ge 0$ 意味着 $y$ 与所有 $K$ 中的向量夹角 $\le 90^\circ$，所以 $K^*$ 会是一个非常宽的锥（宽到能包住 $K$）。<strong>对偶锥 = 与 $K$ 中所有向量夹角都 ≤ 90° 的向量的集合</strong>。$K$ 越窄，$K^*$ 越宽。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>$\mathbb{R}^n_+$ 的对偶锥是它自己（自对偶）。</li>
+<li>二阶锥的对偶锥是它自己（自对偶）。</li>
+<li>半正定锥 $\mathbb{S}^n_+$ 的对偶锥是它自己（自对偶）。</li>
+<li>角度为 $\alpha$ 的平面锥 $K = \{(\cos\theta,\sin\theta) \mid |\theta| \le \alpha/2\}$ 的对偶锥角度为 $\pi - \alpha$。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 注意</div>
+<p>注意：$K$ 可以不是凸的，但 $K^*$ 总是凸的——因为 $K^* = \bigcap_{x \in K} \{y \mid y^T x \ge 0\}$ 是半空间的交集，凸集的交集总是凸的。</p></div>
+<div class="formula-block">$$K^* = \{y \mid y^T x \ge 0,\; \forall x \in K\}$$</div>
+
+<div style="background:#f0f9ff;border:1px solid #93c5fd;border-radius:10px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#2563eb;font-size:.9rem;margin-bottom:10px;">📖 公式解读 — $K^* = \{y \mid y^T x \ge 0,\;\forall x\in K\}$ 到底在说什么？</div>
+<ul style="line-height:2.0;margin-left:16px;">
+<li><b>拆解符号：</b> $y^T x$ 是内积，几何上是 $y$ 和 $x$ 之间夹角的"余弦 × 长度乘积"。$y^T x \ge 0$ 就是说 $y$ 和 $x$ 的夹角 $\le 90°$。</li>
+<li><b>通俗类比：</b> 你在追光灯（锥 K）的照射范围内。对偶锥 $K^*$ 中的向量是那些"能看到整束光"的方向——你和 <b>K 中每一条光线</b> 的夹角都不超过 90°。K 越窄（像激光），$K^*$ 就越宽（像泛光灯）。</li>
+<li><b>为什么叫"对偶"：</b> 在 $K$ 中的向量让你"看到 $K^*$ 中的每个方向都是非负内积"，反之亦然。这是一个对称关系——就像照镜子。</li>
+<li><b>数值例子：</b> $K = \{(\cos\theta,\sin\theta) \mid |\theta|\le30°\}$（张角 60°）。$K^* = \{(\cos\phi,\sin\phi) \mid |\phi|\le60°\}$（张角 120°）。因为 $60°+120°=180°$——互补关系！任何与 K 中所有方向夹角 ≤ 90° 的方向恰好落在 $120°$ 的扇形中。</li>
+</ul>
+</div>
+
+<div class="viz"><canvas id="cv261" height="340"></canvas>
+<div class="controls">
+<label>K的角度α°</label><input type="range" id="ang261" min="5" max="120" value="60" step="1"><span class="val" id="av261">60°</span>
+<label>K* 角度</label><span class="val" id="adv261">120°</span>
+<label>显示K*</label><input type="checkbox" id="sd261" checked>
+<button id="anim261">▶ 动画</button>
+</div></div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;">SDP对偶的基础——原始变量在S₊ⁿ中，对偶变量也在S₊ⁿ中（自对偶）。对偶锥在金融中的<b>无套利定价</b>、经济学中的<b>效率前沿</b>都有应用。理解对偶锥才能读懂SDP求解器的输出。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>对偶锥 $K^*$ = 所有与 $K$ 中向量夹角 ≤ 90° 的向量。$K$ 越小（越窄），$K^*$ 越大（越宽）。三种最重要的锥都是自对偶的。</strong></p>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.22 子空间的对偶锥 (Boyd)</div>
+<p>子空间 $V \subseteq \mathbb{R}^n$（也是一个锥）的对偶锥就是其正交补：</p>
+$$V^* = V^\perp = \{y \mid y^T x = 0,\; \forall x \in V\}$$
+<p>这是因为 $y^T x \ge 0$ 和 $y^T (-x) = -y^T x \ge 0$ 同时对任意 $x \in V$ 成立，所以必须有 $y^T x = 0$。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.23 非负象限 (Boyd)</div>
+<p>$\mathbb{R}^n_+$ 是自对偶锥：$(\mathbb{R}^n_+)^* = \mathbb{R}^n_+$</p>
+<p>证明：若 $y^T x \ge 0$ 对所有 $x \succeq 0$ 成立，则若 $y$ 有负分量 $y_i < 0$，取 $x = e_i$（第 $i$ 单位向量）得 $y_i < 0$，矛盾。所以 $y \succeq 0$。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.24 半正定锥 (Boyd)</div>
+<p>$\mathbb{S}^n_+$ 是自对偶锥：$(\mathbb{S}^n_+)^* = \mathbb{S}^n_+$</p>
+<p>关键的证明工具：$\text{tr}(XY) \ge 0$ 对所有 $X \succeq 0$ 等价于 $Y \succeq 0$。这是因为 $\text{tr}(XY) = \text{tr}(X^{1/2} Y X^{1/2})$，而 $X^{1/2} Y X^{1/2} \succeq 0$ 当且仅当 $Y \succeq 0$。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.25 范数锥的对偶 (Boyd)</div>
+<p>设 $\|\cdot\|$ 是 $\mathbb{R}^n$ 上的范数，其对偶范数为 $\|\cdot\|_*$。范数锥 $K = \{(x,t) \mid \|x\| \le t\}$ 的对偶锥是：</p>
+$$K^* = \{(u,v) \mid \|u\|_* \le v\}$$
+<p>这即是对偶范数定义的范数锥！因此二阶锥（$\ell_2$ 范数，自对偶 $\|\cdot\|_2 = \|\cdot\|_*$）是自对偶的，但 $\ell_1$ 范数锥的对偶是 $\ell_\infty$ 范数锥（反之亦然）。</p>
+</div>
+</div>
+</div>
+
+<h3 id="s2_6_2">2.6.2 广义不等式的对偶</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>设 $K$ 是正锥，其广义不等式 $\preceq_K$。则<strong>对偶广义不等式</strong> $\preceq_{K^*}$ 基于对偶锥 $K^*$：</p>
+$$ x \preceq_{K^*} y \iff y - x \in K^* \iff \lambda^T (y - x) \ge 0,\; \forall \lambda \succeq_K 0 $$
+<p>换句话说：$x \preceq_{K^*} y$ 当且仅当对所有在原来 $K$ 意义下"非负"的向量 $\lambda$，都有 $\lambda^T x \le \lambda^T y$。</p>
+<p>这个定义非常优雅：<strong>对偶不等式用原锥中的所有"测试向量"来检查不等式关系。</strong></p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>在经济学/优化中，$\lambda$ 可以解释为"价格向量"（shadow price）。$x \preceq_{K^*} y$ 意味着：<b>无论你用什么样的非负价格 $\lambda$ 来评估，$y$ 的价值总是大于等于 $x$ 的价值</b>。这是一种"鲁棒的"大小关系。</p>
+<p>由于 $(\mathbb{R}^n_+)^* = \mathbb{R}^n_+$，所以分量不等式的对偶还是分量不等式。而二阶锥和半正定锥也都是自对偶的——这些情况下对偶广义不等式与原不等式一致。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>$K = \mathbb{R}^n_+$，$\preceq_{K^*}$ 即分量不等式（与 $\preceq_K$ 相同）。</li>
+<li>若 $K$ 是一个角度很窄的锥，$\preceq_{K^*}$ 的意义就与 $\preceq_K$ 不同——$K^*$ 宽得多，$x \preceq_{K^*} y$ 更容易满足。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 注意</div>
+<p>对偶广义不等式不是原不等式的"反向"——它只是换了一个锥。对于非自对偶锥，$\preceq_K$ 和 $\preceq_{K^*}$ 是不同的偏序关系。不要把 $K^*$ 和 $-K$ 混淆！</p></div>
+<div class="formula-block">$$x \preceq_{K^*} y \iff \lambda^T x \le \lambda^T y,\; \forall \lambda \succeq_K 0$$</div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;">经济学中的<b>价格理论</b>——原问题(min成本)的对偶是max利润。对偶不等式给出了用"价格"来检验"效率"的方法。这在机制设计、拍卖理论、资源分配中有直接应用。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>对偶广义不等式用 $K^*$ 代替 $K$。对于三大自对偶锥（非负象限、二阶锥、PSD锥），对偶不等式与原不等式相同。</strong></p></div>
+</div>
+
+<h3 id="s2_6_3">2.6.3 对偶不等式下的最小元与极小元</h3>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>借助对偶广义不等式，我们可以刻画原不等式的极小元和最小元：</p>
+<ul style="margin-left:20px;line-height:1.8;">
+<li>$x$ 是 $S$ 在 $\preceq_K$ 下的<strong>最小元</strong> $\iff$ 对所有 $\lambda \succ_{K^*} 0$，$x$ 是标量函数 $\lambda^T z$ 在 $z \in S$ 上的唯一最小点。</li>
+<li>$x$ 是 $S$ 在 $\preceq_K$ 下的<strong>极小元</strong> $\iff$ 存在 $\lambda \succ_{K^*} 0$ 使得 $x$ 最小化 $\lambda^T z$ 在 $S$ 上。</li>
+</ul>
+<p>这是对偶的一个非常强大的应用：<strong>向量优化问题可以通过标量化（用对偶锥中的向量加权）来求解极小元</strong>。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p><b>思想精髓：</b>最小元必须对所有可能的加权方向都是最优的——这是非常强的条件，通常不存在。极小元只需要<em>存在</em>至少一个加权方向使得它是该标量问题的最优解。这就是"Pareto最优 = 某个线性加权和的最优解"的数学表述。</p>
+<p>在工程中，这意味着你可以通过选择不同的权重 $\lambda$ 来"扫描"Pareto前沿上的不同极小元。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li>$K = \mathbb{R}^2_+$，$S = \{(x_1,x_2) \mid x_1^2 + x_2^2 \le 1, x_1 \ge 0, x_2 \ge 0\}$（四分之一单位圆）。取 $\lambda = (1,0)$，最小化 $\lambda^T z = z_1$ 得到极小元 $(0,1)$；取 $\lambda = (0,1)$ 得 $(1,0)$；取 $\lambda = (1,1)$ 得 $1/\sqrt{2} (1,1)$。这些全部是极小元。</li>
+<li>在经济中：用不同价格向量 $\lambda$ 来最小化总成本，得到的解都是 Pareto 最优采购方案。</li>
+</ol></div>
+<div class="counter"><div class="label">❌ 陷阱</div>
+<p>不是所有的极小元都能通过标量化找到！只有当 $S$ 是凸的时，上述标量化定理才保证每一个极小元都对应某个 $\lambda \succ_{K^*} 0$。对于非凸 $S$，可能存在"隐藏"的极小元无法用任何正权重 $\lambda$ 标量化得到。</p></div>
+<div class="formula-block">$$x\text{ 极小元 }\iff \exists \lambda \succ_{K^*} 0: x = \arg\min_{z\in S} \lambda^T z$$</div>
+<div class="viz"><canvas id="cv263" height="360"></canvas>
+<div class="controls">
+<label>权重 λ₁</label><input type="range" id="l1263" min="0" max="100" value="50" step="1"><span class="val" id="l1v263">0.50</span>
+<label>权重 λ₂</label><input type="range" id="l2263" min="0" max="100" value="50" step="1"><span class="val" id="l2v263">0.50</span>
+<button id="anim263">▶ 扫描Pareto前沿</button>
+</div></div>
+
+<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0;">
+<div style="font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px;">🎯 学完用途</div>
+<p style="line-height:1.8;">多目标投资的<b>Pareto最优组合选择</b>。通过改变权重λ扫描效率前沿——这是金融中Markowitz有效前沿的数学原理。不同λ对应不同风险偏好的投资者。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>对偶给出向量优化的标量化方法：选权重 $\lambda \in K^*$，求最优 → 得到原问题的极小元。这就是Pareto最优的数学原理。</strong></p>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例2.27 Pareto最优生产前沿 (Boyd)</div>
+<p>我们考虑在 $n$ 种资源下生产一种产品的生产函数。设 $x \in \mathbb{R}^n$ 表示 $n$ 种资源的投入向量，产出为 $f(x)$。在投入集合 $S \subseteq \mathbb{R}^n$ 中（假设 $S$ 是凸的），我们关心的是在保持产出不变的前提下如何最小化投入。</p>
+
+<p>使用 $K = \mathbb{R}^n_+$（分量不等式），一个投入向量 $x$ 是<b>极小元（Pareto最优）</b>，如果不存在另一个可行投入在所有资源方面都不超过 $x$ 且至少一种资源严格小于 $x$——即在相同产出下没有"全面更省"的方式。</p>
+
+<p>由标量化定理，每个 Pareto 最优投入 $x$ 对应某个正权重向量 $\lambda \succ 0$，极小化 $\lambda^T z$ 在 $S$ 上的目标函数：</p>
+$$x = \arg\min_{z \in S} \lambda^T z$$
+
+<p>这正是成本最小化问题 $\min \sum_i \lambda_i z_i$ —— $\lambda$ 是各资源的价格（shadow prices），而最优解就是给定价格下的最优投入组合。不同价格选择会导致不同 Pareto 最优方案分布在 Pareto 前沿上。</p>
+</div>
+</div>
+</div>
+
+
+
+<!-- SUPPLEMENT START -->
+<div data-sup="ch2-1" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📐 公式数值例子 — 凸组合 $y=\theta x_1+(1-\theta)x_2$</div>
+<p>数值例子：$x_1=(2,3)$, $x_2=(10,7)$, $\theta=0.3$: $y=0.3\cdot(2,3)+0.7\cdot(10,7)=(0.6+7,\,0.9+4.9)=(7.6,5.8)$。验证：当 $\theta=0$ 时 $y=x_2=(10,7)$;$\theta=1$ 时 $y=x_1=(2,3)$;$\theta=0.5$ 时 $y=(6,5)$ 是两端点的中点。</p>
+</div>
+<div data-sup="ch2-2" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📐 公式数值例子 — 线性方程组 $Ax=b$ 的解集</div>
+<p>数值例子：买 $x_1$ 斤西红柿(3元/斤)和 $x_2$ 斤黄瓜(4元/斤)，总共花了5元，即 $3x_1+4x_2=5$。$A=[3,4]$, $b=5$。解集是所有满足总价=5元的购买方案 $(x_1,x_2)$——这是一条直线。当 $x_1=1$ 时 $x_2=0.5$;当 $x_1=0$ 时 $x_2=1.25$。</p>
+</div>
+<div data-sup="ch2-3" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📐 公式数值例子 — 凸集判定条件</div>
+<p>数值验证：矩形 $[0,2]\times[0,2]$ 取 $(0,0)$ 和 $(2,2)$, $\theta=0.5$ 得中点 $(1,1)$ 在矩形内。取 $(1,0)$ 和 $(0,1)$, $\theta=0.3$ 得 $(0.7,0.3)$ 也在矩形内。任意两点线段都在内部 → 凸。</p>
+</div>
+<div data-sup="ch2-4" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📐 公式数值例子 — 凸锥 (Convex Cone)</div>
+<p>数值验证：第一象限取 $(2,1)$, 放大3倍得 $(6,3)$ 仍在第一象限。取 $(2,1)$ 和 $(1,3)$, 用 $\theta_1=2,\theta_2=1$ 组合：$2\cdot(2,1)+1\cdot(1,3)=(5,5)$ 仍在第一象限 → 凸锥。</p>
+</div>
+<div data-sup="ch2-5" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📐 公式数值例子 — 半正定锥 $\mathbb{S}^2_+$</div>
+<p>数值验证：$[[4,2],[2,1]]$：特征值计算 $\det([[4-\lambda,2],[2,1-\lambda]])=(4-\lambda)(1-\lambda)-4=\lambda^2-5\lambda=0 \Rightarrow \lambda=0,5$ → 半正定(在锥边界)。$[[4,3],[3,1]]$：$\lambda^2-5\lambda-5=0 \Rightarrow \lambda\approx5.85,-0.85$ → 不定(在锥外)。</p>
+</div>
+<div data-sup="ch2-6" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📐 公式数值例子 — 分离超平面定理</div>
+<p>数值例：$C=\{(x,y)\mid(x-2)^2+y^2\le1\}$(圆心 $(2,0)$ 的圆盘), $D=\{(x,y)\mid(x+2)^2+y^2\le1\}$(圆心 $(-2,0)$ 的圆盘)。两圆不相交。分离线 $x=0$：对 $C$ 中所有点 $x\ge1$;对 $D$ 中所有点 $x\le-1$。取 $a=(1,0)$, $b=0$ 即有 $a^Tx\ge0$ ($x\in C$), $a^Tx\le0$ ($x\in D$)。</p>
+</div>
+<div data-sup="ch2-7" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📐 公式数值例子 — 对偶锥 $K^*$</div>
+<p>数值例：$K=$ 30度锥(顶点在原点,张角30度)。$K^*$ 中任意向量 $y$ 必须与 $K$ 中所有 $x$ 的夹角 $\le90$ 度。与30度锥中所有射线夹角 $\le90$ 度的向量恰好落在 $180-30=150$ 度锥中。所以 $K^*=$ 150度锥。$K$ 越小,$K^*$ 越大。</p>
+</div>
+<!-- SUPPLEMENT END -->
+
+<h2 id="exercises">练习题 (完整版，选自Boyd课本)</h2>
+<div class="sec-card">
+<div class="def"><div class="label">📝 说明</div><p>以下全部习题选自Boyd & Vandenberghe <em>Convex Optimization</em> 课本对应章节。建议结合正文和例题独立完成。</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.1（用归纳法证明凸组合的任意k点推广，从k=2的凸集定义出发。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">θ1 + · · · + θk = 1. Show that θ1 x1 + · · · + θk xk ∈ C. (The definition of convexity is that this holds for k = 2; you must show it for arbitrary k.) Hint. Use induction on k.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.2（证明：集合凸⇔与任意直线之交凸；集合仿射⇔与任意直线之交仿射。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">a set is affine if and only if its intersection with any line is affine.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.3（证明中点凸的闭集必为凸集。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">average or midpoint (a + b)/2 is in C. Obviously a convex set is midpoint convex. It can be proved that under mild conditions midpoint convexity implies convexity. As a simple case, prove that if C is...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.4（证明凸包=所有包含该集合的凸集之交。同样方法适用于锥包、仿射包、线性包。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">(The same method can be used to show that the conic, or affine, or linear hull of a set S is the intersection of all conic sets, or affine sets, or subspaces that contain S.) Examples</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.5（求两个平行超平面的距离公式。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">Rn | aT x = b2 }?</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.6（给出一个半空间包含另一个半空间的充要条件，以及两半空间相等的条件。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">{x | aT x ≤ b} ⊆ {x | ãT x ≤ b̃} (where a 6= 0, ã 6= 0). Also find the conditions under which the two halfspaces are equal.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.7（证明Voronoi区域（到a比到b更近的点集）是半空间，写出显式不等式。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">of all points that are closer (in Euclidean norm) to a than b, i.e., {x | kx−ak2 ≤ kx−bk2 }, is a halfspace. Describe it explicitly as an inequality of the form cT x ≤ d. Draw a picture.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.8（判断哪些集合是多面体，并写为标准形式S={x|Ax⪯b, Fx=g}。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">{x | Ax  b, F x = g}. (a) S = {y1 a1 + y2 a2 | −1 ≤ y1 ≤ 1, −1 ≤ y2 ≤ 1}, where a1 , a2 ∈ Rn . Pn                        Pn (b) S = {x ∈ Rn | x  0, 1T x = 1,                 i=1 x i ai = b 1 ,     i...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.9（Voronoi区域与多面体分解：证明Voronoi区域是多面体，研究多面体分解。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">the set of points that are closer (in Euclidean norm) to x0 than the other xi , i.e., V = {x ∈ Rn | kx − x0 k2 ≤ kx − xi k2 , i = 1, . . . , K}. V is called the Voronoi region around x0 with respect t...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.10（锥与半空间的交：判断特定集合是否为凸锥。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">inequality, C = {x ∈ Rn | xT Ax + bT x + c ≤ 0}, n      n with A ∈ S , b ∈ R , and c ∈ R. (a) Show that C is convex if A  0. (b) Show that the intersection of C and the hyperplane defined by g T x + ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.11（超平面与多面体：证明超平面是多面体（可表示为有限半空间之交）。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">generalization, show that {x ∈ Rn  + |     i=1 x i ≥ 1} is   convex. Hint. If a, b ≥ 0 and 0 ≤ θ ≤ 1, then aθ b1−θ ≤ θa + (1 − θ)b; see §3.1.9.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.12（最小二乘和投影：证明残差范数不超特定值的最优集是凸的。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">(a) A slab, i.e., a set of the form {x ∈ Rn | α ≤ aT x ≤ β}. (b) A rectangle, i.e., a set of the form {x ∈ Rn | αi ≤ xi ≤ βi , i = 1, . . . , n}. A rectangle is sometimes called a hyperrectangle when ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.13（集合的外部表示与内部表示：凸包=凸组合集。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">{XX T | X ∈ Rn×k , rank X = k}. Describe its conic hull in simple terms.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.14（凸集的凸包表示：有限点集的凸包=多胞形=多面体。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">(a) For a ≥ 0 we define Sa as {x | dist(x, S) ≤ a}, where dist(x, S) = inf y∈S kx − yk. We refer to Sa as S expanded or extended by a. Show that if S is convex, then Sa is convex. (b) For a ≥ 0 we def...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.15（概率分布集合的凸性：判断均值/方差/熵约束下的分布族是否凸。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">prob(x = ai ) = pi , i = 1, . . . , n, where a1 < a2 < · · · < an . Of course p ∈ Rn lies in the standard probability simplex P = {p | 1T p = 1, p  0}. Which of the following conditions are convex in...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.16（部分和(partial sum)的凸性：若S1,S2凸，证明其部分和也是凸集。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">S = {(x, y1 + y2 ) | x ∈ Rm , y1 , y2 ∈ Rn , (x, y1 ) ∈ S1 , (x, y2 ) ∈ S2 }.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.17（透视函数下多面体集的像：证明多面体经透视后仍是多面体。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">of hyperplanes, halfspaces, and polyhedra under the perspective function P (x, t) = x/t, with dom P = Rn × R++ . For each of the following sets C, give a simple description of P (C) = {v/t | (v, t) ∈ ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.18（可逆线性分式函数：求线性分式函数f(x)=(Ax+b)/(c^T x+d)的逆。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">f (x) = (Ax + b)/(cT x + d),           dom f = {x | cT x + d > 0}. Suppose the matrix                                        A     b Q= cT    d is nonsingular. Show that f is invertible and that f −...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.19（线性分式函数与凸集：证明线性分式函数将凸集映射为凸集。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">function f (x) = (Ax + b)/(cT x + d),     dom f = {x | cT x + d > 0}. In this problem we study the inverse image of a convex set C under f , i.e., f −1 (C) = {x ∈ dom f | f (x) ∈ C}. For each of the f...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.20（分离定理的应用：用分离定理证明Farkas引理的几何意义。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">Show that there exists an x satisfying x ≻ 0,         Ax = b if and only if there exists no λ with AT λ  0,           AT λ 6= 0,        bT λ ≤ 0. Hint. First prove the following fact from linear alge...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.21（分离定理的证明：构造两个不相交凸集之间的分离超平面。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">Consider the set of (a, b) ∈ Rn+1 for which aT x ≤ b for all x ∈ C, and aT x ≥ b for all x ∈ D. Show that this set is a convex cone (which is the singleton {0} if there is no hyperplane that separates...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.22（对偶锥的计算：给平面的锥求其对偶锥，验证自对偶性。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">hyperplane exists for two disjoint convex sets C and D. You can use the result proved in §2.5.1, i.e., that a separating hyperplane exists when there exist points in the two sets whose distance is equ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.23（非负象限的自对偶性证明：(R₊ⁿ)*=R₊ⁿ。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">rated.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.24（二阶锥的自对偶性证明。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">(a) Express the closed convex set {x ∈ R2+ | x1 x2 ≥ 1} as an intersection of halfspaces. (b) Let C = {x ∈ Rn | kxk∞ ≤ 1}, the ℓ∞ -norm unit ball in Rn , and let x̂ be a point in the boundary of C. Id...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.25（半正定锥的自对偶性证明：用tr(XY)≥0刻画(S₊ⁿ)*。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">suppose that x1 , . . . , xK are on the boundary of C. Suppose that for each i, aTi (x−xi ) = 0 defines a supporting hyperplane for C at xi , i.e., C ⊆ {x | aTi (x − xi ) ≤ 0}. Consider the two polyhe...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.26（对偶范数锥：证明范数锥的对偶是对偶范数锥。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">SC (y) = sup{y T x | x ∈ C}. (We allow SC (y) to take on the value +∞.) Suppose that C and D are closed convex sets in Rn . Show that C = D if and only if their support functions are equal.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.27（广义不等式的性质验证：偏序、传递性等。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">interior, and has a supporting hyperplane at every point in its boundary. Show that C is convex. Convex cones and generalized inequalities</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.28（正半定锥的内部=正定锥的证明。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">semidefinite cone Sn+ , in terms of the matrix coefficients and ordinary inequalities, for n = 1, 2, 3. To describe a general element of Sn , for n = 1, 2, 3, use the notation                       ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.29（平面上闭凸锥的分类与对偶。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">(a) Give a simple description of K in terms of the polar coordinates of its elements (x = r(cos φ, sin φ) with r ≥ 0). (b) Give a simple description of K ∗ , and draw a plot illustrating the relation ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.30（支撑超平面的存在性：凸集边界每点证明存在支撑超平面。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">eralized inequalities listed in §2.4.1.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.31（Minkowski泛函：证明p_C(x)是凸且正齐次的。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">Prove the following. (a) K ∗ is indeed a convex cone. (b) K1 ⊆ K2 implies K2∗ ⊆ K1∗ . (c) K ∗ is closed. (d) The interior of K ∗ is given by int K ∗ = {y | y T x > 0 for all x ∈ cl K}. (e) If K has no...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.32（凸集的Minkowski和与标量倍数。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;"></p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.33（分离定理的加强版：紧集与闭凸集的严格分离。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">Km+ = {x ∈ Rn | x1 ≥ x2 ≥ · · · ≥ xn ≥ 0}. i.e., all nonnegative vectors with components sorted in nonincreasing order. (a) Show that Km+ is a proper cone. ∗ (b) Find the dual cone Km+ . Hint. Use the...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.34（仿射集与凸集的分离：写出分离超平面的显式条件。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">Klex = {0} ∪ {x ∈ Rn | x1 = · · · = xk = 0, xk+1 > 0, for some k, 0 ≤ k < n}, i.e., all vectors whose first nonzero coefficient (if any) is positive. (a) Verify that Klex is a cone, but not a proper c...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.35（最小元与极小元的等价刻画：在广义不等式下。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">Verify that the set of copositive matrices is a proper cone. Find its dual cone. Exercises                                                                                            65</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.36（正锥K下极小元的集合性质。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">kxi − xj k22 is called a Euclidean distance matrix. It satisfies some obvious properties such 1/2    1/2      1/2 as Dij = Dji , Dii = 0, Dij ≥ 0, and (from the triangle inequality) Dik ≤ Dij + Djk . ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.37（对偶不等式下最小元与极小元的关系证明。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">negative polynomials of degree 2k on R: Kpol = {x ∈ R2k+1 | x1 + x2 t + x3 t2 + · · · + x2k+1 t2k ≥ 0 for all t ∈ R}. (a) Show that Kpol is a proper cone. (b) A basic result states that a polynomial o...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.38（向量优化中标量化定理的验证。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">(a) The barrier cone of a set C is defined as the set of all vectors y such that y T x is bounded above over x ∈ C. In other words, a nonzero vector y is in the barrier cone if and only if it is the n...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 2.39（Pareto最优与加权和：对凸问题验证标量化→极小元。）</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">disjoint. Show that there is a nonzero y such that y ∈ K ∗ , −y ∈ K̃ ∗ .</p></div>
+<p style="color:#92400e;font-size:.75rem;margin-top:4px;font-style:italic;">📖 用归纳法证明凸组合的任意k点推广，从k=2的凸集定义出发。</p></div>
+
+<h2 id="practice">🔧 工程实践</h2>
+<div class="sec-card">
+<div class="def"><div class="label">怎么在工程中判断一个集合是否凸？</div>
+<ol style="margin-left:20px;line-height:2.0">
+<li><b>定义法（最直接）：</b> 取集合内任意两点，检查它们之间的线段是否完全在集合内。在代码中可以通过采样大量点对来数值验证。</li>
+<li><b>构造法（最实用）：</b> 如果集合能写成"已知凸集的交/仿射像/原像"，则它自动是凸的。例：$\{x \mid Ax \le b, \|x\|_2 \le 1\}$ 是半空间与Euclid球的交 → 凸。</li>
+<li><b>反证法（快速排除）：</b> 如果肉眼可见"凹陷"或"洞"，一定不凸。月牙形、星形、整数点集都不凸。</li>
+</ol>
+</div>
+<div class="example-box"><div class="label">🔧 实际应用：可行域设计</div>
+<p>在设计优化问题的约束时，<b>确保可行域是凸的</b>是第一步。例如：</p>
+<ul style="margin-left:20px;line-height:1.8">
+<li><b>投资组合约束：</b> 权重非负($x_i\ge0$)+总权重=1 → 概率单纯形(凸)✓</li>
+<li><b>天线阵列波束成形：</b> 每通道功率约束 $\sum|x_i|^2\le P_{max}$ → Euclid球(凸)✓</li>
+<li><b>非凸陷阱：</b> 无人机路径避开障碍物 → 可行域被"挖洞"→ 非凸✗。需要凸近似或分解为多个凸子问题。</li>
+</ul>
+</div>
+<div class="intuition"><div class="label">⚡ 常用求解器</div>
+<p>验证凸性 → <b>CVXPY</b> (Python): <code>constraints = [x >= 0, cp.norm(x) <= 1]</code> 自动分析是否满足DCP规则。</p>
+</div>
+</div>
+
+</main>
+<script>
+// ========== UTILITIES ==========
+let _ = (id) => document.getElementById(id);
+let _ctx = (id) => {let c=_(id); return c?c.getContext('2d'):null;};
+function toggleDark(){document.body.classList.toggle('dark');_('dark-toggle').textContent=document.body.classList.contains('dark')?'☀️':'🌙';}
+// Scroll spy
+let _links = document.querySelectorAll('#sidebar nav a');
+window.addEventListener('scroll', () => {
+  let cur = '';
+  document.querySelectorAll('h2[id],h3[id]').forEach(el => {if(el.getBoundingClientRect().top<=120)cur=el.id;});
+  _links.forEach(a=>a.classList.remove('active'));
+  if(cur){let l=document.querySelector('#sidebar nav a[href="#'+cur+'"]'); if(l)l.classList.add('active');}
+});
+// Canvas size helper
+function _sz(c){return c.parentElement.clientWidth||700;}
+
+// ===== 2.1.1 LINE vs SEGMENT =====
+function draw211(){
+  let c=_('cv211'),ctx=_ctx('cv211'); if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height,pad=60;
+  let x1=[pad,H-pad],x2=[W-pad,pad];
+  let th=parseInt(_('th211').value)/100;
+  _('tv211').textContent=th.toFixed(2);
+  ctx.clearRect(0,0,W,H);
+  // Grid
+  ctx.strokeStyle='#e8e8e8';ctx.lineWidth=0.5;
+  for(let i=pad;i<W;i+=40){ctx.beginPath();ctx.moveTo(i,pad);ctx.lineTo(i,H-pad);ctx.stroke();}
+  for(let i=pad;i<H;i+=40){ctx.beginPath();ctx.moveTo(pad,i);ctx.lineTo(W-pad,i);ctx.stroke();}
+  // Axes
+  ctx.strokeStyle='#888';ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.moveTo(pad,H-pad);ctx.lineTo(W-pad+20,H-pad);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(pad,H-pad+10);ctx.lineTo(pad,pad-20);ctx.stroke();
+  ctx.fillStyle='#555';ctx.font='12px sans-serif';
+  ctx.fillText('x₁',W-pad+5,H-pad+15);ctx.fillText('x₂',pad-15,pad-25);
+  // Points
+  ctx.fillStyle='#3b82f6';ctx.beginPath();ctx.arc(x1[0],x1[1],7,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(x2[0],x2[1],7,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#1e40af';ctx.font='bold 13px sans-serif';
+  ctx.fillText('x₁',x1[0]-25,x1[1]+20);ctx.fillText('x₂',x2[0]+10,x2[1]-10);
+  // Full line
+  if(_('sl211').checked){
+    let dx=x2[0]-x1[0],dy=x2[1]-x1[1],len=Math.sqrt(dx*dx+dy*dy)||1,ext=200;
+    ctx.strokeStyle='rgba(139,92,246,0.4)';ctx.lineWidth=1.5;ctx.setLineDash([6,4]);
+    ctx.beginPath();ctx.moveTo(x1[0]-dx/len*ext,x1[1]-dy/len*ext);ctx.lineTo(x2[0]+dx/len*ext,x2[1]+dy/len*ext);ctx.stroke();ctx.setLineDash([]);
+  }
+  // Segment
+  if(_('ss211').checked){
+    ctx.strokeStyle='#2563eb';ctx.lineWidth=3;
+    ctx.beginPath();ctx.moveTo(x1[0],x1[1]);ctx.lineTo(x2[0],x2[1]);ctx.stroke();
+  }
+  // Current point y(θ)
+  let px=x1[0]+th*(x2[0]-x1[0]),py=x1[1]+th*(x2[1]-x1[1]);
+  ctx.fillStyle='#ef4444';ctx.beginPath();ctx.arc(px,py,8,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#991b1b';ctx.font='bold 12px sans-serif';ctx.fillText('y(θ='+th.toFixed(2)+')',px+12,py-12);
+  ctx.strokeStyle='rgba(239,68,68,0.3)';ctx.lineWidth=1;ctx.setLineDash([3,3]);
+  ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(px,H-pad);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(pad,py);ctx.stroke();ctx.setLineDash([]);
+  ctx.fillStyle='#555';ctx.font='11px sans-serif';ctx.fillText('线段 (θ∈[0,1])',x1[0]+60,x1[1]-40);
+  if(_('sl211').checked) ctx.fillText('直线 (θ∈ℝ)',x1[0]-160,x1[1]-70);
+}
+_('th211').addEventListener('input',draw211);_('sl211').addEventListener('change',draw211);_('ss211').addEventListener('change',draw211);
+let _p211=null;
+_('pb211').addEventListener('click',function(){
+  if(_p211){clearInterval(_p211);_p211=null;this.textContent='▶ 播放';return;}
+  this.textContent='⏸ 暂停';let v=0;
+  _p211=setInterval(()=>{v=(v+2)%151;_('th211').value=v;_('tv211').textContent=(v/100).toFixed(2);draw211();
+    if(v>=150){clearInterval(_p211);_p211=null;_('pb211').textContent='▶ 播放';}},40);
+});
+setTimeout(draw211,200);
+
+
+// ===== 2.1.2 AFFINE SET =====
+function draw212(){
+  let c=_('cv212'),ctx=_ctx('cv212');if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height,pad=50;
+  let a1=parseInt(_('a1_212').value),a2=parseInt(_('a2_212').value),b=parseInt(_('b_212').value);
+  _('a1v212').textContent=a1;_('a2v212').textContent=a2;_('bv212').textContent=b;
+  let cx=W/2,cy=H/2;
+  ctx.clearRect(0,0,W,H);
+  ctx.strokeStyle='#e8e8e8';ctx.lineWidth=0.5;
+  for(let i=pad;i<W;i+=40){ctx.beginPath();ctx.moveTo(i,pad);ctx.lineTo(i,H-pad);ctx.stroke();}
+  for(let i=pad;i<H;i+=40){ctx.beginPath();ctx.moveTo(pad,i);ctx.lineTo(W-pad,i);ctx.stroke();}
+  ctx.strokeStyle='#888';ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.moveTo(pad,cy);ctx.lineTo(W-pad,cy);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx,pad);ctx.lineTo(cx,H-pad);ctx.stroke();
+  if(a2!==0){
+    ctx.strokeStyle='#8b5cf6';ctx.lineWidth=2.5;
+    ctx.beginPath();let first=true;
+    for(let px=pad;px<=W-pad;px+=2){
+      let py=cy-(b-a1*(px-cx)/40)/a2*40;
+      if(py>=pad&&py<=H-pad){if(first){ctx.moveTo(px,py);first=false;}else ctx.lineTo(px,py);}
+    }
+    ctx.stroke();
+  }else if(a1!==0){
+    let px=cx+b/a1*40;
+    ctx.strokeStyle='#8b5cf6';ctx.lineWidth=2.5;
+    ctx.beginPath();ctx.moveTo(px,pad);ctx.lineTo(px,H-pad);ctx.stroke();
+  }
+  let nl=Math.sqrt(a1*a1+a2*a2)||1;
+  ctx.strokeStyle='#ef4444';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(W/2,H/2);ctx.lineTo(W/2+a1/nl*40,H/2-a2/nl*40);ctx.stroke();
+  ctx.fillStyle='#ef4444';ctx.beginPath();ctx.arc(W/2+a1/nl*40,H/2-a2/nl*40,5,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#991b1b';ctx.font='bold 12px sans-serif';ctx.fillText('a=('+a1+','+a2+')',W/2+a1/nl*40+8,H/2-a2/nl*40-8);
+  ctx.fillStyle='#8b5cf6';ctx.font='bold 12px sans-serif';ctx.fillText(a1+'x₁ + '+a2+'x₂ = '+b,W/2-40,pad+20);
+}
+['a1_212','a2_212','b_212'].forEach(id=> _(id)?.addEventListener('input',draw212));
+setTimeout(draw212,250);
+
+// ===== 2.1.3 RELATIVE INTERIOR =====
+function draw213(){
+  let c=_('cv213'),ctx=_ctx('cv213');if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height;
+  ctx.clearRect(0,0,W,H);
+  let p1=[W*0.2,H*0.45],p2=[W*0.75,H*0.55];
+  ctx.strokeStyle='#2563eb';ctx.lineWidth=4;
+  ctx.beginPath();ctx.moveTo(p1[0],p1[1]);ctx.lineTo(p2[0],p2[1]);ctx.stroke();
+  if(_('ri213').checked){
+    ctx.strokeStyle='#22c55e';ctx.lineWidth=6;ctx.lineCap='round';
+    ctx.beginPath();ctx.moveTo(p1[0]+8,p1[1]);ctx.lineTo(p2[0]-8,p2[1]);ctx.stroke();
+    ctx.fillStyle='#16a34a';ctx.font='11px sans-serif';ctx.fillText('相对内部',p1[0]+60,p1[1]-18);
+  }
+  ctx.fillStyle='#3b82f6';[p1,p2].forEach(p=>{ctx.beginPath();ctx.arc(p[0],p[1],6,0,Math.PI*2);ctx.fill();});
+  ctx.fillStyle='#1e40af';ctx.font='bold 12px sans-serif';ctx.fillText('x₁',p1[0]-25,p1[1]+18);ctx.fillText('x₂',p2[0]+10,p2[1]-10);
+  if(_('sb213').checked){
+    let mid=[(p1[0]+p2[0])/2,(p1[1]+p2[1])/2];
+    ctx.strokeStyle='rgba(234,179,8,0.7)';ctx.lineWidth=2;ctx.setLineDash([4,3]);
+    ctx.beginPath();ctx.arc(mid[0],mid[1],25,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle='#ca8a04';ctx.font='11px sans-serif';ctx.fillText('ε-球 (1维)',mid[0]+28,mid[1]-8);
+  }
+  ctx.fillStyle='#555';ctx.font='11px sans-serif';ctx.fillText('仿射维数 = 1（1维线段嵌入在2D空间中）',W*0.25,H*0.8);
+}
+_('ri213')?.addEventListener('change',draw213);_('sb213')?.addEventListener('change',draw213);
+setTimeout(draw213,300);
+
+// ===== 2.1.4 CONVEX SET =====
+let pts214=[[150,220],[380,130],[520,280],[300,340],[180,300]];
+function _hull(pts){
+  let s=[...pts].sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+  let cross=(o,a,b)=>(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]);
+  let lo=[],up=[];
+  for(let p of s){while(lo.length>=2&&cross(lo[lo.length-2],lo[lo.length-1],p)<=0)lo.pop();lo.push(p);}
+  for(let p of s.reverse()){while(up.length>=2&&cross(up[up.length-2],up[up.length-1],p)<=0)up.pop();up.push(p);}
+  up.pop();lo.pop();return lo.concat(up);
+}
+function draw214(){
+  let c=_('cv214'),ctx=_ctx('cv214');if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height;ctx.clearRect(0,0,W,H);
+  let h=_hull(pts214);
+  ctx.fillStyle='rgba(139,92,246,0.15)';ctx.strokeStyle='rgba(139,92,246,0.5)';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(h[0][0],h[0][1]);for(let i=1;i<h.length;i++)ctx.lineTo(h[i][0],h[i][1]);ctx.closePath();ctx.fill();ctx.stroke();
+  pts214.forEach((p,i)=>{
+    ctx.fillStyle='#3b82f6';ctx.beginPath();ctx.arc(p[0],p[1],7,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#1e40af';ctx.font='bold 12px sans-serif';ctx.fillText('x'+(i+1),p[0]+10,p[1]-10);
+  });
+  let th=parseInt(_('th214').value)/100;_('tv214').textContent=th.toFixed(2);
+  let cp=[pts214[0][0]+th*(pts214[1][0]-pts214[0][0]),pts214[0][1]+th*(pts214[1][1]-pts214[0][1])];
+  ctx.fillStyle='#ef4444';ctx.beginPath();ctx.arc(cp[0],cp[1],8,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#991b1b';ctx.font='bold 12px';ctx.fillText('θ='+th.toFixed(2),cp[0]+12,cp[1]-12);
+  ctx.strokeStyle='rgba(239,68,68,0.3)';ctx.lineWidth=1.5;ctx.setLineDash([4,3]);
+  ctx.beginPath();ctx.moveTo(pts214[0][0],pts214[0][1]);ctx.lineTo(pts214[1][0],pts214[1][1]);ctx.stroke();ctx.setLineDash([]);
+  ctx.fillStyle='#555';ctx.font='12px sans-serif';ctx.fillText('凸组合: 任意两点间线段 ⊂ 集合',W*0.3,H*0.85);
+}
+_('th214')?.addEventListener('input',draw214);
+let _d214=-1;
+_('cv214')?.addEventListener('mousedown',function(e){let r=this.getBoundingClientRect(),pos=[e.clientX-r.left,e.clientY-r.top];for(let i=0;i<pts214.length;i++){if(Math.hypot(pos[0]-pts214[i][0],pos[1]-pts214[i][1])<12){_d214=i;break;}}});
+_('cv214')?.addEventListener('mousemove',function(e){if(_d214>=0){let r=this.getBoundingClientRect();pts214[_d214]=[e.clientX-r.left,e.clientY-r.top];draw214();}});
+_('cv214')?.addEventListener('mouseup',()=>{_d214=-1;});
+_('reset214')?.addEventListener('click',()=>{pts214=[[150,220],[380,130],[520,280],[300,340],[180,300]];draw214();});
+let _pi214=null;
+_('pb214')?.addEventListener('click',function(){
+  if(_pi214){clearInterval(_pi214);_pi214=null;this.textContent='▶ 播放';return;}
+  this.textContent='⏸ 暂停';let v=parseInt(_('th214').value),dir=1;
+  _pi214=setInterval(()=>{v+=dir*2;if(v>=100)dir=-1;if(v<=0)dir=1;_('th214').value=v;_('tv214').textContent=(v/100).toFixed(2);draw214();},40);
+});
+setTimeout(draw214,350);
+
+
+// ===== 2.1.5 CONE =====
+function draw215(){
+  let c=_('cv215'),ctx=_ctx('cv215');if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height;ctx.clearRect(0,0,W,H);
+  let cx=W/2,cy=H-60,a=parseInt(_('ang215').value);
+  _('av215').textContent=a+'°';
+  let h=a/2*Math.PI/180;
+  let l=[cx-Math.sin(h)*280,cy-Math.cos(h)*280],r1=[cx+Math.sin(h)*280,cy-Math.cos(h)*280];
+  if(_('sc215').checked){ctx.fillStyle='rgba(139,92,246,0.2)';ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(l[0],l[1]);ctx.lineTo(r1[0],r1[1]);ctx.closePath();ctx.fill();}
+  ctx.strokeStyle='#8b5cf6';ctx.lineWidth=2.5;
+  ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(l[0],l[1]);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(r1[0],r1[1]);ctx.stroke();
+  ctx.fillStyle='#1e40af';ctx.beginPath();ctx.arc(cx,cy,6,0,Math.PI*2);ctx.fill();
+  ctx.fillText('O',cx-15,cy+18);
+  if(_('sco215').checked){
+    let v1=[cx-Math.sin(h)*120,cy-Math.cos(h)*120],v2=[cx+Math.sin(h)*80,cy-Math.cos(h)*80];
+    ctx.fillStyle='#ef4444';ctx.beginPath();ctx.arc(v1[0],v1[1],5,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(v2[0],v2[1],5,0,Math.PI*2);ctx.fill();
+    let s=[v1[0]+v2[0]-cx,v1[1]+v2[1]-cy];
+    ctx.fillStyle='#22c55e';ctx.beginPath();ctx.arc(s[0],s[1],6,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#555';ctx.font='11px sans-serif';ctx.fillText('x₁',v1[0]-20,v1[1]-10);ctx.fillText('x₂',v2[0]+10,v2[1]-10);ctx.fillText('x₁+x₂',s[0]+10,s[1]-10);
+    ctx.strokeStyle='rgba(239,68,68,0.3)';ctx.lineWidth=1;ctx.setLineDash([3,3]);
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(v1[0],v1[1]);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(v2[0],v2[1]);ctx.stroke();ctx.setLineDash([]);
+  }
+}
+_('ang215')?.addEventListener('input',draw215);_('sc215')?.addEventListener('change',draw215);_('sco215')?.addEventListener('change',draw215);
+setTimeout(draw215,400);
+
+// ===== 2.2.1 HYPERPLANE =====
+function draw221(){
+  let c=_('cv221'),ctx=_ctx('cv221');if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height,pad=50,cx=W/3,cy=H/2;
+  let a1=parseFloat(_('a1_221').value),a2=parseFloat(_('a2_221').value),b=parseFloat(_('b_221').value);
+  let dir=_('dir221').value;
+  _('a1v221').textContent=a1.toFixed(1);_('a2v221').textContent=a2.toFixed(1);_('bv221').textContent=b.toFixed(1);
+  ctx.clearRect(0,0,W,H);
+  // Shading halfspace
+  let chk=(dir=='le')?((x,y)=>(a1*(x-cx)/40+a2*(cy-y)/40<=b)):((x,y)=>(a1*(x-cx)/40+a2*(cy-y)/40>=b));
+  for(let py=0;py<H;py+=6){for(let px=0;px<W;px+=6){if(chk(px,py)){ctx.fillStyle='rgba(139,92,246,0.08)';ctx.fillRect(px,py,6,6);}}}
+  // Grid
+  ctx.strokeStyle='#d4d4d4';ctx.lineWidth=0.5;
+  for(let i=pad;i<W;i+=40){ctx.beginPath();ctx.moveTo(i,pad);ctx.lineTo(i,H-pad);ctx.stroke();}
+  for(let i=pad;i<H;i+=40){ctx.beginPath();ctx.moveTo(pad,i);ctx.lineTo(W-pad,i);ctx.stroke();}
+  ctx.strokeStyle='#888';ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.moveTo(pad,cy);ctx.lineTo(W-pad,cy);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx,pad);ctx.lineTo(cx,H-pad);ctx.stroke();
+  // Line
+  if(Math.abs(a1)+Math.abs(a2)>0.01&&Math.abs(a2)>0.01){
+    ctx.strokeStyle='#1e40af';ctx.lineWidth=2.5;
+    ctx.beginPath();let first=true;
+    for(let px=pad;px<=W-pad;px+=2){let py=cy-(b-a1*(px-cx)/40)/a2*40;if(py>=pad&&py<=H-pad){if(first){ctx.moveTo(px,py);first=false;}else ctx.lineTo(px,py);}}
+    ctx.stroke();
+    // Normal
+    let nl=Math.sqrt(a1*a1+a2*a2)||1,mx=W/2,my=cy-(b)/a2*40;
+    ctx.strokeStyle='#ef4444';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(mx,my);ctx.lineTo(mx+a1/nl*40,my-a2/nl*40);ctx.stroke();
+    ctx.fillStyle='#ef4444';ctx.beginPath();ctx.arc(mx+a1/nl*40,my-a2/nl*40,5,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#991b1b';ctx.font='bold 12px sans-serif';ctx.fillText('a',mx+a1/nl*40+8,my-a2/nl*40-8);
+  }
+  ctx.fillStyle='#1e40af';ctx.font='bold 12px sans-serif';ctx.fillText(a1+'x₁ + '+a2+'x₂ = '+b,W*0.6,H*0.15);
+  ctx.fillStyle='#8b5cf6';ctx.font='12px sans-serif';ctx.fillText(dir=='le'?'半空间: aᵀx ≤ b':'半空间: aᵀx ≥ b',W*0.6,H*0.22);
+}
+['a1_221','a2_221','b_221'].forEach(id=>_(id)?.addEventListener('input',draw221));
+_('dir221')?.addEventListener('change',draw221);
+setTimeout(draw221,450);
+
+// ===== 2.2.2 BALL & ELLIPSOID =====
+function draw222(){
+  let c=_('cv222'),ctx=_ctx('cv222');if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height,cx=W/2,cy=H/2;
+  let ax=parseInt(_('ax222').value),ay=parseInt(_('ay222').value),rot=parseInt(_('rt222').value)*Math.PI/180;
+  _('axv222').textContent=ax;_('ayv222').textContent=ay;_('rtv222').textContent=parseInt(_('rt222').value)+'°';
+  ctx.clearRect(0,0,W,H);
+  if(_('sball222').checked){
+    ctx.strokeStyle='rgba(139,92,246,0.4)';ctx.lineWidth=2;ctx.setLineDash([5,5]);
+    ctx.beginPath();ctx.arc(cx,cy,Math.min(ax,ay),0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle='#8b5cf6';ctx.font='11px sans-serif';ctx.fillText('Euclid球',cx+Math.min(ax,ay)+5,cy);
+  }
+  if(_('sell222').checked){
+    ctx.fillStyle='rgba(59,130,246,0.15)';ctx.strokeStyle='#2563eb';ctx.lineWidth=2.5;
+    ctx.beginPath();ctx.ellipse(cx,cy,ax,ay,rot,0,Math.PI*2);ctx.fill();ctx.stroke();
+    ctx.fillStyle='#1e40af';ctx.font='12px sans-serif';ctx.fillText('椭球',cx+ax+5,cy-ay-5);
+  }
+  ctx.strokeStyle='rgba(239,68,68,0.5)';ctx.lineWidth=1;ctx.setLineDash([3,3]);
+  ctx.beginPath();ctx.moveTo(cx-ax-10,cy);ctx.lineTo(cx+ax+10,cy);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx,cy-ay-10);ctx.lineTo(cx,cy+ay+10);ctx.stroke();ctx.setLineDash([]);
+}
+['ax222','ay222','rt222'].forEach(id=>_(id)?.addEventListener('input',draw222));
+_('sball222')?.addEventListener('change',draw222);_('sell222')?.addEventListener('change',draw222);
+setTimeout(draw222,500);
+
+
+// ===== 2.2.3 NORM BALL/CONE =====
+let _d223m='ball';
+function draw223(){
+  let c=_('cv223'),ctx=_ctx('cv223');if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height,cx=W/2,cy=H/2;
+  let pV=parseInt(_('p223').value)/10;
+  let p=pV<1?0.5:(pV>=9.9?Infinity:pV);_('pv223').textContent=p===Infinity?'∞':p.toFixed(1);
+  let r=parseInt(_('r223').value);_('rv223').textContent=r;
+  ctx.clearRect(0,0,W,H);
+  function _xy(ang){
+    let c=Math.cos(ang),s=Math.sin(ang),dx,dy;
+    if(p===Infinity){let sc=r/Math.max(Math.abs(c),Math.abs(s));dx=sc*c;dy=sc*s;}
+    else{let den=Math.pow(Math.abs(c),p)+Math.pow(Math.abs(s),p);let sc=r/Math.pow(den||1,1/p);dx=sc*c;dy=sc*s;}
+    return [dx,dy];
+  }
+  if(_d223m==='ball'){
+    ctx.fillStyle='rgba(139,92,246,0.2)';ctx.strokeStyle='#8b5cf6';ctx.lineWidth=2;
+    ctx.beginPath();
+    for(let i=0;i<=360;i++){let [dx,dy]=_xy(i/360*Math.PI*2);if(i==0)ctx.moveTo(cx+dx,cy-dy);else ctx.lineTo(cx+dx,cy-dy);}
+    ctx.closePath();ctx.fill();ctx.stroke();
+    ctx.fillStyle='#1e40af';ctx.font='12px sans-serif';
+    ctx.fillText('ℓ'+(p===Infinity?'∞':p.toFixed(1))+' 范数球, r='+r,cx-r-20,cy-r-15);
+  }else{
+    let apex=[cx,cy-r/2];
+    ctx.fillStyle='rgba(139,92,246,0.15)';ctx.strokeStyle='#8b5cf6';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(apex[0],apex[1]);
+    for(let i=0;i<=360;i++){let [dx,dy]=_xy(i/360*Math.PI*2);ctx.lineTo(cx+dx*0.8,cy+r/1.5);}
+    ctx.closePath();ctx.fill();ctx.stroke();
+    ctx.fillStyle='rgba(139,92,246,0.25)';
+    ctx.beginPath();
+    for(let i=0;i<=360;i++){let [dx,dy]=_xy(i/360*Math.PI*2);if(i==0)ctx.moveTo(cx+dx*0.8,cy+r/1.5);else ctx.lineTo(cx+dx*0.8,cy+r/1.5);}
+    ctx.closePath();ctx.fill();ctx.stroke();
+    ctx.fillStyle='#1e40af';ctx.font='12px sans-serif';ctx.fillText('范数锥 ‖x‖ ≤ t',cx-40,apex[1]-10);
+  }
+}
+_('p223')?.addEventListener('input',draw223);_('r223')?.addEventListener('input',draw223);
+_('btn223')?.addEventListener('click',()=>{_d223m=_d223m=='ball'?'cone':'ball';_('btn223').textContent=_d223m=='ball'?'切换: ℓ_p范数锥':'切换: ℓ_p范数球';draw223();});
+setTimeout(draw223,550);
+
+// ===== 2.2.4 POLYHEDRON =====
+let _s224a=false;
+function draw224(){
+  let c=_('cv224'),ctx=_ctx('cv224');if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height,cx=W/2,cy=H/2;
+  let n=parseInt(_('n224').value),r=parseInt(_('rv_range_224').value);
+  _('nv224').textContent=n;_('rv224').textContent=r;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='rgba(139,92,246,0.2)';ctx.strokeStyle='#8b5cf6';ctx.lineWidth=2;
+  ctx.beginPath();let dt=Math.PI*2/n;
+  for(let i=0;i<n;i++){let ang=i*dt-Math.PI/2;if(i==0)ctx.moveTo(cx+r*Math.cos(ang),cy+r*Math.sin(ang));else ctx.lineTo(cx+r*Math.cos(ang),cy+r*Math.sin(ang));}
+  ctx.closePath();ctx.fill();ctx.stroke();
+  if(_s224a){ctx.strokeStyle='rgba(239,68,68,0.5)';ctx.lineWidth=1.5;ctx.setLineDash([4,4]);ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='#ef4444';ctx.font='11px sans-serif';ctx.fillText('圆(∞个半空间)',cx+r+5,cy);}
+  ctx.fillStyle='#1e40af';ctx.font='12px sans-serif';ctx.fillText(n+'边正多边形 (多面体)',cx-50,cy-r-15);
+}
+_('n224')?.addEventListener('input',draw224);_('rv_range_224')?.addEventListener('input',draw224);
+_('btn224')?.addEventListener('click',()=>{_s224a=!_s224a;_('btn224').textContent=_s224a?'隐藏圆逼近':'显示圆逼近';draw224();});
+setTimeout(draw224,600);
+
+// ===== 2.2.5 PSD CONE (Plotly 3D) =====
+let _plt225bdy=true;
+function drawPlotly225(){
+  let el=document.getElementById('plt225');if(!el)return;
+  if(typeof Plotly==='undefined'){setTimeout(drawPlotly225,1000);return;}
+  // Parametric surface of xz=y^2 cone boundary
+  let bX=[],bY=[],bZ=[];
+  for(let i=0;i<=40;i++){let u=i/40*Math.PI/2;for(let j=0;j<=40;j++){let t=j/40*2;let xx=t*Math.cos(u)*Math.cos(u);let yy=t*Math.sin(u)*Math.cos(u);let zz=t*Math.sin(u)*Math.sin(u);bX.push(xx);bY.push(yy);bZ.push(zz);}}
+  // Interior points
+  let iX=[],iY=[],iZ=[];
+  for(let i=0;i<15;i++){for(let j=0;j<15;j++){for(let k=0;k<10;k++){let yy=-1.5+i*3/14;let xx=0.05+j*2.95/14;let zz=k*2/9;if(xx>0&&xx*zz>=yy*yy){iX.push(xx);iY.push(yy);iZ.push(zz);}}}}
+  let traces=[
+    {type:'scatter3d',mode:'markers',x:iX,y:iY,z:iZ,marker:{size:2,color:'rgba(139,92,246,0.3)'},showlegend:false}
+  ];
+  if(_plt225bdy){
+    traces.push({type:'scatter3d',mode:'markers',x:bX,y:bY,z:bZ,marker:{size:1.5,color:'rgba(239,68,68,0.4)'},showlegend:false});
+  }
+  let layout={
+    margin:{l:0,r:0,t:35,b:0},
+    scene:{xaxis:{title:'x',range:[0,2]},yaxis:{title:'y',range:[-1.5,1.5]},zaxis:{title:'z',range:[0,2]},
+    camera:{eye:{x:1.5,y:1.5,z:1.2}}},
+    paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',
+    annotations:[{text:'X=[x y; y z]⪰0 ⇔ x≥0,z≥0,xz≥y²',showarrow:false,x:0.5,y:1.05,xref:'paper',yref:'paper',font:{size:13,color:'#1e40af'}}]
+  };
+  Plotly.newPlot('plt225',traces,layout,{displayModeBar:false,responsive:true});
+}
+function updatePlotly225(){
+  let az=parseInt(_('az225').value),el=parseInt(_('el225').value);
+  _('azv225').textContent=az+'°';_('elv225').textContent=el+'°';
+  Plotly.relayout('plt225',{'scene.camera.eye':{x:2*Math.cos(el*Math.PI/180)*Math.cos(az*Math.PI/180),y:2*Math.cos(el*Math.PI/180)*Math.sin(az*Math.PI/180),z:2*Math.sin(el*Math.PI/180)}});
+}
+_('az225')?.addEventListener('input',updatePlotly225);_('el225')?.addEventListener('input',updatePlotly225);
+_('btn225')?.addEventListener('click',()=>{_plt225bdy=!_plt225bdy;_('btn225').textContent=_plt225bdy?'显示边界':'隐藏边界';drawPlotly225();});
+setTimeout(drawPlotly225,800);
+
+
+// ===== 2.3.1 INTERSECTION =====
+function draw231(){
+  let c=_('cv231'),ctx=_ctx('cv231');if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height,cx=W*0.35,cy=H/2;
+  let ra=parseInt(_('ra231').value),rb=parseInt(_('rb231').value),off=parseInt(_('off231').value);
+  _('rav231').textContent=ra;_('rbv231').textContent=rb;_('offv231').textContent=off;
+  ctx.clearRect(0,0,W,H);
+  let cx2=cx+off;
+  // Circle A
+  ctx.fillStyle='rgba(59,130,246,0.15)';ctx.strokeStyle='#3b82f6';ctx.lineWidth=2;
+  ctx.beginPath();ctx.arc(cx,cy,ra,0,Math.PI*2);ctx.fill();ctx.stroke();
+  ctx.fillStyle='#1e40af';ctx.font='12px sans-serif';ctx.fillText('A (凸)',cx-ra-30,cy);
+  // Circle B
+  ctx.fillStyle='rgba(239,68,68,0.15)';ctx.strokeStyle='#ef4444';ctx.lineWidth=2;
+  ctx.beginPath();ctx.arc(cx2,cy,rb,0,Math.PI*2);ctx.fill();ctx.stroke();
+  ctx.fillStyle='#991b1b';ctx.font='12px sans-serif';ctx.fillText('B (凸)',cx2+rb+5,cy);
+  // Intersection
+  if(_('si231').checked){
+    ctx.save();
+    ctx.beginPath();ctx.arc(cx,cy,ra,0,Math.PI*2);ctx.clip();
+    ctx.fillStyle='rgba(139,92,246,0.45)';ctx.strokeStyle='#7c3aed';ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(cx2,cy,rb,0,Math.PI*2);ctx.fill();ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle='#7c3aed';ctx.font='bold 12px sans-serif';ctx.fillText('A∩B (凸!)',(cx+cx2)/2-25,cy-15);
+  }
+}
+['ra231','rb231','off231'].forEach(id=>_(id)?.addEventListener('input',draw231));
+_('si231')?.addEventListener('change',draw231);
+setTimeout(draw231,850);
+
+// ===== 2.3.2 AFFINE TRANSFORM =====
+function draw232(){
+  let c=_('cv232'),ctx=_ctx('cv232');if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height;ctx.clearRect(0,0,W,H);
+  let sx=parseInt(_('sx232').value)/100,sy=parseInt(_('sy232').value)/100;
+  let rot=parseInt(_('rt232').value)*Math.PI/180,tx=parseInt(_('tx232').value),ty=parseInt(_('ty232').value);
+  _('sxv232').textContent=sx.toFixed(2);_('syv232').textContent=sy.toFixed(2);
+  _('rtv232').textContent=parseInt(_('rt232').value)+'°';_('txv232').textContent=tx;_('tyv232').textContent=ty;
+  // Original rect
+  let rect=[[W*0.12,H*0.35],[W*0.32,H*0.35],[W*0.32,H*0.65],[W*0.12,H*0.65]];
+  ctx.fillStyle='rgba(59,130,246,0.15)';ctx.strokeStyle='#3b82f6';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(rect[0][0],rect[0][1]);for(let i=1;i<4;i++)ctx.lineTo(rect[i][0],rect[i][1]);ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.fillStyle='#1e40af';ctx.font='12px sans-serif';ctx.fillText('原凸集 S',W*0.08,H*0.22);
+  // Transformed
+  let cosR=Math.cos(rot),sinR=Math.sin(rot);
+  let tf=rect.map(p=>{let x=p[0]-W/2,y=p[1]-H/2;let rx=x*sx,ry=y*sy;return[rx*cosR-ry*sinR+W/2+tx,rx*sinR+ry*cosR+H/2+ty];});
+  ctx.fillStyle='rgba(139,92,246,0.2)';ctx.strokeStyle='#8b5cf6';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(tf[0][0],tf[0][1]);for(let i=1;i<4;i++)ctx.lineTo(tf[i][0],tf[i][1]);ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.fillStyle='#7c3aed';ctx.font='12px sans-serif';ctx.fillText('f(S) = Ax+b (凸!)',W*0.5,H*0.15);
+  ctx.fillStyle='#555';ctx.font='11px sans-serif';ctx.fillText('A: [sx·cosθ, -sx·sinθ; sy·sinθ, sy·cosθ], b: (tx,ty)',W*0.25,H*0.85);
+}
+['sx232','sy232','rt232','tx232','ty232'].forEach(id=>_(id)?.addEventListener('input',draw232));
+setTimeout(draw232,900);
+
+// ===== 2.3.3 PERSPECTIVE =====
+let _s233p=true;
+function draw233(){
+  let c=_('cv233'),ctx=_ctx('cv233');if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height;ctx.clearRect(0,0,W,H);
+  let t0=parseInt(_('t0233').value),sc=parseInt(_('sc233').value)/100;
+  _('t0v233').textContent=t0;_('scv233').textContent=sc.toFixed(2);
+  // Object rect
+  let ox=W*0.08,oy=H*0.1,ow=W*0.22*sc,oh=H*0.22*sc;
+  ctx.strokeStyle='#3b82f6';ctx.lineWidth=2;ctx.strokeRect(ox,oy,ow,oh);
+  ctx.fillStyle='rgba(59,130,246,0.1)';ctx.fillRect(ox,oy,ow,oh);
+  ctx.fillStyle='#1e40af';ctx.font='12px sans-serif';ctx.fillText('原对象 (z,t₀)',ox,oy-8);
+  ctx.fillText('t₀='+t0,ox+ow+5,oy+oh/2);
+  // Pinhole origin
+  let orig=[W*0.52,H*0.88];
+  ctx.fillStyle='#ef4444';ctx.beginPath();ctx.arc(orig[0],orig[1],8,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#991b1b';ctx.font='bold 12px sans-serif';ctx.fillText('O (针孔)',orig[0]-50,orig[1]-12);
+  // Image plane
+  let imgTop=H*0.7;
+  ctx.strokeStyle='#8b5cf6';ctx.lineWidth=2;ctx.setLineDash([4,4]);
+  ctx.beginPath();ctx.moveTo(W*0.08,imgTop);ctx.lineTo(W*0.92,imgTop);ctx.stroke();ctx.setLineDash([]);
+  ctx.fillStyle='#7c3aed';ctx.font='12px sans-serif';ctx.fillText('像平面 t=1',W*0.65,imgTop-10);
+  // Project corners
+  let objPts=[[ox,oy],[ox+ow,oy],[ox+ow,oy+oh],[ox,oy+oh]];
+  let projPts=objPts.map(p=>{let dz=(p[0]-orig[0])/t0,dh=(p[1]-orig[1])/t0;return [orig[0]+dz,orig[1]+dh];});
+  // Projection rays
+  if(_s233p){
+    objPts.forEach(p=>{
+      ctx.strokeStyle='rgba(234,179,8,0.25)';ctx.lineWidth=1;ctx.setLineDash([3,3]);
+      ctx.beginPath();ctx.moveTo(orig[0],orig[1]);ctx.lineTo(p[0],p[1]);ctx.stroke();ctx.setLineDash([]);
+    });
+  }
+  // Image on image plane
+  let imgY=imgTop+60;
+  let projW=(objPts[1][0]-objPts[0][0])/t0,projH=(objPts[3][1]-objPts[1][1])/t0;
+  let icx=orig[0]+(objPts[0][0]+ow/2-orig[0])/t0;
+  ctx.fillStyle='rgba(139,92,246,0.25)';ctx.strokeStyle='#8b5cf6';ctx.lineWidth=2;
+  ctx.fillRect(icx-projW/2,imgY-projH/2,projW,projH);
+  ctx.strokeRect(icx-projW/2,imgY-projH/2,projW,projH);
+  ctx.fillStyle='#7c3aed';ctx.font='12px sans-serif';ctx.fillText('P(z,t)=z/t (凸!)',icx-40,imgY+projH/2+18);
+}
+['t0233','sc233'].forEach(id=>_(id)?.addEventListener('input',draw233));
+_('btn233')?.addEventListener('click',()=>{_s233p=!_s233p;_('btn233').textContent=_s233p?'隐藏投影线':'显示投影线';draw233();});
+setTimeout(draw233,950);
+
+
+// ===== 2.4.1 GENERALIZED INEQUALITY =====
+let _x241=[200,280],_y241=[420,180];
+function draw241(){
+  let c=_('cv241'),ctx=_ctx('cv241');if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height;ctx.clearRect(0,0,W,H);
+  let ct=_('ct241').value,cx=W/2,cy=H/2;
+  // Draw cone K from origin (cx,cy in canvas coords)
+  ctx.fillStyle='rgba(139,92,246,0.15)';ctx.strokeStyle='#8b5cf6';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(cx,cy);
+  if(ct==='orthant'){
+    ctx.lineTo(cx+200,cy);ctx.lineTo(cx+200,cy-200);ctx.lineTo(cx,cy-200);ctx.closePath();
+  }else{
+    for(let i=0;i<=60;i++){let ang=i/60*Math.PI;ctx.lineTo(cx+Math.cos(ang)*180,cy-Math.sin(ang)*180);}
+    ctx.closePath();
+  }
+  ctx.fill();ctx.stroke();
+  ctx.fillStyle='#7c3aed';ctx.font='12px sans-serif';ctx.fillText('K (正锥)',cx+105,cy-10);
+  // Points x, y
+  ctx.fillStyle='#3b82f6';ctx.beginPath();ctx.arc(_x241[0],_x241[1],7,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#1e40af';ctx.font='bold 13px sans-serif';ctx.fillText('x',_x241[0]-20,_x241[1]-12);
+  ctx.fillStyle='#ef4444';ctx.beginPath();ctx.arc(_y241[0],_y241[1],7,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#991b1b';ctx.font='bold 13px sans-serif';ctx.fillText('y',_y241[0]+10,_y241[1]-10);
+  // y-x arrow
+  let dx=_y241[0]-_x241[0],dy=_y241[1]-_x241[1];
+  ctx.strokeStyle='#22c55e';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(_x241[0],_x241[1]);ctx.lineTo(_y241[0],_y241[1]);ctx.stroke();
+  let ang=Math.atan2(dy,dx);
+  ctx.fillStyle='#22c55e';
+  ctx.beginPath();ctx.moveTo(_y241[0],_y241[1]);ctx.lineTo(_y241[0]-10*Math.cos(ang-0.4),_y241[1]-10*Math.sin(ang-0.4));
+  ctx.lineTo(_y241[0]-10*Math.cos(ang+0.4),_y241[1]-10*Math.sin(ang+0.4));ctx.closePath();ctx.fill();
+  // Check if y-x ∈ K
+  let yx=[dx,dy];// y-x in canvas coords
+  let inK;
+  if(ct==='orthant') inK=yx[0]>=0&&yx[1]<=0;
+  else{inK=Math.abs(yx[0])<=(-yx[1])&&(-yx[1])>=0;} // SOC: |v₁| ≤ v₂, where v=(dx, -dy) in cone coords
+  ctx.fillStyle='#16a34a';ctx.font='bold 13px sans-serif';
+  ctx.fillText(inK?'✓ x ⪯ₖ y':'✗ x ⋠ₖ y',W*0.55,H*0.85);
+}
+let _drg241=0;
+function _g241p(e){let r=_('cv241').getBoundingClientRect();return[e.clientX-r.left,e.clientY-r.top];}
+_('cv241')?.addEventListener('mousedown',function(e){let p=_g241p(e);if(Math.hypot(p[0]-_x241[0],p[1]-_x241[1])<15)_drg241=1;else if(Math.hypot(p[0]-_y241[0],p[1]-_y241[1])<15)_drg241=2;});
+_('cv241')?.addEventListener('mousemove',function(e){if(_drg241===1){_x241=_g241p(e);draw241();}else if(_drg241===2){_y241=_g241p(e);draw241();}});
+_('cv241')?.addEventListener('mouseup',()=>{_drg241=0;});
+_('ct241')?.addEventListener('change',draw241);
+_('rst241')?.addEventListener('click',()=>{_x241=[200,280];_y241=[420,180];draw241();});
+setTimeout(draw241,1000);
+
+// ===== 2.4.2 MIN/MINIMAL =====
+function draw242(){
+  let c=_('cv242'),ctx=_ctx('cv242');if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height;ctx.clearRect(0,0,W,H);
+  let cx=W/2,cy=H/2,st=_('st242').value;
+  if(st==='disk'){
+    ctx.fillStyle='rgba(139,92,246,0.2)';ctx.strokeStyle='#8b5cf6';ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(cx,cy,100,0,Math.PI*2);ctx.fill();ctx.stroke();
+    ctx.fillStyle='#1e40af';ctx.font='12px sans-serif';ctx.fillText('集合 S (圆盘)',cx-40,cy-110);
+    // Unique minimum: SW-most point
+    let mp=[cx-70,cy+70];
+    ctx.fillStyle='#22c55e';ctx.beginPath();ctx.arc(mp[0],mp[1],8,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#16a34a';ctx.font='bold 12px sans-serif';ctx.fillText('最小元 (唯一)',mp[0]-80,mp[1]+5);
+    // Minimal: SW boundary arc
+    ctx.strokeStyle='#eab308';ctx.lineWidth=3;
+    ctx.beginPath();ctx.arc(cx,cy,100,Math.PI,Math.PI*1.5);ctx.stroke();
+    ctx.fillStyle='#ca8a04';ctx.font='11px sans-serif';ctx.fillText('极小元 (西南弧)',cx-95,cy+85);
+    ctx.fillStyle='#555';ctx.font='11px sans-serif';ctx.fillText('分量不等式下:西南弧上所有点都是极小元;左下角(最小分量)的点是最小元',W*0.1,H*0.9);
+  }else{
+    // Pareto set
+    ctx.fillStyle='rgba(139,92,246,0.15)';ctx.fillRect(cx-80,cy-80,160,160);
+    ctx.fillStyle='rgba(139,92,246,0.2)';ctx.strokeStyle='#8b5cf6';ctx.lineWidth=2;
+    ctx.beginPath();
+    for(let i=0;i<=40;i++){let th=i/40*Math.PI/2;ctx.lineTo(cx+80-50*Math.cos(th),cy-80+50*Math.sin(th));}
+    ctx.lineTo(cx-80,cy+80);ctx.closePath();ctx.fill();ctx.stroke();
+    // Pareto frontier
+    ctx.strokeStyle='#eab308';ctx.lineWidth=3;
+    ctx.beginPath();
+    for(let i=0;i<=40;i++){let th=i/40*Math.PI/2;let px=cx+80-50*Math.cos(th),py=cy-80+50*Math.sin(th);if(i==0)ctx.moveTo(px,py);else ctx.lineTo(px,py);}
+    ctx.stroke();
+    ctx.fillStyle='#ca8a04';ctx.font='11px sans-serif';ctx.fillText('Pareto前沿 = 所有极小元',cx+35,cy+15);
+    // Marker points on Pareto
+    [[cx+50,cy-30],[cx+30,cy-50],[cx+5,cy-70]].forEach(p=>{ctx.fillStyle='#eab308';ctx.beginPath();ctx.arc(p[0],p[1],6,0,Math.PI*2);ctx.fill();});
+    ctx.fillStyle='#dc2626';ctx.font='bold 12px sans-serif';ctx.fillText('无最小元！',cx-60,cy-90);
+    ctx.fillStyle='#555';ctx.font='11px sans-serif';ctx.fillText('所有极小元互相不可比较;不存在比所有元素都小的最小元',W*0.1,H*0.9);
+  }
+}
+_('st242')?.addEventListener('change',draw242);
+_('rst242')?.addEventListener('click',()=>{_('st242').value='disk';draw242();});
+setTimeout(draw242,1050);
+
+// ===== 2.5.1 SEPARATING HYPERPLANE =====
+function draw251(){
+  let c=_('cv251'),ctx=_ctx('cv251');if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height;ctx.clearRect(0,0,W,H);
+  let ax=parseInt(_('ax251').value)+W/2,ay=parseInt(_('ay251').value)+H/2;
+  let bx=parseInt(_('bx251').value)+W/2,by=parseInt(_('by251').value)+H/2;
+  let br=parseInt(_('br251').value),ar=50+br*0.3;
+  _('axv251').textContent=parseInt(_('ax251').value);_('ayv251').textContent=parseInt(_('ay251').value);
+  _('bxv251').textContent=parseInt(_('bx251').value);_('byv251').textContent=parseInt(_('by251').value);
+  _('brv251').textContent=br;
+  // Set C
+  ctx.fillStyle='rgba(59,130,246,0.2)';ctx.strokeStyle='#3b82f6';ctx.lineWidth=2;
+  ctx.beginPath();ctx.arc(ax,ay,ar,0,Math.PI*2);ctx.fill();ctx.stroke();
+  ctx.fillStyle='#1e40af';ctx.font='bold 13px sans-serif';ctx.fillText('C (凸)',ax-40,ay-65);
+  // Set D
+  ctx.fillStyle='rgba(239,68,68,0.2)';ctx.strokeStyle='#ef4444';ctx.lineWidth=2;
+  ctx.beginPath();ctx.arc(bx,by,br,0,Math.PI*2);ctx.fill();ctx.stroke();
+  ctx.fillStyle='#991b1b';ctx.font='bold 13px sans-serif';ctx.fillText('D (凸)',bx+br+5,by);
+  // Separating line
+  let dx=bx-ax,dy=by-ay,norm=Math.sqrt(dx*dx+dy*dy)||1;
+  let midX=ax+dx*ar/(ar+br),midY=ay+dy*ar/(ar+br);
+  let perpX=-dy/norm,perpY=dx/norm;
+  ctx.strokeStyle='#22c55e';ctx.lineWidth=2.5;
+  ctx.beginPath();ctx.moveTo(midX-perpX*300,midY-perpY*300);ctx.lineTo(midX+perpX*300,midY+perpY*300);ctx.stroke();
+  // Normal arrow
+  ctx.strokeStyle='#16a34a';ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.moveTo(midX,midY);ctx.lineTo(midX+dx/norm*40,midY+dy/norm*40);ctx.stroke();
+  ctx.fillStyle='#16a34a';ctx.beginPath();ctx.arc(midX+dx/norm*40,midY+dy/norm*40,5,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#16a34a';ctx.font='bold 12px sans-serif';ctx.fillText('a',midX+dx/norm*40+5,midY+dy/norm*40-5);
+  ctx.fillStyle='#16a34a';ctx.font='13px sans-serif';ctx.fillText('分离超平面: aᵀx = b',midX+30,midY-25);
+  ctx.fillStyle='#3b82f6';ctx.font='11px sans-serif';ctx.fillText('aᵀx ≤ b',ax-20,ay+ar+15);
+  ctx.fillStyle='#ef4444';ctx.font='11px sans-serif';ctx.fillText('aᵀx ≥ b',bx-20,by-br-10);
+}
+['ax251','ay251','bx251','by251','br251'].forEach(id=>_(id)?.addEventListener('input',draw251));
+setTimeout(draw251,1100);
+
+
+// ===== 2.5.2 SUPPORTING HYPERPLANE =====
+function draw252(){
+  let c=_('cv252'),ctx=_ctx('cv252');if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height;ctx.clearRect(0,0,W,H);
+  let cx=W/2,cy=H/2;
+  let ang=parseInt(_('ang252').value)*Math.PI/180,sh=_('sh252').value;
+  _('av252').textContent=parseInt(_('ang252').value)+'°';
+  if(sh==='nc'){
+    // Non-convex crescent
+    ctx.fillStyle='rgba(239,68,68,0.15)';ctx.strokeStyle='#ef4444';ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(cx-20,cy,80,0,Math.PI*2);ctx.stroke();
+    ctx.save();ctx.beginPath();ctx.arc(cx+20,cy,80,0,Math.PI*2);ctx.clip('evenodd');
+    ctx.beginPath();ctx.arc(cx-20,cy,80,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.restore();
+    ctx.fillStyle='#991b1b';ctx.font='12px sans-serif';ctx.fillText('非凸: 月牙形 (凹处无支撑超平面!)',cx-100,cy-95);
+    // Boundary point
+    let bpx=cx-20+80*Math.cos(ang),bpy=cy+80*Math.sin(ang);
+    ctx.fillStyle='#eab308';ctx.beginPath();ctx.arc(bpx,bpy,6,0,Math.PI*2);ctx.fill();
+    // Tangent line
+    let tx=-80*Math.sin(ang),ty=80*Math.cos(ang);let tl=Math.sqrt(tx*tx+ty*ty)||1;
+    ctx.strokeStyle='rgba(234,179,8,0.5)';ctx.lineWidth=2;ctx.setLineDash([4,4]);
+    ctx.beginPath();ctx.moveTo(bpx-tx/tl*150,bpy-ty/tl*150);ctx.lineTo(bpx+tx/tl*150,bpy+ty/tl*150);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle='#ca8a04';ctx.font='12px sans-serif';ctx.fillText('切线 = 不是支撑超平面!',bpx+10,bpy-10);
+    ctx.fillText('(部分集合在另一侧)',bpx+10,bpy+7);
+  }else{
+    // Convex set: circle or ellipse
+    let rx=sh==='ellipse'?110:90,ry=sh==='ellipse'?60:90;
+    ctx.fillStyle='rgba(59,130,246,0.15)';ctx.strokeStyle='#3b82f6';ctx.lineWidth=2;
+    ctx.beginPath();if(sh==='ellipse')ctx.ellipse(cx,cy,rx,ry,0,0,Math.PI*2);else ctx.arc(cx,cy,90,0,Math.PI*2);
+    ctx.fill();ctx.stroke();
+    // Boundary point
+    let bpx=cx+rx*Math.cos(ang),bpy=cy-ry*Math.sin(ang);
+    ctx.fillStyle='#eab308';ctx.beginPath();ctx.arc(bpx,bpy,6,0,Math.PI*2);ctx.fill();
+    // Supporting line (perpendicular to radius for circle, general for ellipse)
+    let nx,ny;
+    if(sh==='ellipse'){nx=Math.cos(ang)/rx;ny=-Math.sin(ang)/ry;}
+    else{nx=Math.cos(ang);ny=-Math.sin(ang);}
+    let nl=Math.sqrt(nx*nx+ny*ny)||1;nx/=nl;ny/=nl;
+    ctx.strokeStyle='#22c55e';ctx.lineWidth=2.5;
+    let perpX=-ny,perpY=nx;
+    ctx.beginPath();ctx.moveTo(bpx-perpX*200,bpy-perpY*200);ctx.lineTo(bpx+perpX*200,bpy+perpY*200);ctx.stroke();
+    // Normal
+    ctx.strokeStyle='#16a34a';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(bpx,bpy);ctx.lineTo(bpx+nx*40,bpy+ny*40);ctx.stroke();
+    ctx.fillStyle='#16a34a';ctx.font='bold 12px sans-serif';ctx.fillText('a',bpx+nx*40+5,bpy+ny*40-5);
+    ctx.fillStyle='#16a34a';ctx.font='13px sans-serif';ctx.fillText('支撑超平面: aᵀx = aᵀx₀',bpx+15,bpy-25);
+    ctx.fillStyle='#16a34a';ctx.font='11px sans-serif';ctx.fillText('集合 ⊆ {aᵀx ≤ b}',bpx+15,bpy-10);
+    ctx.fillStyle='#1e40af';ctx.font='12px sans-serif';ctx.fillText(sh==='ellipse'?'凸: 椭球':'凸: 圆',cx-30,cy+ry+20);
+  }
+}
+_('ang252')?.addEventListener('input',draw252);_('sh252')?.addEventListener('change',draw252);
+let _anim252=null;
+_('anim252')?.addEventListener('click',function(){
+  if(_anim252){clearInterval(_anim252);_anim252=null;this.textContent='▶ 动画';return;}
+  this.textContent='⏸ 暂停';let v=0;
+  _anim252=setInterval(()=>{v=(v+3)%360;_('ang252').value=v;draw252();},50);
+});
+setTimeout(draw252,1150);
+
+// ===== 2.6.1 DUAL CONE =====
+function draw261(){
+  let c=_('cv261'),ctx=_ctx('cv261');if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height;ctx.clearRect(0,0,W,H);
+  let cx=W/2,cy=H-60,a=parseInt(_('ang261').value);
+  _('av261').textContent=a+'°';
+  let half=a/2*Math.PI/180;
+  let dualAng=Math.PI-half;
+  _('adv261').textContent=(dualAng*180/Math.PI).toFixed(0)+'°';
+  // Dual cone (wider)
+  if(_('sd261').checked){
+    let dl=cx-Math.sin(dualAng)*260,dt=cy-Math.cos(dualAng)*260;
+    let dr=cx+Math.sin(dualAng)*260,dx=cy-Math.cos(dualAng)*260;
+    ctx.fillStyle='rgba(34,197,94,0.12)';ctx.strokeStyle='rgba(34,197,94,0.5)';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(dl,dt);ctx.lineTo(dr,dx);ctx.closePath();ctx.fill();ctx.stroke();
+    ctx.fillStyle='#16a34a';ctx.font='12px sans-serif';
+    ctx.fillText('K* = '+(dualAng*180/Math.PI).toFixed(0)+'°',cx+140,cy-160);
+  }
+  // K cone (narrow)
+  let l=[cx-Math.sin(half)*260,cy-Math.cos(half)*260],r=[cx+Math.sin(half)*260,cy-Math.cos(half)*260];
+  ctx.fillStyle='rgba(139,92,246,0.18)';ctx.strokeStyle='#8b5cf6';ctx.lineWidth=2.5;
+  ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(l[0],l[1]);ctx.lineTo(r[0],r[1]);ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.fillStyle='#1e40af';ctx.beginPath();ctx.arc(cx,cy,6,0,Math.PI*2);ctx.fill();
+  ctx.fillText('O',cx-15,cy+18);
+  ctx.fillStyle='#7c3aed';ctx.font='12px sans-serif';ctx.fillText('K = '+a+'°',cx-30,cy-150);
+  // Test vector y in K*
+  let testY=[cx,cy-140];
+  ctx.fillStyle='#22c55e';ctx.beginPath();ctx.arc(testY[0],testY[1],5,0,Math.PI*2);ctx.fill();
+  ctx.fillText('y∈K*',testY[0]+10,testY[1]-5);
+}
+_('ang261')?.addEventListener('input',draw261);_('sd261')?.addEventListener('change',draw261);
+let _anim261=null;
+_('anim261')?.addEventListener('click',function(){
+  if(_anim261){clearInterval(_anim261);_anim261=null;this.textContent='▶ 动画';return;}
+  this.textContent='⏸ 暂停';let v=5;
+  _anim261=setInterval(()=>{v=(v+2)%121;if(v<5)v=5;_('ang261').value=v;draw261();},60);
+});
+setTimeout(draw261,1200);
+
+// ===== 2.6.3 SCALARIZATION =====
+function draw263(){
+  let c=_('cv263'),ctx=_ctx('cv263');if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height;ctx.clearRect(0,0,W,H);
+  let cx=W/2,cy=H/2;
+  let l1=parseInt(_('l1263').value)/100,l2=parseInt(_('l2263').value)/100;
+  _('l1v263').textContent=l1.toFixed(2);_('l2v263').textContent=l2.toFixed(2);
+  let lamNorm=Math.sqrt(l1*l1+l2*l2)||1;l1/=lamNorm;l2/=lamNorm;
+  // Quarter unit disk
+  ctx.fillStyle='rgba(139,92,246,0.15)';ctx.strokeStyle='#8b5cf6';ctx.lineWidth=2;
+  ctx.beginPath();
+  for(let i=0;i<=90;i++){let th=i/90*Math.PI/2;ctx.lineTo(cx+120*Math.cos(th),cy-120*Math.sin(th));}
+  ctx.lineTo(cx,cy);ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.fillStyle='#1e40af';ctx.font='12px sans-serif';ctx.fillText('S: 四分之一单位圆',cx-120,cy-130);
+  // Weight direction
+  let norm2=Math.sqrt(l1*l1+l2*l2)||1;
+  let dirX=-l2/norm2,dirY=-l1/norm2;
+  ctx.strokeStyle='#ef4444';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+dirX*150,cy+dirY*150);ctx.stroke();
+  // Arrowhead
+  let dang=Math.atan2(dirY,dirX);
+  ctx.fillStyle='#ef4444';
+  ctx.beginPath();ctx.moveTo(cx+dirX*150,cy+dirY*150);
+  ctx.lineTo(cx+dirX*150-10*Math.cos(dang-0.4),cy+dirY*150-10*Math.sin(dang-0.4));
+  ctx.lineTo(cx+dirX*150-10*Math.cos(dang+0.4),cy+dirY*150-10*Math.sin(dang+0.4));ctx.closePath();ctx.fill();
+  ctx.fillStyle='#991b1b';ctx.font='12px sans-serif';ctx.fillText('λ=('+l1.toFixed(2)+','+l2.toFixed(2)+')',cx+dirX*80,cy+dirY*80-10);
+  // Optimal point: tangency with the circle
+  let optX=cx+120*l1/Math.sqrt(l1*l1+l2*l2),optY=cy-120*l2/Math.sqrt(l1*l1+l2*l2);
+  ctx.fillStyle='#22c55e';ctx.beginPath();ctx.arc(optX,optY,8,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#16a34a';ctx.font='bold 12px sans-serif';ctx.fillText('极小元 (最优)',optX+12,optY-12);
+  // Tangent line (level set)
+  let perpX=-l2,perpY=l1;let perpN=Math.sqrt(perpX*perpX+perpY*perpY)||1;
+  ctx.strokeStyle='rgba(34,197,94,0.4)';ctx.lineWidth=1.5;ctx.setLineDash([4,4]);
+  ctx.beginPath();ctx.moveTo(optX-perpX/perpN*120,optY-perpY/perpN*120);ctx.lineTo(optX+perpX/perpN*120,optY+perpY/perpN*120);ctx.stroke();ctx.setLineDash([]);
+  ctx.fillStyle='#16a34a';ctx.font='11px sans-serif';ctx.fillText('λᵀz = const',optX+perpX/perpN*60,optY+perpY/perpN*60);
+  ctx.fillStyle='#555';ctx.font='11px sans-serif';ctx.fillText('min λᵀz over z∈S → 极小元 (Pareto最优)',W*0.15,H*0.9);
+}
+_('l1263')?.addEventListener('input',draw263);_('l2263')?.addEventListener('input',draw263);
+let _anim263=null;
+_('anim263')?.addEventListener('click',function(){
+  if(_anim263){clearInterval(_anim263);_anim263=null;this.textContent='▶ 扫描';return;}
+  this.textContent='⏸ 暂停';let v=0;
+  _anim263=setInterval(()=>{v=(v+2)%100;_('l1263').value=v;_('l2263').value=100-v;draw263();},80);
+});
+setTimeout(draw263,1250);
+
+// Remove the initial temp marker
+setTimeout(()=>{let h=document.querySelector('h1');if(h)h.scrollIntoView();},100);
+</script>
+</body></html>

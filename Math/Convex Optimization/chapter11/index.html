@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>第十一章 内点法 | 交互式凸优化笔记</title>
+<script>MathJax={tex:{inlineMath:[["$","$"],["\\(","\\)"]],displayMath:[["$$","$$"],["\\[","\\]"]]}};</script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script><style>
+:root{--bg:#fdfbf7;--text:#2c2c2c;--sb-bg:#1a1a2e;--sb-text:#e0e0e0;--sb-hov:#16213e;--accent:#8b5cf6;--card-bg:#fff;--card-sh:0 2px 12px rgba(0,0,0,.06);--brd:#e8e8e8;--code-bg:#f5f5f5;--h1:#1a1a2e;--h2:#2d2d44;--h3:#4a4a6a;--def-bg:#f0f9ff;--intu-bg:#fefce8;--ex-bg:#f0fdf4;--ctr-bg:#fef2f2;--sum-bg:#f5f3ff}
+.dark{--bg:#0f0f1a;--text:#d4d4d8;--sb-bg:#050510;--sb-text:#b0b0c0;--card-bg:#1a1a2e;--card-sh:0 2px 12px rgba(0,0,0,.3);--brd:#2a2a3e;--code-bg:#1e1e2e;--h1:#e0e0f0;--h2:#c8c8da;--h3:#a8a8be;--def-bg:#0c1a2a;--intu-bg:#1a1a0a;--ex-bg:#0a1a10;--ctr-bg:#1a0a0a;--sum-bg:#120a1a}
+*{box-sizing:border-box;margin:0;padding:0}html{scroll-behavior:smooth}
+body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;transition:background .3s,color .3s}
+#sidebar{width:280px;min-width:280px;background:var(--sb-bg);color:var(--sb-text);position:fixed;top:0;left:0;height:100vh;overflow-y:auto;z-index:100;padding:24px 0}
+#sidebar h2{font-size:1rem;padding:0 20px 16px;color:#8b5cf6;font-weight:700}
+#sidebar nav a{display:block;padding:6px 20px;font-size:.82rem;color:var(--sb-text);text-decoration:none;border-left:3px solid transparent}
+#sidebar nav a:hover,#sidebar nav a.active{background:var(--sb-hov);color:#fff;border-left-color:#8b5cf6}
+#sidebar nav a.sub{font-size:.76rem;padding-left:36px}
+#dark-toggle{position:fixed;top:16px;right:24px;z-index:200;width:40px;height:40px;border-radius:50%;border:2px solid var(--brd);background:var(--card-bg);cursor:pointer;font-size:1.2rem;display:flex;align-items:center;justify-content:center;box-shadow:var(--card-sh)}
+#dark-toggle:hover{transform:scale(1.1)}
+#main{margin-left:280px;padding:40px 48px;max-width:1100px;width:100%}
+#main h1{font-size:2.2rem;color:var(--h1);margin-bottom:8px;font-weight:800}
+#main h2{font-size:1.5rem;color:var(--h2);margin:48px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--accent);font-weight:700}
+#main h3{font-size:1.15rem;color:var(--h3);margin:32px 0 12px;font-weight:600}
+#main h3::before{content:"§ ";color:var(--accent);font-size:.85rem}
+.sec-card{background:var(--card-bg);border:1px solid var(--brd);border-radius:10px;padding:24px 28px;margin:20px 0;box-shadow:var(--card-sh)}
+.def{background:var(--def-bg);border-left:4px solid #3b82f6;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.def .label,.intuition .label,.example-box .label,.counter .label,.summary .label{font-weight:700;font-size:.85rem;margin-bottom:6px}
+.def .label{color:#3b82f6}
+.intuition{background:var(--intu-bg);border-left:4px solid #eab308;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.intuition .label{color:#ca8a04}
+.example-box{background:var(--ex-bg);border-left:4px solid #22c55e;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.example-box .label{color:#16a34a}
+.counter{background:var(--ctr-bg);border-left:4px solid #ef4444;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.counter .label{color:#dc2626}
+.summary{background:var(--sum-bg);border-left:4px solid #8b5cf6;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.summary .label{color:#7c3aed}
+.concept-box{background:var(--def-bg);border-radius:8px;padding:14px}
+.concept-box .label{color:#2563eb}
+.domain-box{background:#dcfce7;border:1px solid #86efac;border-radius:10px;padding:16px 20px;margin:14px 0}
+.domain-box .label{font-weight:700;color:#166534;font-size:.85rem;margin-bottom:6px}
+.formula-block{overflow-x:auto;padding:8px 0}
+.usecase-box{background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0}
+.usecase-box .label{font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px}
+.num-box{background:#fefce8;border:1px solid #facc15;border-radius:10px;padding:16px 20px;margin:14px 0}
+.num-box .label{font-weight:700;color:#a16207;font-size:.85rem;margin-bottom:6px}
+.viz{position:relative;margin:20px 0;border:1px solid var(--brd);border-radius:10px;overflow:hidden;background:var(--card-bg);box-shadow:var(--card-sh)}
+.viz canvas{display:block;width:100%}
+.viz .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 16px;background:var(--code-bg);border-top:1px solid var(--brd)}
+.viz .controls label{font-size:.8rem;color:var(--h3);font-weight:500;white-space:nowrap}
+.viz .controls input[type=range]{flex:1;min-width:80px;accent-color:var(--accent)}
+.viz .controls .val{font-size:.78rem;font-weight:600;color:var(--accent);min-width:36px;text-align:center}
+.viz .controls button{font-size:.78rem;padding:4px 12px;border:1px solid var(--brd);border-radius:6px;background:var(--card-bg);color:var(--text);cursor:pointer}
+.viz .controls button:hover{background:var(--ac-lit);border-color:var(--accent)}
+table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid var(--brd);padding:8px 12px;text-align:left;font-size:.82rem}th{background:var(--code-bg);font-weight:700}
+@media(max-width:768px){#sidebar{transform:translateX(-280px)}#sidebar.open{transform:translateX(0)}#main{margin-left:0;padding:20px 16px}}
+</style>
+</head><body>
+<button id="dark-toggle" onclick="toggleDark()">🌙</button>
+<aside id="sidebar"><h2>📐 凸优化 · Ch11</h2><nav>
+<a href="#top">第十一章 内点法</a>
+<a href="#11_1" class="sub">11.1 不等式问题</a><a href="#11_2" class="sub">11.2 对数障碍</a><a href="#11_3" class="sub">11.3 中心路径</a><a href="#11_4" class="sub">11.4 障碍方法</a><a href="#11_5" class="sub">11.5 原始-对偶</a><a href="#concepts" class="sub">💡 概念</a><a href="#exercises" class="sub">📝 习题</a>
+</nav></aside>
+<main id="main">
+<
+<h1 id="top">第十一章 内点法</h1>
+<div class="def"><div class="label">概述</div><p>本章讨论<b>内点法 (Interior-Point Methods)</b>——求解带不等式约束凸优化问题的最强大通用方法。核心思想：对数障碍+中心路径+牛顿法。MOSEK/Gurobi/ECOS/SCS的核心引擎。</p></div>
+
+<h2 id="concepts">关键概念速查</h2><div class="sec-card"><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+<div class="concept-box"><div class="label">对数障碍 -log(-f_i) = "软墙"</div><p style="font-size:.8rem">接近边界则惩罚趋于无穷。自和谐则牛顿法常数步收敛。比硬约束数值稳定</p></div>
+<div class="concept-box"><div class="label">中心路径 x*(t) = "渐近线"</div><p style="font-size:.8rem">t从小到大：从内部安全点逐渐逼近边界最优解。每步离最优不超过m/t</p></div>
+<div class="concept-box"><div class="label">原始-对偶 = "障碍法2.0"</div><p style="font-size:.8rem">同时更新x和lambda。一步牛顿改善原+对偶可行。比纯障碍快2-5倍</p></div>
+<div class="concept-box"><div class="label">O(sqrt(m)*log 1/eps)迭代</div><p style="font-size:.8rem">m=约束数,eps=精度。迭代随sqrt(m)增长。100约束约30次牛顿。实践中更少</p></div>
+</div></div>
+
+
+<div class="interview-q"><div class="label" style="color:#dc2626">🎤 面试高频问题 & 工程落地陷阱</div><p style="margin:6px 0;"><b>Q: 内点法求解失败最常见的3个原因及修复？</b><br><b>A:</b> 1)数值病态(条件数>1e12)→加Tikhonov正则(1e-8*I到Hessian)或换求解器。2)初始点不在严格内部→Phase I先找可行点(CVXPY自动处理)。3)迭代不收敛→增大mu(减少外层迭代)、换初始点、检查约束是否矛盾。</p><p style="margin:6px 0;"><b>Q: 为什么LP用内点法，深度学习用SGD？</b><br><b>A:</b> LP: n~10^3-10^6, 需要高精度(1e-8), 目标准确→内点法最优。DL: n~10^6-10^11, 随机目标(数据流), 低精度即可(泛化)→SGD最优。两者没有"谁更好",只是不同场景的不同选择。</p><p style="margin:6px 0;"><b>Q: DCO层(cvxpylayers)是什么？为什么重要？</b><br><b>A:</b> 将凸优化求解器(PyTorch版)嵌入神经网络计算图→前向:解QP/SOCP→输出;反向:通过KKT矩阵隐函数微分计算梯度(无需展开迭代!)。应用:端到端MPC控制器训练、约束满足生成模型、结构化预测。</p></div>
+
+<div style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:22px 26px;margin:16px 0;"><div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📖 多层公式解读 —— 对数障碍 -log(-fᵢ(x)) 的自和谐性与选择原理</div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第1层：为什么是log</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">log barrier在u→0⁻时增长速度为O(log(1/|u|))。这个增长速度恰好满足自和谐条件|φ′′′(u)|≤2φ′′(u)^{3/2}→牛顿法在常数步内收敛→与维度无关。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第2层：为什么不用1/u</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">用1/u→φ′′(u)=2/u³, φ′′′(u)=-6/u⁴。自和谐性不成立→远离边界时惩罚太小(Hessian接近奇异),靠近边界时惩罚太大(Hessian病态)→牛顿法需要很多步。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第3层：工程类比</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">log barrier = "渐进式约束"。在机器人安全探索中,离障碍物远时-log(d)几乎为零(不影响目标);靠近时逐渐增大;紧贴时→∞(绝对不能穿越)。这比硬约束(突然截断)安全得多。</p></div></div>
+<h2 id="11_1">11.1 不等式约束凸优化问题</h2><div class="sec-card">
+<div class="def"><div class="label">标准形式 (Boyd 11.1)</div>
+$$\text{minimize } f_0(x) \quad \text{s.t. } f_i(x) \le 0\;(i=1,\ldots,m),\; Ax = b$$
+<p>$f_i$凸且二阶连续可微。$f_i(x)\le0$是"墙"——不能穿越。核心挑战：不等式约束定义了可行域的边界，单纯无约束方法会"撞墙"。</p></div>
+</div>
+
+<h2 id="11_2">11.2 对数障碍函数与中心路径</h2><div class="sec-card">
+<div class="def"><div class="label">对数障碍 (Boyd 11.2.1)</div>
+$$\phi(x) = -\sum_{i=1}^m \log(-f_i(x))$$
+<p>$x$接近边界($f_i(x)\to0^-$)时$\phi(x)\to\infty$——形成"软墙"。障碍问题：$\min t f_0(x) + \phi(x)$ s.t. $Ax=b$。$t>0$是精度参数。</p></div>
+
+<div class="intuition"><div class="label">为什么是log而不是别的函数</div><p>$-\log(-u)$在$u\to0^-$时的增长速度恰好让内点法具有最优的理论性质——<b>自和谐性</b>。如果用$1/(-u)$或$1/(-u)^2$，算法会慢得多或数值不稳定。log barrier是Nesterov和Nemirovsky在1980年代证明最优的选择。</p></div>
+
+<div class="num-box"><div class="label">中心路径数值例：min x^2 s.t. x>=1</div><p>障碍：$\min t x^2 - \log(x-1)$。一阶条件：$2t x - 1/(x-1)=0$。$x^*(t)=0.5+\sqrt{0.25+1/(2t)}$。t=0.1: x*=2.79(远离边界)；t=1: x*=1.37；t=10: x*=1.048(逼近)；t->inf: x*->1(最优!)</p></div>
+
+<div class="domain-box"><div class="label">机器人安全探索：-log(d)=碰撞惩罚=人工势场法的最优版本(自和谐!)；中心路径=安全裕度从保守到激进的平滑过渡；安全RL=障碍法软约束</div></div>
+</div>
+
+<h2 id="11_3">11.3 中心路径</h2><div class="sec-card">
+<div class="def"><div class="label">定义与性质 (Boyd 11.2.2)</div>
+<p>$\{x^*(t)\mid t>0\}$是光滑曲线——中心路径。关键性质：$f_0(x^*(t))-p^*\le m/t$。即每增加$t$一个因子$\mu$，对偶间隙缩小$\mu$倍。从中心路径可提取对偶可行点：$\lambda_i^*(t)=-1/(t f_i(x^*(t)))$。</p></div>
+</div>
+
+
+<h3>11.2.1 对数障碍函数的梯度与Hessian (Boyd 11.2.1)</h3>
+<div class="sec-card">
+<div class="def"><div class="label">代数推导</div>
+<p>$\phi(x)=-\sum \log(-f_i(x))$。梯度：$\nabla\phi = -\sum (1/f_i) \nabla f_i$。Hessian：$\nabla^2\phi = \sum (1/f_i^2) \nabla f_i \nabla f_i^T - \sum (1/f_i) \nabla^2 f_i$。第一项正半定(外积)，第二项负半定。总Hessian正定→$\phi$凸。</p></div></div>
+
+<h3>11.3 障碍方法完整流程 (Boyd 11.3)</h3>
+<div class="sec-card">
+<div class="def"><div class="label">参数选择与收敛</div>
+<p><b>中心步骤：</b>用等式约束牛顿法求解$\min t f_0(x)+\phi(x)$ s.t. $Ax=b$。从上一轮$x$开始(warm start)→通常20-30步牛顿法收敛。</p>
+<p><b>更新t：</b>$t:=\mu t$。$\mu=10-20$。$\mu$太小→外层迭代多；太大→内层牛顿法步数多。$\mu\approx15$是经验最优。</p>
+<p><b>停止准则：</b>$m/t < \varepsilon$→停止。$\varepsilon=10^{-6}$(中等精度),$10^{-9}$(高精度)。</p></div></div>
+
+<h3>11.3.3 收敛性分析 (Boyd 11.3.3)</h3>
+<div class="sec-card">
+<div class="def"><div class="label">理论保证</div>
+<p>总牛顿步数$\le O(\sqrt{m} \cdot \log(1/\varepsilon))$。$m$=不等式约束数，$\varepsilon$=精度。对LP(100约束,$10^{-6}$精度)：$\sqrt{100}\cdot\log(10^6)=10\cdot13.8\approx138$次牛顿步。实践中更少(30-50步)。</p></div></div>
+
+<h3>11.4 可行性与Phase I方法 (Boyd 11.4)</h3>
+<div class="sec-card">
+<div class="def"><div class="label">如何找到初始严格可行点</div>
+<p>Phase I：引入松弛变量$s\ge0$，$\min s$ s.t. $f_i(x)\le s, Ax=b$。若最优值=0→可行；若>0→不可行(约束矛盾)。Phase I的解作为Phase II的初始点。</p></div>
+<div class="eng-box"><div class="label">工程实践</div><p>CVXPY自动处理Phase I。如果问题不可行，CVXPY返回'infeasible'。调试：逐个移除约束找出矛盾源头。常见原因：数值误差导致约束过紧→加微小松弛($10^{-8}$)。</p></div></div>
+
+<h2 id="11_4">11.4 障碍方法</h2><div class="sec-card">
+<div class="def"><div class="label">算法流程</div>
+<ol style="margin-left:20px;line-height:2.0">
+<li>给定严格可行$x$，$t=t^{(0)}>0$，$\mu>1$，$\epsilon>0$</li>
+<li><b>中心步骤：</b>用牛顿法求解$\min t f_0(z)+\phi(z)$ s.t. $Az=b$</li>
+<li><b>更新：</b>$x:=x^*(t)$</li>
+<li><b>停止？</b>若$m/t<\epsilon$则返回$x$</li>
+<li><b>增大t：</b>$t:=\mu t$，回到步骤2</li>
+</ol>
+<p>外层迭代次数=$O(\log_\mu(m/(\epsilon t^{(0)})))$（对数级）。内层牛顿法通常20-30步。总复杂度$O(\sqrt{m}\log(1/\epsilon))$次牛顿迭代。实践中LP通常20-50步收敛。</p></div>
+</div>
+
+<h2 id="11_5">11.5 原始-对偶内点法</h2><div class="sec-card">
+<div class="def"><div class="label">改进版 (Boyd 11.7)</div>
+<p>同时更新原变量$x$和对偶变量$\lambda,\nu$，而不是先完全解屏障问题再更新$t$。一步牛顿法同时改善原始可行性和对偶可行性。</p>
+<p><b>优势：</b>比纯障碍法快2-5倍，对初始点不敏感。SDPT3/SeDuMi/MOSEK核心引擎。</p></div>
+<div class="domain-box"><div class="label">实时MPC=内点法20步牛顿每毫秒；DCO层=cvxpylayers嵌入PyTorch(可微!)；GPU内点10-100x加速(cuSOLVER稀疏Cholesky)。安全RL=障碍法软约束。</div></div>
+</div>
+
+<!-- SUPPLEMENT START -->
+<div data-sup="ch11-usage" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">🧭 反面清单 — 什么时候"不要"用凸优化</div>
+<ul style="line-height:1.9;margin-left:18px;">
+<li><b>问题本质非凸且不可凸化</b>：神经网络训练、组合优化(TSP)。凸松弛只给下界，需启发式/全局求解器。</li>
+<li><b>目标/约束无法显式写出</b>：黑盒、仿真驱动 → 用贝叶斯优化/进化算法。</li>
+<li><b>需要整数解</b>：凸优化给连续解，整数约束破坏凸性 → 用 MILP/分支定界。</li>
+<li><b>实时性要求极端但问题巨大</b>：可能需专用一阶法或牺牲精度。</li>
+<li><b>误判凸性</b>：把非凸问题当凸求解会得到错误的"最优"。先验证凸性(Hessian、保凸运算)再上凸求解器。</li>
+</ul>
+<p>正面信号：能写成 $\min$ 凸函数 s.t. 凸不等式 + 仿射等式，且满足 Slater → 放心用凸优化，享受全局最优保证。</p>
+</div>
+<div data-sup="miss-11-1" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📕 补充 (11.4) — 可行性与第一阶段方法 (Phase I)</div>
+<p>内点法需要一个严格可行起点。Phase I 通过求解辅助问题来找它：$\min_{x,s}\ s$ s.t. $f_i(x)\le s,\ Ax=b$。</p>
+<p>若最优 $s^\*<0$ → 找到严格可行点（进入 Phase II 求解原问题）；若 $s^\*>0$ → 原问题不可行；$s^\*=0$ → 在可行边界。辅助问题总有易得的初始点(把 $s$ 取得足够大)。这套"先判可行、再求最优"的两阶段流程是完整内点求解器的标准结构。</p>
+</div>
+<!-- SUPPLEMENT END -->
+
+<h2 id="exercises">练习题 (24题,Boyd课本原题)</h2>
+<div class="sec-card">
+<div class="def"><div class="label">说明</div><p>以下习题选自Boyd课本对应章节。</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.1</div><p style="font-size:.8rem;line-height:1.6;">11.1 Barrier method example. Consider the simple problem</p><p style="font-size:.75rem;color:#92400e;">minimize        x2 + 1 subject to      2 ≤ x ≤ 4, which has feasible set [2, 4], and optimal point x⋆ = 2. Plot f0 , and tf0 + φ, for several values of t > 0, versus x. Label x⋆ (t).</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.2</div><p style="font-size:.8rem;line-height:1.6;">11.2 What happens if the barrier method is applied to the LP</p><p style="font-size:.75rem;color:#92400e;">minimize        x2 subject to      x1 ≤ x 2 ,     0 ≤ x2 , with variable x ∈ R2 ?</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.3</div><p style="font-size:.8rem;line-height:1.6;">11.3 Boundedness of centering problem. Suppose the sublevel sets of (11.1),</p><p style="font-size:.75rem;color:#92400e;">minimize        f0 (x) subject to      fi (x) ≤ 0,      i = 1, . . . , m Ax = b, are bounded. Show that the sublevel sets of the associated centering problem,</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.4</div><p style="font-size:.8rem;line-height:1.6;">11.4 Adding a norm bound to ensure strong convexity of the centering problem. Suppose we</p><p style="font-size:.75rem;color:#92400e;">add the constraint xT x ≤ R2 to the problem (11.1): minimize        f0 (x) subject to      fi (x) ≤ 0, i = 1, . . . , m Ax = b xT x ≤ R 2 .</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.5</div><p style="font-size:.8rem;line-height:1.6;">11.5 Barrier method for second-order cone programming. Consider the SOCP (without equality</p><p style="font-size:.75rem;color:#92400e;">constraints, for simplicity) minimize          fT x (11.63) subject to        kAi x + bi k2 ≤ cTi x + di ,        i = 1, . . . , m. The constraint functions in this problem are not differentiable (since the Euclidean nor</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.6</div><p style="font-size:.8rem;line-height:1.6;">11.6 General barriers. The log barrier is based on the approximation −(1/t) log(−u) of the</p><p style="font-size:.75rem;color:#92400e;">indicator function Ib− (u) (see §11.2.1, page 563). We can also construct barriers from other approximations, which in turn yield generalizations of the central path and barrier method. Let h : R → R be a twice different</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.7</div><p style="font-size:.8rem;line-height:1.6;">11.7 Tangent to central path. This problem concerns dx⋆ (t)/dt, which gives the tangent to the</p><p style="font-size:.75rem;color:#92400e;">central path at the point x⋆ (t). For simplicity, we consider a problem without equality constraints; the results readily generalize to problems with equality constraints. (a) Find an explicit expression for dx⋆ (t)/dt. </p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.8</div><p style="font-size:.8rem;line-height:1.6;">11.8 Predictor-corrector method for centering problems. In the standard barrier method, x⋆ (µt)</p><p style="font-size:.75rem;color:#92400e;">is computed using Newton’s method, starting from the initial point x⋆ (t). One alternative that has been proposed is to make an approximation or prediction x    b of x⋆ (µt), and then ⋆ start the Newton method for comput</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.9</div><p style="font-size:.8rem;line-height:1.6;">11.9 Dual feasible points near the central path. Consider the problem</p><p style="font-size:.75rem;color:#92400e;">minimize      f0 (x) subject to    fi (x) ≤ 0,     i = 1, . . . , m, with variable x ∈ Rn . We assume the functions fi are convex and twice differentiable. (We assume for simplicity there are no equality constraints.) Re</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.10</div><p style="font-size:.8rem;line-height:1.6;">11.10 Another parametrization of the central path. We consider the problem (11.1), with central</p><p style="font-size:.75rem;color:#92400e;">path x⋆ (t) for t > 0, defined as the solution of Pm minimize       tf0 (x) −      i=1 log(−fi (x)) subject to     Ax = b. In this problem we explore another parametrization of the central path. For u > p⋆ , let z ⋆ (u) </p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.11</div><p style="font-size:.8rem;line-height:1.6;">11.11 Method of analytic centers. In this problem we consider a variation on the barrier method,</p><p style="font-size:.75rem;color:#92400e;">based on the parametrization of the central path described in exercise 11.10. For simplic- ity, we consider a problem with no equality constraints, minimize       f0 (x) subject to     fi (x) ≤ 0,       i = 1, . . . , m.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.12</div><p style="font-size:.8rem;line-height:1.6;">11.12 Barrier method for convex-concave games. We consider a convex-concave game with</p><p style="font-size:.75rem;color:#92400e;">inequality constraints, minimizew maximizez          f0 (w, z) subject to                   fi (w) ≤ 0, i = 1, . . . , m f˜i (z) ≤ 0, i = 1, . . . , m̃. Here w ∈ Rn is the variable associated with minimizing the objectiv</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.13</div><p style="font-size:.8rem;line-height:1.6;">11.13 Self-concordance and negative entropy.</p><p style="font-size:.75rem;color:#92400e;">(a) Show that the negative entropy function x log x (on R++ ) is not self-concordant. (b) Show that for any t > 0, tx log x − log x is self-concordant (on R++ ).</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.14</div><p style="font-size:.8rem;line-height:1.6;">11.14 Self-concordance and the centering problem. Let φ be the logarithmic barrier function of</p><p style="font-size:.75rem;color:#92400e;">problem (11.1). Suppose that the sublevel sets of (11.1) are bounded, and that tf0 + φ is closed and self-concordant. Show that t∇2 f0 (x) + ∇2 φ(x) ≻ 0, for all x ∈ dom φ. Hint. See exercises 9.17 and 11.3. 628         </p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.15</div><p style="font-size:.8rem;line-height:1.6;">11.15 Generalized logarithm is K-increasing. Let ψ be a generalized logarithm for the proper</p><p style="font-size:.75rem;color:#92400e;">cone K. Suppose y ≻K 0. (a) Show that ∇ψ(y) K ∗ 0, i.e., that ψ is K-nondecreasing. Hint. If ∇ψ(y) 6K ∗ 0, then there is some w ≻K 0 for which wT ∇ψ(y) ≤ 0. Use the inequality ψ(sw) ≤ ψ(y) + ∇ψ(y)T (sw − y), with s > 0</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.16</div><p style="font-size:.8rem;line-height:1.6;">11.16 [NN94, page 41] Properties of a generalized logarithm. Let ψ be a generalized logarithm</p><p style="font-size:.75rem;color:#92400e;">for the proper cone K, with degree θ. Prove that the following properties hold at any y ≻K 0. (a) ∇ψ(sy) = ∇ψ(y)/s for all s > 0. (b) ∇ψ(y) = −∇2 ψ(y)y. (c) y T ∇ψ 2 (y)y = −θ. (d) ∇ψ(y)T ∇2 ψ(y)−1 ∇ψ(y) = −θ.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.17</div><p style="font-size:.8rem;line-height:1.6;">11.17 Dual generalized logarithm. Let ψ be a generalized logarithm for the proper cone K, with</p><p style="font-size:.75rem;color:#92400e;">degree θ. Show that the dual generalized logarithm ψ, defined in (11.49), satisfies ψ(sv) = ψ(v) + θ log s, for v ≻K ∗ 0, s > 0.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.18</div><p style="font-size:.8rem;line-height:1.6;">11.18 Is the function                                             Pn           </p><p style="font-size:.75rem;color:#92400e;">i=1 yi2 ψ(y) = log         yn+1 −                       , yn+1 Pn with dom ψ = {y ∈ Rn+1 | yn+1 >                 i=1 yi2 }, a generalized logarithm for the second-</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.19</div><p style="font-size:.8rem;line-height:1.6;">11.19 Yet another method for computing the Newton step. Show that the Newton step for the</p><p style="font-size:.75rem;color:#92400e;">barrier method, which is given by the solution of the linear equations (11.14), can be found by solving a larger set of linear equations with coefficient matrix                   P                                       </p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.20</div><p style="font-size:.8rem;line-height:1.6;">11.20 Network rate optimization via the dual problem. In this problem we examine a dual method</p><p style="font-size:.75rem;color:#92400e;">for solving the network rate optimization problem of §11.8.4. To simplify the presentation we assume that the utility functions Ui are strictly concave, with dom Ui = R++ , and that they satisfy Ui′ (xi ) → ∞ as xi → 0 a</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.21</div><p style="font-size:.8rem;line-height:1.6;">11.21 Log-Chebyshev approximation with bounds. We consider an approximation problem: find</p><p style="font-size:.75rem;color:#92400e;">x ∈ Rn , that satisfies the variable bounds l  x  u, and yields Ax ≈ b, where b ∈ Rm . You can assume that l ≺ u, and b ≻ 0 (for reasons we explain below). We let aTi denote the ith row of the matrix A. We judge the ap</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.22</div><p style="font-size:.8rem;line-height:1.6;">11.22 Maximum volume rectangle inside a polyhedron. Consider the problem described in exer-</p><p style="font-size:.75rem;color:#92400e;">cise 8.16, i.e., finding the maximum volume rectangle R = {x | l  x  u} that lies in a polyhedron described by a set of linear inequalities, P = {x | Ax  b}. Implement a barrier method for solving this problem. You ca</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.23</div><p style="font-size:.8rem;line-height:1.6;">11.23 SDP bounds and heuristics for the two-way partitioning problem. In this exercise we</p><p style="font-size:.75rem;color:#92400e;">consider the two-way partitioning problem (5.7), described on page 219, and also in ex- ercise 5.39: minimize    xT W x (11.65) subject to x2i = 1, i = 1, . . . , n, with variable x ∈ Rn . We assume, without loss of gene</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">11.24</div><p style="font-size:.8rem;line-height:1.6;">11.24 Barrier and primal-dual interior-point methods for quadratic programming. Implement</p><p style="font-size:.75rem;color:#92400e;">a barrier method, and a primal-dual method, for solving the QP (without equality con- straints, for simplicity) minimize    (1/2)xT P x + q T x subject to Ax  b, with A ∈ Rm×n . You can assume a strictly feasible initia</p></div>
+</div>
+
+</main>
+<script>let _=(id)=>document.getElementById(id);let _cx=(id)=>{let c=_(id);return c?c.getContext("2d"):null;};function toggleDark(){document.body.classList.toggle("dark");_("dark-toggle").textContent=document.body.classList.contains("dark")?"☀️":"🌙";}function _sz(c){return c.parentElement.clientWidth||700;}let _ls=document.querySelectorAll("#sidebar nav a");window.addEventListener("scroll",()=>{let cur="";document.querySelectorAll("h2[id]").forEach(el=>{if(el.getBoundingClientRect().top<=120)cur=el.id;});_ls.forEach(a=>a.classList.remove("active"));if(cur){let l=document.querySelector("#sidebar nav a[href=\x23"+cur+"]");if(l)l.classList.add("active");}});</script>
+
+<script>
+let _=id=>document.getElementById(id);let _cx=id=>{let c=_(id);return c?c.getContext("2d"):null;};
+function draw113(){let c=_("cv113"),ctx=_cx("cv113");if(!ctx||!c)return;let W=c.width=c.parentElement.clientWidth||500,H=c.height;ctx.clearRect(0,0,W,H);let pad=35,tRaw=parseInt(_("t113").value)/100,t=tRaw===0?0.01:tRaw;_("tv113").textContent=t.toFixed(2);let sx=(W-2*pad)/3.5,sy=(H-2*pad)/14;function px(x){return pad+(x-0.5)*sx;}function py(y){return H-pad-y*sy;}ctx.strokeStyle="#2563eb";ctx.lineWidth=2;ctx.beginPath();let f=true;for(let ix=pad;ix<=W-pad;ix+=2){let x=(ix-pad)/sx+0.5,y=x*x,iy=py(y);if(iy>pad&&iy<H-pad){if(f){ctx.moveTo(ix,iy);f=false;}else ctx.lineTo(ix,iy);}}ctx.stroke();ctx.fillStyle="rgba(139,92,246,0.08)";ctx.fillRect(px(1),pad,W-px(1)-5,H-2*pad);ctx.strokeStyle="#ef4444";ctx.lineWidth=2;ctx.setLineDash([5,5]);ctx.beginPath();ctx.moveTo(px(1),pad);ctx.lineTo(px(1),H-pad);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle="#991b1b";ctx.font="11px sans-serif";ctx.fillText("x=1 boundary",px(1)+5,pad+12);let xs=0.5+Math.sqrt(0.25+1/(2*t));ctx.fillStyle="#22c55e";ctx.beginPath();ctx.arc(px(xs),py(xs*xs),7,0,Math.PI*2);ctx.fill();ctx.fillStyle="#15803d";ctx.font="bold 11px sans-serif";ctx.fillText("x*("+t.toFixed(2)+")="+xs.toFixed(3),px(xs)+10,py(xs*xs)-8);}
+let a113=null;function anim113(){if(a113){clearInterval(a113);a113=null;return;}a113=setInterval(()=>{let v=parseInt(_("t113").value)+2;if(v>100)v=1;_("t113").value=v;draw113();},70);}
+setTimeout(draw113,300);
+</script>
+</body></html>
