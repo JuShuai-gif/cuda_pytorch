@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>第七章 统计估计 | 交互式凸优化笔记</title>
+<script>MathJax={tex:{inlineMath:[["$","$"],["\\(","\\)"]],displayMath:[["$$","$$"],["\\[","\\]"]]}};</script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script><style>
+:root{--bg:#fdfbf7;--text:#2c2c2c;--sb-bg:#1a1a2e;--sb-text:#e0e0e0;--sb-hov:#16213e;--accent:#8b5cf6;--card-bg:#fff;--card-sh:0 2px 12px rgba(0,0,0,.06);--brd:#e8e8e8;--code-bg:#f5f5f5;--h1:#1a1a2e;--h2:#2d2d44;--h3:#4a4a6a;--def-bg:#f0f9ff;--intu-bg:#fefce8;--ex-bg:#f0fdf4;--ctr-bg:#fef2f2;--sum-bg:#f5f3ff}
+.dark{--bg:#0f0f1a;--text:#d4d4d8;--sb-bg:#050510;--sb-text:#b0b0c0;--card-bg:#1a1a2e;--card-sh:0 2px 12px rgba(0,0,0,.3);--brd:#2a2a3e;--code-bg:#1e1e2e;--h1:#e0e0f0;--h2:#c8c8da;--h3:#a8a8be;--def-bg:#0c1a2a;--intu-bg:#1a1a0a;--ex-bg:#0a1a10;--ctr-bg:#1a0a0a;--sum-bg:#120a1a}
+*{box-sizing:border-box;margin:0;padding:0}html{scroll-behavior:smooth}
+body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;transition:background .3s,color .3s}
+#sidebar{width:280px;min-width:280px;background:var(--sb-bg);color:var(--sb-text);position:fixed;top:0;left:0;height:100vh;overflow-y:auto;z-index:100;padding:24px 0}
+#sidebar h2{font-size:1rem;padding:0 20px 16px;color:#8b5cf6;font-weight:700}
+#sidebar nav a{display:block;padding:6px 20px;font-size:.82rem;color:var(--sb-text);text-decoration:none;border-left:3px solid transparent}
+#sidebar nav a:hover,#sidebar nav a.active{background:var(--sb-hov);color:#fff;border-left-color:#8b5cf6}
+#sidebar nav a.sub{font-size:.76rem;padding-left:36px}
+#dark-toggle{position:fixed;top:16px;right:24px;z-index:200;width:40px;height:40px;border-radius:50%;border:2px solid var(--brd);background:var(--card-bg);cursor:pointer;font-size:1.2rem;display:flex;align-items:center;justify-content:center;box-shadow:var(--card-sh)}
+#dark-toggle:hover{transform:scale(1.1)}
+#main{margin-left:280px;padding:40px 48px;max-width:1100px;width:100%}
+#main h1{font-size:2.2rem;color:var(--h1);margin-bottom:8px;font-weight:800}
+#main h2{font-size:1.5rem;color:var(--h2);margin:48px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--accent);font-weight:700}
+#main h3{font-size:1.15rem;color:var(--h3);margin:32px 0 12px;font-weight:600}
+#main h3::before{content:"§ ";color:var(--accent);font-size:.85rem}
+.sec-card{background:var(--card-bg);border:1px solid var(--brd);border-radius:10px;padding:24px 28px;margin:20px 0;box-shadow:var(--card-sh)}
+.def{background:var(--def-bg);border-left:4px solid #3b82f6;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.def .label,.intuition .label,.example-box .label,.counter .label,.summary .label{font-weight:700;font-size:.85rem;margin-bottom:6px}
+.def .label{color:#3b82f6}
+.intuition{background:var(--intu-bg);border-left:4px solid #eab308;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.intuition .label{color:#ca8a04}
+.example-box{background:var(--ex-bg);border-left:4px solid #22c55e;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.example-box .label{color:#16a34a}
+.counter{background:var(--ctr-bg);border-left:4px solid #ef4444;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.counter .label{color:#dc2626}
+.summary{background:var(--sum-bg);border-left:4px solid #8b5cf6;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.summary .label{color:#7c3aed}
+.concept-box{background:var(--def-bg);border-radius:8px;padding:14px}
+.concept-box .label{color:#2563eb}
+.domain-box{background:#dcfce7;border:1px solid #86efac;border-radius:10px;padding:16px 20px;margin:14px 0}
+.domain-box .label{font-weight:700;color:#166534;font-size:.85rem;margin-bottom:6px}
+.formula-block{overflow-x:auto;padding:8px 0}
+.usecase-box{background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0}
+.usecase-box .label{font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px}
+.num-box{background:#fefce8;border:1px solid #facc15;border-radius:10px;padding:16px 20px;margin:14px 0}
+.num-box .label{font-weight:700;color:#a16207;font-size:.85rem;margin-bottom:6px}
+.viz{position:relative;margin:20px 0;border:1px solid var(--brd);border-radius:10px;overflow:hidden;background:var(--card-bg);box-shadow:var(--card-sh)}
+.viz canvas{display:block;width:100%}
+.viz .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 16px;background:var(--code-bg);border-top:1px solid var(--brd)}
+.viz .controls label{font-size:.8rem;color:var(--h3);font-weight:500;white-space:nowrap}
+.viz .controls input[type=range]{flex:1;min-width:80px;accent-color:var(--accent)}
+.viz .controls .val{font-size:.78rem;font-weight:600;color:var(--accent);min-width:36px;text-align:center}
+.viz .controls button{font-size:.78rem;padding:4px 12px;border:1px solid var(--brd);border-radius:6px;background:var(--card-bg);color:var(--text);cursor:pointer}
+.viz .controls button:hover{background:var(--ac-lit);border-color:var(--accent)}
+table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid var(--brd);padding:8px 12px;text-align:left;font-size:.82rem}th{background:var(--code-bg);font-weight:700}
+@media(max-width:768px){#sidebar{transform:translateX(-280px)}#sidebar.open{transform:translateX(0)}#main{margin-left:0;padding:20px 16px}}
+</style>
+</head><body>
+<button id="dark-toggle" onclick="toggleDark()">🌙</button>
+<aside id="sidebar"><h2>📐 凸优化 · Ch7</h2><nav>
+<a href="#top">第七章 统计估计</a>
+<a href="#7_1" class="sub">7.1 MLE</a><a href="#7_2" class="sub">7.2 MAP</a><a href="#7_3" class="sub">7.3 检测器</a><a href="#7_4" class="sub">7.4 实验设计</a><a href="#concepts" class="sub">💡 概念</a><a href="#exercises" class="sub">📝 习题</a>
+</nav></aside>
+<main id="main">
+<
+
+<h1 id="top">第七章 统计估计</h1>
+<div class="def"><div class="label">概述</div><p>本章讨论<b>统计估计 (Statistical Estimation)</b>--从观测数据中推断概率模型参数。MLE(最大似然)和MAP(最大后验)都可以写为凸优化问题。噪声的分布假设直接决定了损失函数的形式。</p></div>
+
+<h2 id="concepts">关键概念速查</h2><div class="sec-card"><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+<div class="concept-box"><div class="label">似然 = "给定参数看到这组数据的概率"</div><p style="font-size:.8rem">p_x(y)。最大化它=找最可能产生观测数据的参数。对数化--乘法变加法</p></div>
+<div class="concept-box"><div class="label">MLE = "最可能解释"</div><p style="font-size:.8rem">max log p_x(y)。高斯噪声--L2损失;拉普拉斯--L1;逻辑--交叉熵</p></div>
+<div class="concept-box"><div class="label">MAP = "MLE + 先验信念"</div><p style="font-size:.8rem">max log p_x(y)+log p(x)。Laplace先验=L1正则;Gaussian先验=L2正则</p></div>
+<div class="concept-box"><div class="label">MLE决定你的损失函数</div><p style="font-size:.8rem">不是随便选损失--噪声分布决定似然--负对数似然=损失。这是"第一性原理"</p></div>
+</div></div>
+
+
+<div class="eng-box"><div class="label">🔧 四大工程系统映射</div>
+<div class="system-grid">
+<div class="sys-card"><span class="sys-label sys-robot">🤖 机器人</span>IMU偏置估计=高斯MLE=Kalman滤波。视觉特征匹配=RANSAC(L1)+Bundle Adjustment(L2)。SLAM后端=稀疏最小二乘=MLE→大规模QP。</div>
+<div class="sys-card"><span class="sys-label sys-dl">🧠 深度学习</span>VLA动作token预测=交叉熵MLE。RL策略熵正则化=最大化策略熵。Language Model预训练=next token prediction=交叉熵MLE。</div>
+<div class="sys-card"><span class="sys-label sys-hpc">⚡ HPC</span>Roofline模型拟合=从benchmark估计带宽和峰值→MLE。延迟分布建模=高斯混合MLE→长尾用L1鲁棒。功耗模型=回归→L2。</div>
+<div class="sys-card"><span class="sys-label sys-arch">🏗 体系结构</span>缓存miss率=f(缓存大小,相联度)→MLE估计参数。分支预测准确率=f(表大小,历史长度)→MAP(加硬件约束先验)。</div>
+</div></div>
+
+<div class="num-box"><div class="label">🔢 数值例子：MLE从噪声到损失的完整演算</div><p style="font-size:.82rem;line-height:1.9;"><b>场景:</b> y=Ax+v, 其中v~N(0,σ²I)。x是未知参数(n=2), A是3×2设计矩阵, y是3个观测值。<br><b>似然函数:</b> p(y|x) = (2πσ²)^{-m/2} exp(-||Ax-y||²/(2σ²))。<br><b>对数似然:</b> log p = -m/2 log(2πσ²) - ||Ax-y||²/(2σ²)。<br><b>最大化:</b> 等价于最小化||Ax-y||²——常数项和σ不影响最优x!<br><b>数值:</b> A=[[1,0],[0,1],[1,1]], y=[2.1,1.9,3.8]。最优x=(2.03,1.83)。<br><b>如果不是高斯?</b> v~Laplace(0,b)→似然∝exp(-||Ax-y||₁/b)→最优min||Ax-y||₁(L1!)。v~Uniform[-a,a]→似然=常数(如果|(Ax-y)ᵢ|≤a)→L∞!<br><b>核心:</b> 噪声分布决定损失函数——不是"选"损失,是噪声"推导"损失。</p></div>
+
+<div style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:22px 26px;margin:16px 0;"><div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📖 多层公式解读 —— MLE: 为什么噪声分布决定损失函数</div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第1层：统计原理</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">给定参数x,观测到y的概率=似然p(y|x)。MLE找最大化这个概率的x。取log把乘积变求和→log p(y|x)。最大化log p等价于最小化-log p。所以损失函数=-log p(y|x)——由噪声分布p确定。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第2层：高斯→L2</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">p(y|x)∝exp(-||Ax-y||²/2σ²)。-log p = ||Ax-y||²/2σ² + 常数。最小化它→最小化||Ax-y||²——L2损失! σ²影响权重但不影响最优x。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第3层：工程意义</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">传感器噪声决定了你应该用什么损失函数。IMU加速度计噪声≈高斯→Kalman滤波(L2)。LiDAR镜面反射→拉普拉斯→L1鲁棒。GPS多径→混合→Huber。不匹配的损失=系统性偏差。</p></div></div>
+<h2 id="7_1">7.1 参数分布估计：MLE</h2><div class="sec-card">
+<div class="def"><div class="label">MLE问题 (Boyd 7.1.1)</div>
+maximize l(x) = log p_x(y)
+<p>等价于min -l(x)。若-log p_x(y)关于x凸则MLE是凸优化。</p></div>
+
+<div class="intuition"><div class="label">从噪声到损失--完整推导链</div>
+<table><tr><th>噪声假设</th><th>似然函数</th><th>负对数似然(损失)</th></tr>
+<tr><td>v_i ~ N(0,sigma^2)</td><td>~ exp(-||Ax-b||^2/(2 sigma^2))</td><td>||Ax-b||^2 (L2)</td></tr>
+<tr><td>v_i ~ Laplace(0,b)</td><td>~ exp(-||Ax-b||_1/b)</td><td>||Ax-b||_1 (L1)</td></tr>
+<tr><td>v_i ~ Uniform[-a,a]</td><td>~ indicator(|(Ax-b)_i| &lt;= a)</td><td>||Ax-b||_inf (Linf)</td></tr>
+<tr><td>y_i in {0,1}, logit</td><td>prod p_i^{y_i}(1-p_i)^{1-y_i}</td><td>交叉熵</td></tr></table>
+<p style="margin-top:8px;"><b>核心启示：</b>你的损失函数不是任意选的--它是你对噪声分布的假设的<b>必然推论</b>。要换损失函数--先换噪声假设。</p></div>
+
+<div class="example-box"><div class="label">例7.1 常见噪声分布的ML估计 (Boyd)</div><ul style="margin-left:20px;line-height:1.8"><li><b>高斯噪声：</b>y=Ax+v,v~N(0,sigma^2 I)--MLE=最小二乘 min||Ax-y||^2</li><li><b>拉普拉斯噪声：</b>v_i~Laplace(0,a)--MLE=L1逼近 min||Ax-y||_1</li><li><b>均匀噪声：</b>v_i~Uniform[-a,a]--MLE=Linf逼近 min||Ax-y||_inf</li><li><b>逻辑模型：</b>y_i in {0,1}--MLE=逻辑回归(凸)</li></ul></div>
+
+<div class="domain-box"><div class="label">传感器噪声建模实战流程：1)从真实机器人采集传感器原始数据+真值(Vicon提供) 2)计算残差分布 3)画直方图判断分布类型(钟形=Gaussian/尖峰+厚尾=Laplace) 4)MLE估计噪声参数 5)将参数写入Isaac Sim/Gazebo传感器插件 6)验证仿真vs真实残差匹配。</div></div>
+</div>
+
+<h2 id="7_2">7.2 最大后验概率估计 (MAP)</h2><div class="sec-card">
+<div class="def"><div class="label">MAP估计</div>
+maximize l(x) + log p(x)
+<p>等价于min -l(x)-log p(x)。第一项=数据拟合(MLE)，第二项-log p(x)=先验惩罚=正则化。</p></div>
+
+<div class="intuition"><div class="label">先验分布与正则化的一一对应</div>
+<table><tr><th>先验分布p(x)</th><th>-log p(x)</th><th>等价正则化</th></tr>
+<tr><td>x~N(0,sigma^2 I)</td><td>||x||^2/(2 sigma^2)</td><td>L2 (Ridge)</td></tr>
+<tr><td>x_i~Laplace(0,b)</td><td>||x||_1/b</td><td>L1 (LASSO)</td></tr>
+<tr><td>x~Uniform(C凸集)</td><td>0(x in C), inf(x not in C)</td><td>硬约束</td></tr></table>
+<p style="margin-top:8px;"><b>MAP统一了统计估计和正则化：</b>选先验=选正则化。Laplace先验--稀疏解；Gaussian先验--平滑解。</p></div>
+</div>
+
+<h2 id="7_3">7.3 最优检测器设计</h2><div class="sec-card">
+<div class="def"><div class="label">二元假设检验 (Boyd 7.3)</div>
+<p>设计检测器矩阵K最小化误报率或最大化检测概率。可写为SOCP/SDP。</p></div>
+<div class="domain-box"><div class="label">5G/6G MIMO检测器设计；医学影像异常检测；自动驾驶障碍物检测--全是此框架的应用。</div></div>
+</div>
+
+<h2 id="7_4">7.4 最优实验设计</h2><div class="sec-card">
+<div class="def"><div class="label">问题形式 (Boyd 7.4)</div>
+<p>从m个候选实验中分配概率lambda_i，最小化参数估计方差。D-optimal: -log det(最小置信椭球体积)；A-optimal: tr(W^{-1})(最小平均方差)；E-optimal: lambda_max(W^{-1})(最小最坏方向方差)。全是SDP可解。</p></div>
+<div class="domain-box"><div class="label">传感器布设优化(有限传感器如何放置--最小化定位误差)；药物临床试验设计(有限病人如何分组--最大化统计功效)；MRI扫描参数选择</div></div>
+</div>
+
+<!-- SUPPLEMENT START -->
+<div data-sup="ch7-usage" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">🧭 工作流 — 最大似然估计 (MLE) 从数据到结果</div>
+<p>MLE 的标准管线：</p>
+<ol style="line-height:1.9;margin-left:18px;">
+<li><b>建模</b>：假设数据 $y_i$ 服从带参数 $\theta$ 的分布 $p(y_i\mid\theta)$。</li>
+<li><b>写似然</b>：$L(\theta)=\prod_i p(y_i\mid\theta)$。</li>
+<li><b>取对数</b>：$\ell(\theta)=\sum_i\log p(y_i\mid\theta)$（乘积变求和，数值稳定）。</li>
+<li><b>转为凸优化</b>：$\max\ell \iff \min-\ell$。对指数族（高斯、泊松、伯努利等），$-\ell$ 是凸的，可全局求解。</li>
+<li><b>求解</b>：$\nabla(-\ell)=0$ 或梯度/牛顿法。高斯线性模型下 MLE 退化为最小二乘。</li>
+</ol>
+<p>例：逻辑回归的负对数似然是凸的，故有唯一全局最优——这正是它流行的原因。</p>
+</div>
+<div data-sup="miss-7-1" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📕 补充 (7.2) — 非参数分布估计</div>
+<p>不假设分布形式，直接估计离散概率 $p=(p_1,\dots,p_n)$，约束 $p\succeq0,\ \mathbf{1}^Tp=1$（概率单纯形，凸集）。</p>
+<p>在此凸约束下做极大似然或极大熵估计：$\max\ -\sum p_i\log p_i$ s.t. 已知矩约束 $\sum p_ix_i=\bar{x}$。负熵是凸的，故为凸问题。先验信息(均值、方差、分位数)都化为对 $p$ 的线性约束，估计在保证非负与归一的同时融合所有先验。</p>
+</div>
+<!-- SUPPLEMENT END -->
+
+</main>
+<script>let _=(id)=>document.getElementById(id);let _cx=(id)=>{let c=_(id);return c?c.getContext("2d"):null;};function toggleDark(){document.body.classList.toggle("dark");_("dark-toggle").textContent=document.body.classList.contains("dark")?"☀️":"🌙";}function _sz(c){return c.parentElement.clientWidth||700;}let _ls=document.querySelectorAll("#sidebar nav a");window.addEventListener("scroll",()=>{let cur="";document.querySelectorAll("h2[id]").forEach(el=>{if(el.getBoundingClientRect().top<=120)cur=el.id;});_ls.forEach(a=>a.classList.remove("active"));if(cur){let l=document.querySelector("#sidebar nav a[href=\x23"+cur+"]");if(l)l.classList.add("active");}});</script>
+
+<script>
+let _=id=>document.getElementById(id);let _cx=id=>{let c=_(id);return c?c.getContext("2d"):null;};
+let _p71=[[1.2,2.8],[2.3,2.1],[1.8,3.2],[4.1,1.8],[3.3,3.8],[4.8,2.2],[1.0,3.5],[3.0,1.2],[2.0,2.5],[4.5,3.0]];let _c71=[1,1,1,0,0,0,1,0,1,0],_t71=0;
+function draw71(){let c=_("cv71"),ctx=_cx("cv71");if(!ctx||!c)return;let W=c.width=c.parentElement.clientWidth||500,H=c.height;ctx.clearRect(0,0,W,H);let pad=35,sx=(W-2*pad)/4.5,sy=(H-2*pad)/4;function px(x){return pad+x*sx;}function py(y){return H-pad-y*sy;}ctx.strokeStyle="#8b5cf6";ctx.lineWidth=2;ctx.setLineDash([5,4]);ctx.beginPath();let f=true;for(let ix=0;ix<=W;ix+=2){let xv=(ix-pad)/sx,yv=(-2.5+1.6*xv)/0.4;if(yv>=0&&yv<=4){let iy=py(yv);if(f){ctx.moveTo(ix,iy);f=false;}else ctx.lineTo(ix,iy);}}ctx.stroke();ctx.setLineDash([]);ctx.fillStyle="#6d28d9";ctx.font="10px sans-serif";ctx.fillText("Decision boundary",W*0.5,H*0.08);for(let i=0;i<_p71.length;i++){let p=_p71[i],x=px(p[0]),y=py(p[1]);ctx.fillStyle=_c71[i]?"#ef4444":"#3b82f6";ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();ctx.strokeStyle="#333";ctx.lineWidth=1;ctx.stroke();}}
+function tog71(){_t71^=1;_p71=_t71?[[1,2],[1.5,2.5],[2,1.8],[2.5,3],[3.5,2],[4,3.5],[1.2,3.2],[3,1.5],[4.2,2.8],[2.8,2.2]]:[[1.2,2.8],[2.3,2.1],[1.8,3.2],[4.1,1.8],[3.3,3.8],[4.8,2.2],[1.0,3.5],[3.0,1.2],[2.0,2.5],[4.5,3.0]];_c71=_t71?[1,1,1,1,0,0,1,0,0,0]:[1,1,1,0,0,0,1,0,1,0];draw71();}
+setTimeout(draw71,300);
+</script>
+
+</body></html>

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>第八章 几何问题 | 交互式凸优化笔记</title>
+<script>MathJax={tex:{inlineMath:[["$","$"],["\\(","\\)"]],displayMath:[["$$","$$"],["\\[","\\]"]]}};</script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script><style>
+:root{--bg:#fdfbf7;--text:#2c2c2c;--sb-bg:#1a1a2e;--sb-text:#e0e0e0;--sb-hov:#16213e;--accent:#8b5cf6;--card-bg:#fff;--card-sh:0 2px 12px rgba(0,0,0,.06);--brd:#e8e8e8;--code-bg:#f5f5f5;--h1:#1a1a2e;--h2:#2d2d44;--h3:#4a4a6a;--def-bg:#f0f9ff;--intu-bg:#fefce8;--ex-bg:#f0fdf4;--ctr-bg:#fef2f2;--sum-bg:#f5f3ff}
+.dark{--bg:#0f0f1a;--text:#d4d4d8;--sb-bg:#050510;--sb-text:#b0b0c0;--card-bg:#1a1a2e;--card-sh:0 2px 12px rgba(0,0,0,.3);--brd:#2a2a3e;--code-bg:#1e1e2e;--h1:#e0e0f0;--h2:#c8c8da;--h3:#a8a8be;--def-bg:#0c1a2a;--intu-bg:#1a1a0a;--ex-bg:#0a1a10;--ctr-bg:#1a0a0a;--sum-bg:#120a1a}
+*{box-sizing:border-box;margin:0;padding:0}html{scroll-behavior:smooth}
+body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;transition:background .3s,color .3s}
+#sidebar{width:280px;min-width:280px;background:var(--sb-bg);color:var(--sb-text);position:fixed;top:0;left:0;height:100vh;overflow-y:auto;z-index:100;padding:24px 0}
+#sidebar h2{font-size:1rem;padding:0 20px 16px;color:#8b5cf6;font-weight:700}
+#sidebar nav a{display:block;padding:6px 20px;font-size:.82rem;color:var(--sb-text);text-decoration:none;border-left:3px solid transparent}
+#sidebar nav a:hover,#sidebar nav a.active{background:var(--sb-hov);color:#fff;border-left-color:#8b5cf6}
+#sidebar nav a.sub{font-size:.76rem;padding-left:36px}
+#dark-toggle{position:fixed;top:16px;right:24px;z-index:200;width:40px;height:40px;border-radius:50%;border:2px solid var(--brd);background:var(--card-bg);cursor:pointer;font-size:1.2rem;display:flex;align-items:center;justify-content:center;box-shadow:var(--card-sh)}
+#dark-toggle:hover{transform:scale(1.1)}
+#main{margin-left:280px;padding:40px 48px;max-width:1100px;width:100%}
+#main h1{font-size:2.2rem;color:var(--h1);margin-bottom:8px;font-weight:800}
+#main h2{font-size:1.5rem;color:var(--h2);margin:48px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--accent);font-weight:700}
+#main h3{font-size:1.15rem;color:var(--h3);margin:32px 0 12px;font-weight:600}
+#main h3::before{content:"§ ";color:var(--accent);font-size:.85rem}
+.sec-card{background:var(--card-bg);border:1px solid var(--brd);border-radius:10px;padding:24px 28px;margin:20px 0;box-shadow:var(--card-sh)}
+.def{background:var(--def-bg);border-left:4px solid #3b82f6;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.def .label,.intuition .label,.example-box .label,.counter .label,.summary .label{font-weight:700;font-size:.85rem;margin-bottom:6px}
+.def .label{color:#3b82f6}
+.intuition{background:var(--intu-bg);border-left:4px solid #eab308;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.intuition .label{color:#ca8a04}
+.example-box{background:var(--ex-bg);border-left:4px solid #22c55e;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.example-box .label{color:#16a34a}
+.counter{background:var(--ctr-bg);border-left:4px solid #ef4444;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.counter .label{color:#dc2626}
+.summary{background:var(--sum-bg);border-left:4px solid #8b5cf6;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.summary .label{color:#7c3aed}
+.concept-box{background:var(--def-bg);border-radius:8px;padding:14px}
+.concept-box .label{color:#2563eb}
+.domain-box{background:#dcfce7;border:1px solid #86efac;border-radius:10px;padding:16px 20px;margin:14px 0}
+.domain-box .label{font-weight:700;color:#166534;font-size:.85rem;margin-bottom:6px}
+.formula-block{overflow-x:auto;padding:8px 0}
+.usecase-box{background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0}
+.usecase-box .label{font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px}
+.num-box{background:#fefce8;border:1px solid #facc15;border-radius:10px;padding:16px 20px;margin:14px 0}
+.num-box .label{font-weight:700;color:#a16207;font-size:.85rem;margin-bottom:6px}
+.viz{position:relative;margin:20px 0;border:1px solid var(--brd);border-radius:10px;overflow:hidden;background:var(--card-bg);box-shadow:var(--card-sh)}
+.viz canvas{display:block;width:100%}
+.viz .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 16px;background:var(--code-bg);border-top:1px solid var(--brd)}
+.viz .controls label{font-size:.8rem;color:var(--h3);font-weight:500;white-space:nowrap}
+.viz .controls input[type=range]{flex:1;min-width:80px;accent-color:var(--accent)}
+.viz .controls .val{font-size:.78rem;font-weight:600;color:var(--accent);min-width:36px;text-align:center}
+.viz .controls button{font-size:.78rem;padding:4px 12px;border:1px solid var(--brd);border-radius:6px;background:var(--card-bg);color:var(--text);cursor:pointer}
+.viz .controls button:hover{background:var(--ac-lit);border-color:var(--accent)}
+table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid var(--brd);padding:8px 12px;text-align:left;font-size:.82rem}th{background:var(--code-bg);font-weight:700}
+@media(max-width:768px){#sidebar{transform:translateX(-280px)}#sidebar.open{transform:translateX(0)}#main{margin-left:0;padding:20px 16px}}
+</style>
+</head><body>
+<button id="dark-toggle" onclick="toggleDark()">🌙</button>
+<aside id="sidebar"><h2>📐 凸优化 · Ch8</h2><nav>
+<a href="#top">第八章 几何问题</a>
+<a href="#8_1" class="sub">8.1 投影</a><a href="#8_2" class="sub">8.2 极值椭球</a><a href="#8_3" class="sub">8.3 距离</a><a href="#8_4" class="sub">8.4 包含</a><a href="#exercises" class="sub">📝 习题</a>
+</nav></aside>
+<main id="main">
+<
+
+<h1 id="top">第八章 几何问题</h1>
+<div class="def"><div class="label">概述</div><p>本章讨论<b>几何问题 (Geometric Problems)</b>--投影、距离、极值椭球、包含检验。这些问题有清晰的几何直觉，且都可高效写为QP/SOCP/SDP。近端算法和机器人碰撞检测的核心数学基础。</p></div>
+
+
+<div class="num-box"><div class="label">🔢 数值例子：投影的三种计算方式对比</div><p style="font-size:.82rem;line-height:1.9;"><b>点:</b> x₀=(2.5, 1.5)。三种约束集的投影：<br><b>L2球(||x||₂≤1):</b> ||x₀||=2.915>1→缩放。proj=x₀/2.915=(0.857,0.514)。距离=1.915。<br><b>L1球(|x₁|+|x₂|≤1):</b> x₀在第一象限(都正),投影到直线x₁+x₂=1与坐标轴形成的线段上。proj≈(0.75,0.25)。<br><b>箱约束(|xᵢ|≤1):</b> x₁=2.5>1→截断为1; x₂=1.5>1→截断为1。proj=(1.0,1.0)。<br><b>PSD锥投影:</b> 对X₀做特征分解→截断负特征值→重构。这是唯一无需优化的投影(解析!)——近端算法中极高效。</p></div>
+
+<div style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:22px 26px;margin:16px 0;"><div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📖 多层公式解读 —— 投影算子 proj_C(x₀) 的三大性质</div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第1层：唯一性</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">若C是闭凸集且范数严格凸(L2是, L1不是),投影唯一。L2球上的投影唯一; L1球上的投影可能不唯一(目标点恰好在"棱"的方向上时,投影是一段线段)。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第2层：非扩张性</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">||proj_C(x)-proj_C(y)|| ≤ ||x-y||。投影不会放大距离。这是近端算法(proximal gradient, ADMM, Douglas-Rachford)收敛的核心保证——投影是"压缩映射"。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第3层：分离性</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">若x₀∉C, 则a=x₀-proj_C(x₀)是分离方向。超平面aᵀ(x-proj_C(x₀))=0分离x₀和C。在机器人碰撞检测中: 最近点对的方向=分离方向=可推出排斥力。</p></div></div>
+<h2 id="8_1">8.1 投影与距离</h2><div class="sec-card">
+<div class="def"><div class="label">到凸集的投影 (Boyd 8.1)</div>
+proj_C(x0) = argmin_{x in C} ||x0 - x||
+<p>距离：dist(x0,C) = ||x0 - proj_C(x0)||。若C凸，投影唯一（严格凸范数下）。</p></div>
+
+<div class="intuition"><div class="label">各凸集上的投影</div>
+<ul style="margin-left:20px;line-height:2.0;">
+<li><b>到多面体：</b>QP。min||x-x0||^2 s.t. Gx &lt;= h。OSQP等QP求解器专门处理此类。</li>
+<li><b>到PSD锥：</b>解析! 对X0做特征分解Q Lambda Q^T，截断负特征值为0。proj = Q max(Lambda,0) Q^T。</li>
+<li><b>到L1球：</b>软阈值算子。x_i* = sign(x0i) max(|x0i|-lambda,0)，其中lambda由sum|x_i*|=r确定。</li>
+</ul></div>
+
+<div class="example-box"><div class="label">例8.1 单位正方形上的投影 (Boyd)</div><p>C={x | ||x||_inf &lt;= 1}。投影=逐分量截断：proj_C(x)_i = max{-1, min{1, x_i}}。</p></div>
+<div class="example-box"><div class="label">例8.2 到秩k矩阵的投影 (Boyd)</div><p>对X0=U Sigma V^T做SVD，保留前k个最大奇异值。Eckart-Young定理。</p></div>
+
+<div class="num-box"><div class="label">投影数值例</div><p>x0=(1.5,0.8)投影到L2单位球：||x0||=1.7>1，缩放proj=x0/1.7=(0.882,0.471)。到箱约束|x_i|&lt;=1：(1.0,0.8)(截断超出的分量)。</p></div>
+
+<div class="domain-box"><div class="label">针孔相机=透视函数(保凸!)--3D点投影到2D像素是线性分式变换。LiDAR光束建模=从原点出发的射线(锥!)。深度相机三角测量=两条射线最近点--QP。</div></div>
+</div>
+
+
+<div class="num-box"><div class="label">🔢 数值例子：最小覆盖椭球的SDP求解</div><p style="font-size:.82rem;line-height:1.9;"><b>问题:</b> 三个2D点: (1,0), (-1,0), (0,1.5)。求包含它们的最小面积椭球。<br><b>SDP模型:</b> min log det A^{-1} s.t. ||A x_i + b||₂ ≤ 1。A是2×2矩阵(决定形状), b是2×1向量(决定中心)。<br><b>CVXPY求解:</b> 用cp.Variable((2,2))定义A, cp.log_det(A)目标, cp.SOC约束。MOSEK求解→A≈[[1.15,0],[0,0.77]], b≈(0,0.25)。<br><b>结果:</b> 椭球中心约(0,0.25),半轴长约(0.87,1.30)。面积=π*0.87*1.30≈3.55。<br><b>对比:</b> 覆盖同样三点最小圆(半径=1.25,面积≈4.91)。椭球面积小28%→更紧的覆盖。</p></div>
+<h2 id="8_2">8.2 极值体积椭球</h2><div class="sec-card">
+<div class="def"><div class="label">两种基本问题</div>
+<p><b>最小体积覆盖椭球(Lowner-John)：</b>包含给定集合的最小椭球--SDP：min log det A^{-1} s.t. ||A x_i + b||_2 &lt;= 1。</p>
+<p><b>最大体积内接椭球：</b>凸集内容纳的最大椭球--SDP：max log det A s.t. ||A a_i||_2 + a_i^T b &lt;= b_i。</p></div>
+<div class="domain-box"><div class="label">鲁棒控制的不变椭球；切割平面法；集合隶属辨识--Lowner-John椭球给出任意凸集的"最佳椭球近似"</div></div>
+</div>
+
+<h2 id="8_3">8.3 集合之间的欧氏距离</h2><div class="sec-card">
+<div class="def"><div class="label">问题形式</div>
+dist(C,D) = inf{||x-y||_2 | x in C, y in D}
+<p>C,D多面体--QP。dist(C,D)>0 等价于 C和D不相交--碰撞检测。</p></div>
+<div class="domain-box"><div class="label">机器人碰撞检测(GJK算法)=迭代计算两凸集最近点--QP子问题。若最近距离>0--安全；=0--碰撞。路径规划中障碍物回避=确保dist>安全距离。</div></div>
+</div>
+
+<h2 id="8_4">8.4 集合包含</h2><div class="sec-card">
+<div class="def"><div class="label">包含检验</div>
+<p><b>多面体包含：</b>P1 is subset of P2等价于P1的每个顶点都在P2内--Farkas引理验证。</p>
+<p><b>椭球包含：</b>E1 is subset of E2等价于LMI条件(S-procedure应用)。</p></div>
+<div class="domain-box"><div class="label">自动驾驶安全验证：车辆可达集(多面体P1)是安全区域(多面体P2)的子集；航空电子认证：系统状态空间是允许状态空间的子集</div></div>
+</div>
+
+<!-- SUPPLEMENT START -->
+<div data-sup="ch8-usage" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">🧭 用法 — 投影 (Projection) 在近端算法中的角色</div>
+<p>到凸集 $C$ 的投影 $\Pi_C(v)=\arg\min_{x\in C}\|x-v\|_2$ 本身是凸优化，且许多集合有闭式解：盒约束→逐坐标裁剪;球→缩放;半空间→沿法向回退。</p>
+<p><b>投影梯度法</b>：$x^{k+1}=\Pi_C\big(x^k-t\nabla f(x^k)\big)$——先走一步梯度，再投影回可行集。</p>
+<p><b>近端算子</b>是投影的推广：$\operatorname{prox}_{tg}(v)=\arg\min_x\big(g(x)+\tfrac{1}{2t}\|x-v\|^2\big)$。当 $g=\ell_1$ 时近端算子是软阈值（LASSO/ISTA 的核心步骤）；当 $g$ 是指示函数 $I_C$ 时近端算子恰好退化为投影 $\Pi_C$。</p>
+</div>
+<div data-sup="miss-8-1" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📕 补充 (8.3) — 欧氏距离与角度问题</div>
+<p>已知点对距离 $d_{ij}$，恢复坐标（多维标度 MDS）：Gram 矩阵 $G=X^TX\succeq0$ 满足 $d_{ij}^2=G_{ii}+G_{jj}-2G_{ij}$。求解 SDP：找 $G\succeq0$ 拟合给定距离/角度约束，再特征分解得坐标。</p>
+<p>角度约束 $\cos\theta_{ij}=\dfrac{x_i^Tx_j}{\|x_i\|\|x_j\|}$ 同样可写成对 $G$ 的线性约束。传感器网络定位、分子构象重建都用此框架——把几何反问题转化为半定规划。</p>
+</div>
+<!-- SUPPLEMENT END -->
+
+</main>
+<script>let _=(id)=>document.getElementById(id);let _cx=(id)=>{let c=_(id);return c?c.getContext("2d"):null;};function toggleDark(){document.body.classList.toggle("dark");_("dark-toggle").textContent=document.body.classList.contains("dark")?"☀️":"🌙";}function _sz(c){return c.parentElement.clientWidth||700;}let _ls=document.querySelectorAll("#sidebar nav a");window.addEventListener("scroll",()=>{let cur="";document.querySelectorAll("h2[id]").forEach(el=>{if(el.getBoundingClientRect().top<=120)cur=el.id;});_ls.forEach(a=>a.classList.remove("active"));if(cur){let l=document.querySelector("#sidebar nav a[href=\x23"+cur+"]");if(l)l.classList.add("active");}});</script>
+
+<script>
+let _=id=>document.getElementById(id);let _cx=id=>{let c=_(id);return c?c.getContext("2d"):null;};
+function draw81(){let c=_("cv81"),ctx=_cx("cv81");if(!ctx||!c)return;let W=c.width=c.parentElement.clientWidth||500,H=c.height;ctx.clearRect(0,0,W,H);let cx=W/2,cy=H/2;ctx.fillStyle="rgba(139,92,246,0.08)";ctx.strokeStyle="#8b5cf6";ctx.lineWidth=2;ctx.beginPath();ctx.arc(cx,cy,100,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.fillStyle="#1e40af";ctx.font="12px sans-serif";ctx.fillText("Feasible set (ball)",cx-45,cy-115);let x0x=cx+90,x0y=cy-50;ctx.fillStyle="#ef4444";ctx.beginPath();ctx.arc(x0x,x0y,6,0,Math.PI*2);ctx.fill();ctx.fillStyle="#991b1b";ctx.font="bold 11px sans-serif";ctx.fillText("x0",x0x+8,x0y-8);let dx=x0x-cx,dy=x0y-cy,nr=Math.sqrt(dx*dx+dy*dy)||1,sc=Math.min(1,100/nr);let ppx=cx+dx*sc,ppy=cy+dy*sc;ctx.strokeStyle="#22c55e";ctx.lineWidth=1.5;ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(x0x,x0y);ctx.lineTo(ppx,ppy);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle="#16a34a";ctx.beginPath();ctx.arc(ppx,ppy,6,0,Math.PI*2);ctx.fill();ctx.fillStyle="#15803d";ctx.font="bold 11px sans-serif";ctx.fillText("proj",ppx+8,ppy-5);}
+setTimeout(draw81,300);
+</script>
+</body></html>
