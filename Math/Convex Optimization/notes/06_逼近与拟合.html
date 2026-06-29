@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>第六章 逼近与拟合 | 交互式凸优化笔记</title>
+<script>MathJax={tex:{inlineMath:[["$","$"],["\\(","\\)"]],displayMath:[["$$","$$"],["\\[","\\]"]]}};</script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script><style>
+:root{--bg:#fdfbf7;--text:#2c2c2c;--sb-bg:#1a1a2e;--sb-text:#e0e0e0;--sb-hov:#16213e;--accent:#8b5cf6;--card-bg:#fff;--card-sh:0 2px 12px rgba(0,0,0,.06);--brd:#e8e8e8;--code-bg:#f5f5f5;--h1:#1a1a2e;--h2:#2d2d44;--h3:#4a4a6a;--def-bg:#f0f9ff;--intu-bg:#fefce8;--ex-bg:#f0fdf4;--ctr-bg:#fef2f2;--sum-bg:#f5f3ff}
+.dark{--bg:#0f0f1a;--text:#d4d4d8;--sb-bg:#050510;--sb-text:#b0b0c0;--card-bg:#1a1a2e;--card-sh:0 2px 12px rgba(0,0,0,.3);--brd:#2a2a3e;--code-bg:#1e1e2e;--h1:#e0e0f0;--h2:#c8c8da;--h3:#a8a8be;--def-bg:#0c1a2a;--intu-bg:#1a1a0a;--ex-bg:#0a1a10;--ctr-bg:#1a0a0a;--sum-bg:#120a1a}
+*{box-sizing:border-box;margin:0;padding:0}html{scroll-behavior:smooth}
+body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;transition:background .3s,color .3s}
+#sidebar{width:280px;min-width:280px;background:var(--sb-bg);color:var(--sb-text);position:fixed;top:0;left:0;height:100vh;overflow-y:auto;z-index:100;padding:24px 0}
+#sidebar h2{font-size:1rem;padding:0 20px 16px;color:#8b5cf6;font-weight:700}
+#sidebar nav a{display:block;padding:6px 20px;font-size:.82rem;color:var(--sb-text);text-decoration:none;border-left:3px solid transparent}
+#sidebar nav a:hover,#sidebar nav a.active{background:var(--sb-hov);color:#fff;border-left-color:#8b5cf6}
+#sidebar nav a.sub{font-size:.76rem;padding-left:36px}
+#dark-toggle{position:fixed;top:16px;right:24px;z-index:200;width:40px;height:40px;border-radius:50%;border:2px solid var(--brd);background:var(--card-bg);cursor:pointer;font-size:1.2rem;display:flex;align-items:center;justify-content:center;box-shadow:var(--card-sh)}
+#dark-toggle:hover{transform:scale(1.1)}
+#main{margin-left:280px;padding:40px 48px;max-width:1100px;width:100%}
+#main h1{font-size:2.2rem;color:var(--h1);margin-bottom:8px;font-weight:800}
+#main h2{font-size:1.5rem;color:var(--h2);margin:48px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--accent);font-weight:700}
+#main h3{font-size:1.15rem;color:var(--h3);margin:32px 0 12px;font-weight:600}
+#main h3::before{content:"§ ";color:var(--accent);font-size:.85rem}
+.sec-card{background:var(--card-bg);border:1px solid var(--brd);border-radius:10px;padding:24px 28px;margin:20px 0;box-shadow:var(--card-sh)}
+.def{background:var(--def-bg);border-left:4px solid #3b82f6;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.def .label,.intuition .label,.example-box .label,.counter .label,.summary .label{font-weight:700;font-size:.85rem;margin-bottom:6px}
+.def .label{color:#3b82f6}
+.intuition{background:var(--intu-bg);border-left:4px solid #eab308;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.intuition .label{color:#ca8a04}
+.example-box{background:var(--ex-bg);border-left:4px solid #22c55e;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.example-box .label{color:#16a34a}
+.counter{background:var(--ctr-bg);border-left:4px solid #ef4444;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.counter .label{color:#dc2626}
+.summary{background:var(--sum-bg);border-left:4px solid #8b5cf6;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.summary .label{color:#7c3aed}
+.concept-box{background:var(--def-bg);border-radius:8px;padding:14px}
+.concept-box .label{color:#2563eb}
+.domain-box{background:#dcfce7;border:1px solid #86efac;border-radius:10px;padding:16px 20px;margin:14px 0}
+.domain-box .label{font-weight:700;color:#166534;font-size:.85rem;margin-bottom:6px}
+.formula-block{overflow-x:auto;padding:8px 0}
+.usecase-box{background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0}
+.usecase-box .label{font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px}
+.num-box{background:#fefce8;border:1px solid #facc15;border-radius:10px;padding:16px 20px;margin:14px 0}
+.num-box .label{font-weight:700;color:#a16207;font-size:.85rem;margin-bottom:6px}
+.viz{position:relative;margin:20px 0;border:1px solid var(--brd);border-radius:10px;overflow:hidden;background:var(--card-bg);box-shadow:var(--card-sh)}
+.viz canvas{display:block;width:100%}
+.viz .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 16px;background:var(--code-bg);border-top:1px solid var(--brd)}
+.viz .controls label{font-size:.8rem;color:var(--h3);font-weight:500;white-space:nowrap}
+.viz .controls input[type=range]{flex:1;min-width:80px;accent-color:var(--accent)}
+.viz .controls .val{font-size:.78rem;font-weight:600;color:var(--accent);min-width:36px;text-align:center}
+.viz .controls button{font-size:.78rem;padding:4px 12px;border:1px solid var(--brd);border-radius:6px;background:var(--card-bg);color:var(--text);cursor:pointer}
+.viz .controls button:hover{background:var(--ac-lit);border-color:var(--accent)}
+table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid var(--brd);padding:8px 12px;text-align:left;font-size:.82rem}th{background:var(--code-bg);font-weight:700}
+@media(max-width:768px){#sidebar{transform:translateX(-280px)}#sidebar.open{transform:translateX(0)}#main{margin-left:0;padding:20px 16px}}
+</style>
+</head><body>
+<button id="dark-toggle" onclick="toggleDark()">🌙</button>
+<aside id="sidebar"><h2>📐 凸优化 · Ch6</h2><nav>
+<a href="#top">第六章 逼近与拟合</a>
+<a href="#6_1" class="sub">6.1 范数逼近</a><a href="#6_2" class="sub">6.2 最小范数</a><a href="#6_3" class="sub">6.3 正则化</a><a href="#6_4" class="sub">6.4 鲁棒逼近</a><a href="#concepts" class="sub">💡 概念</a><a href="#exercises" class="sub">📝 习题</a>
+</nav></aside>
+<main id="main">
+<
+
+<h1 id="top">第六章 逼近与拟合</h1>
+<div class="def"><div class="label">概述</div><p>本章讨论<b>逼近与拟合 (Approximation and Fitting)</b>。核心问题：用数学函数"逼近"给定数据。min ||Ax-b|| -- 选择不同范数=选择不同的逼近策略。从最小二乘到鲁棒逼近，从正则化到稀疏恢复。</p></div>
+
+<h2 id="concepts">关键概念速查</h2><div class="sec-card"><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+<div class="concept-box"><div class="label">残差 r = Ax-b = "预测误差"</div><p style="font-size:.8rem">第i个数据点的残差r_i=模型预测-真实值。L2:所有残差平方和最小; L1:绝对偏差和最小; Linf:最大残差最小</p></div>
+<div class="concept-box"><div class="label">惩罚函数 phi(u) = "误差代价"</div><p style="font-size:.8rem">phi(u)=u^2: L2(高斯噪声最优); phi(u)=|u|: L1(拉普拉斯最优); Huber:小u用L2,大u用L1</p></div>
+<div class="concept-box"><div class="label">正则化 = "奥卡姆剃刀"</div><p style="font-size:.8rem">min||Ax-b||+gamma*||x||。L2(Ridge)压缩所有系数; L1(LASSO)产生稀疏解; gamma交叉验证</p></div>
+<div class="concept-box"><div class="label">鲁棒逼近 = "防数据污染"</div><p style="font-size:.8rem">A或b不确定时用minimax或期望优化。Huber=M以下L2(精确)+M以上L1(鲁棒)</p></div>
+</div></div>
+
+
+<div class="eng-box"><div class="label">🔧 四大工程系统映射</div>
+<div class="system-grid">
+<div class="sys-card"><span class="sys-label sys-robot">🤖 机器人</span>SLAM回环检测: min||位姿约束残差||。L2用于高斯假设, L1用于鲁棒。传感器标定=L2最小化重投影误差。IMU标定=六位置法→L2+QR分解。</div>
+<div class="sys-card"><span class="sys-label sys-dl">🧠 深度学习</span>VLA多模态对齐: 图像-文本-动作嵌入匹配→加权L2。模型剪枝: L1正则→50%+权重变零。知识蒸馏: L2最小化teacher-student logit差异。</div>
+<div class="sys-card"><span class="sys-label sys-hpc">⚡ HPC</span>GPU kernel调优: 性能=min||实测-模型||(L2回归)。分布式聚合: AllReduce延迟=Linf逼近(保证最慢节点不拖后腿)。混合精度: 误差最小化=L2。</div>
+<div class="sys-card"><span class="sys-label sys-arch">🏗 体系结构</span>Cache性能建模: miss率=f(cache_size)→曲线拟合→L2。分支预测: 准确率=f(表大小)→L1鲁棒(冷启动异常值)。内存带宽瓶颈=Huber损失。</div>
+</div></div>
+
+<div class="num-box"><div class="label">🔢 数值例子：范数逼近的三类解对比</div><p style="font-size:.82rem;line-height:1.9;"><b>数据:</b> A=[[1,0],[0,1],[1,1]], b=[2.1, 1.9, 3.8]。三个方程,两个未知数(超定)。<br><b>L2解:</b> min||Ax-b||₂²。正规方程: AᵀAx=Aᵀb。[[2,1],[1,2]]x=[5.9,5.7]→x=(2.03,1.83)。残差:||r||₂=0.14。<br><b>L1解:</b> min||Ax-b||₁。可写为LP。CVXPY/GLPK求解→x≈(2.05,1.85)。残差:||r||₁=0.30。L1解更"硬"——第三个方程(1,1)对x₁+x₂≈3.8的偏离被容忍。<br><b>L∞解:</b> min max|rᵢ|。CVXPY→x≈(1.95,1.95)。每个残差:|r₁|=0.15,|r₂|=0.05,|r₃|=0.10,max=0.15。L∞让最大残差最小化。<br><b>结论:</b> 同一个数据,L2被第三个方程拉偏;L1更信任前两个方程;L∞在三个残差间"端水"。</p></div>
+<h2 id="6_1">6.1 范数逼近</h2><div class="sec-card">
+<div class="def"><div class="label">基本范数逼近问题 (Boyd 6.1.1)</div>
+minimize ||Ax - b||
+<p>A in R^{m x n}, b in R^m, ||.|| 是R^m上的任意范数。解称为Ax=b在范数||.||下的近似解。残差向量r=Ax-b。</p></div>
+
+<div class="intuition"><div class="label">三种范数的几何效果对比</div>
+<p><b>L2(最小二乘)：</b>对高斯噪声统计最优，解析解(A^T A)^{-1}A^T b。异常值会"拉偏"解--一个离群点就能大幅改变结果。</p>
+<p><b>L1(绝对值偏差)：</b>解=残差的中位数。异常值几乎不影响结果--最鲁棒的选择。但小误差区域的精度不如L2。</p>
+<p><b>Linf(Chebyshev)：</b>最小化最大残差--所有点的误差都不超过最优值--"公平"对待每个数据点。</p></div>
+
+<div class="def"><div class="label">惩罚函数逼近 (Boyd 6.1.2)</div>
+minimize sum_i phi((Ax-b)_i)
+<p>phi: R to R是惩罚函数，度量每个残差的"代价"。phi凸则问题凸。常见phi：</p>
+<ul style="margin-left:20px;line-height:2.0;">
+<li><b>二次：</b>phi(u)=u^2 -- L2逼近（解析解）</li>
+<li><b>绝对值：</b>phi(u)=|u| -- L1逼近（可写为LP）</li>
+<li><b>Huber：</b>phi(u)=u^2(|u| &lt;= M) + M(2|u|-M)(|u| > M) -- L2和L1的光滑混合</li>
+<li><b>死区(Deadzone)：</b>phi(u)=max{0,|u|-a} -- 小于a的误差不惩罚</li>
+</ul></div>
+
+<div class="example-box"><div class="label">例6.1 常见惩罚函数 (Boyd)</div><p>选择不同的phi=选择不同的"误差代价观"。工程中：传感器校准用L2(噪声高斯)；金融数据用Huber(有异常)；滤波器设计用Linf(均匀逼近)。</p></div>
+
+<div class="num-box"><div class="label">数值例子：三点常数逼近</div><p>b=(2.1,1.8,3.5)。L2解=均值2.467；L1解=中位数2.1（3.5这个异常值完全不影响!）；Linf解=中距2.65。三种方法给出三个不同的"最优常数"--体现了不同范数的不同"公平观"。</p></div>
+
+<div class="domain-box"><div class="label">传感器标定：相机内参标定=L2重投影误差最小化；IMU六位置标定=L2最小二乘+QR分解；力传感器耦合矩阵=Frobenius范数最小二乘。鲁棒标定用Huber处理异常测量。</div></div>
+</div>
+
+<h2 id="6_2">6.2 最小范数问题</h2><div class="sec-card">
+<div class="def"><div class="label">问题形式</div>
+minimize ||x|| subject to Ax = b
+<p>在所有满足Ax=b的向量中找范数最小的。信号重构的标准形式：约束Ax=b保证"一致性"，最小化||x||选出"最简"解。</p></div>
+<div class="intuition"><div class="label">各范数的解特征</div>
+<p><b>L2最小范数：</b>x=A^T(AA^T)^{-1}b（最小能量解），所有分量都不为零。</p>
+<p><b>L1最小范数：</b>解中很多分量为零--稀疏！这是<b>压缩感知</b>的核心--m远小于n时依然可恢复稀疏信号。</p>
+<p><b>Linf最小范数：</b>最小化绝对值最大的分量--"均衡"。</p></div>
+</div>
+
+
+<div class="interview-q"><div class="label" style="color:#dc2626">🎤 面试高频问题 & 工程落地陷阱</div><p style="margin:6px 0;"><b>Q: LASSO比Ridge好在哪？什么时候反过来？</b><br><b>A:</b> LASSO产生稀疏→自动特征选择→可解释性强→适合高维(p>>n)。Ridge保留所有特征→适合n>>p(每个特征都有用)→集成学习中Ridge更稳定。弹性网组合两者→最安全的选择。</p><p style="margin:6px 0;"><b>Q: 正则化参数gamma怎么选？</b><br><b>A:</b> 交叉验证(CV):把数据分K折,每折用不同gamma训练,在验证集评估。选验证误差最小的gamma。或者用Bayesian方法: gamma=噪声方差/先验方差。实践中常用10-fold CV+对数间隔搜索(0.001,0.01,0.1,1,10)。</p><p style="margin:6px 0;"><b>Q: 工程中为什么用L1+L2(弹性网)而不是纯L1？</b><br><b>A:</b> L1对高度相关的特征随机选一个(不稳定)。L2对相关特征权重平均分配(稳定)。弹性网兼具: L1的稀疏+L2的组效应→高度相关特征被一起选或一起排除。</p></div>
+
+<div class="num-box"><div class="label">🔢 数值例子：LASSO路径：γ从0到∞的完整演变</div><p style="font-size:.82rem;line-height:1.9;"><b>设置:</b> A=[[2,1],[1,3],[1,1]], b=[3,5,2]。n=2个特征,m=3个样本。<br><b>γ=0 (OLS):</b> x=[1.14,1.29], ||x||₁=2.43。<br><b>γ=0.5 (轻LASSO):</b> x=[0.98,1.12], ||x||₁=2.10。系数稍有缩小,都不为零。<br><b>γ=1.0 (中LASSO):</b> x=[0.62,0.95], ||x||₁=1.57。x₁缩小更多(因为它贡献小)。<br><b>γ=2.0 (重LASSO):</b> x=[0.00,0.71], ||x||₁=0.71。<b>x₁被压为零!</b>特征1被自动淘汰。<br><b>γ=5.0 (极重LASSO):</b> x=[0.00,0.00]。全部特征被清零→模型退化为预测常数0。<br><b>启示:</b> γ通过交叉验证选择——通常在验证误差最小的γ附近(本例约1.0-2.0之间)。</p></div>
+<h2 id="6_3">6.3 正则化逼近</h2><div class="sec-card">
+<div class="def"><div class="label">双准则与正则化 (Boyd 6.3)</div>
+minimize ||Ax-b|| + gamma * ||x||
+<p>第一项"拟合误差"(数据保真度)，第二项"正则化"(模型复杂度惩罚)。gamma>0是正则化参数--在拟合精度和模型简洁性之间权衡。</p></div>
+
+<div class="intuition"><div class="label">Ridge vs LASSO的本质区别</div>
+<p><b>Ridge(L2正则)：</b>gamma*||x||_2^2。解析解(A^T A+gamma I)^{-1}A^T b。所有系数被均匀缩小--无稀疏性--但数值稳定(A^T A+gamma I一定可逆)。</p>
+<p><b>LASSO(L1正则)：</b>gamma*||x||_1。无解析解，但KKT条件给出：当某特征与残差的相关性小于gamma时，对应系数被精确置零--自动特征选择--稀疏模型。</p>
+<p><b>弹性网：</b>alpha*||x||_1+(1-alpha)*||x||_2^2。兼具L1稀疏性和L2组效应。</p></div>
+
+<div class="num-box"><div class="label">LASSO的稀疏性实例</div><p>A=[[1,2],[3,1]],b=[3,4]。gamma=0: x=[1.0,1.0]。gamma=0.5(Ridge): x=[0.87,0.92](均缩小)。gamma=2(LASSO): x=[0.53,0](x2被压为0!)--LASSO自动"删除"了第二个特征。</p></div>
+
+<div class="domain-box"><div class="label">DL边缘部署：权重剪枝=LASSO思想--训练时加L1正则--推理时删除被压为0的连接--模型减小90%+--在边缘设备上实时运行。</div></div>
+</div>
+
+
+<div class="num-box"><div class="label">🔢 数值例子：Huber vs L2 vs L1：含异常值的鲁棒性</div><p style="font-size:.82rem;line-height:1.9;"><b>数据:</b> 10个正常点(生成自y=2x+1+ε,ε~N(0,0.1)) + 2个异常点(x=0,y=10和x=5,y=-5)。<br><b>真值:</b> 斜率=2,截距=1。<br><b>L2估计:</b> 斜率=0.47,截距=3.82。完全被两个异常点毁掉——异常值杠杆效应。<br><b>L1估计:</b> 斜率=1.93,截距=1.12。异常值几乎没影响——中位数性质。<br><b>Huber(M=1.345):</b> 斜率=1.98,截距=1.03。几乎完美——正常点用L2精度,异常点用L1鲁棒。<br><b>结论:</b> 不知道数据有没有异常→直接用Huber。确定无异常→L2最快(QR解析解)。确定有异常且数量少→L1。</p></div>
+<h2 id="6_4">6.4 鲁棒逼近</h2><div class="sec-card">
+<div class="def"><div class="label">鲁棒最小二乘 (Boyd 6.4)</div>
+<p>当矩阵A本身不确定时--A在某个集合中变化--鲁棒逼近最小化最坏情况残差：minimize sup_{A in A_set} ||Ax-b||。若A_set是椭球可写为SOCP；各行独立椭球可写为SDP。</p></div>
+<div class="example-box"><div class="label">例6.2 鲁棒回归 (Boyd)</div><p>42个数据点含若干异常值。L2回归被异常严重扭曲；L1和Huber正确识别主线。Huber(M=1)在大部分点上表现如L2(精确)，在异常点上表现如L1(鲁棒)。</p></div>
+<div class="domain-box"><div class="label">机器人传感器仿真中：激光雷达点云含镜面反射异常--Huber鲁棒；GPS多径干扰--鲁棒定位；IMU随机冲击--L1滤波。域随机化=最坏情况鲁棒优化的统计版本。</div></div>
+</div>
+
+<!-- SUPPLEMENT START -->
+<div data-sup="ch6-usage" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">🧭 怎么选 — L1 / L2 / Huber 决策流程</div>
+<p>逼近/拟合时残差惩罚的选择：</p>
+<ul style="line-height:1.9;margin-left:18px;">
+<li><b>数据干净、要平滑解</b> → $\ell_2$（最小二乘）：处处可微，闭式解 $x=(A^TA)^{-1}A^Tb$，但对离群点敏感（误差平方放大）。</li>
+<li><b>要稀疏解 / 抗离群点</b> → $\ell_1$：解倾向于让多数残差恰为 0（稀疏），对大误差只线性惩罚，鲁棒。代价：不可微，需 LP/次梯度。</li>
+<li><b>两者折中</b> → Huber：$|r|\le M$ 时用 $\tfrac12 r^2$（平滑），$|r|>M$ 时用 $M|r|-\tfrac12 M^2$（线性、抗离群）。既可微又鲁棒，$M$ 控制切换阈值。</li>
+</ul>
+<p>口诀：怕离群点用 $\ell_1$/Huber，要光滑可导用 $\ell_2$，想稀疏选 $\ell_1$。</p>
+</div>
+<div data-sup="miss-6-1" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📕 补充 (6.3.3) — 重构与平滑 (Reconstruction & Smoothing)</div>
+<p>信号重构：从含噪观测 $x_{\text{cor}}$ 恢复原信号 $x$，最小化 $\|x-x_{\text{cor}}\|_2^2+\gamma\,\phi(x)$。正则项 $\phi$ 决定平滑风格：</p>
+<ul style="line-height:1.9;margin-left:18px;">
+<li><b>二次平滑</b> $\phi=\sum(x_{i+1}-x_i)^2$：抑制噪声但抹平边缘。</li>
+<li><b>全变差 TV</b> $\phi=\sum|x_{i+1}-x_i|$：保留陡峭边缘(分段常数)，是图像去噪首选。</li>
+</ul>
+<p>$\gamma$ 调节"保真 vs 平滑"的权衡，扫描 $\gamma$ 得到 L-曲线以选最佳折中点。</p>
+</div>
+<section id="applications">
+<h2 id="applications_title">💡 本章知识的应用与前景</h2>
+
+<h3>你学到了什么</h3>
+<p>范数逼近和正则化是数据科学最核心的建模工具。L1 正则产生稀疏解（特征选择），L2 正则控制模型复杂度（防止过拟合），而 Huber 等鲁棒损失能抵抗离群点。这些技术构成了从经典统计学到现代深度学习的桥梁。</p>
+
+<h3>未来能做什么</h3>
+<ul>
+<li><strong>LLM 量化</strong>：GPTQ、AWQ 等权重量化算法本质上是逐层最小二乘拟合——在 L2 范数下找到与原始浮点权重最接近的整数表示。Hessian 加权的 OBS/OBC 框架直接来自本章</li>
+<li><strong>LLM 稀疏化</strong>：SparseGPT 使用 L1 正则化 + 逐层逼近实现 50% 稀疏度且精度不降</li>
+<li><strong>机器人传感器标定</strong>：多传感器外参标定（手眼标定）建模为最小二乘拟合 + 鲁棒损失（Huber），对抗标定板检测噪声</li>
+<li><strong>HPC 性能建模</strong>：用 L1-正则化线性模型拟合应用性能与硬件参数的函数关系，自动发现关键性能瓶颈特征</li>
+<li><strong>DL 知识蒸馏</strong>：Student-T 分布拟合本质上是 KL 散度最小化——一种广义的逼近问题</li>
+</ul>
+
+<h3>具体实践方向</h3>
+<table>
+<tr><th>领域</th><th>问题</th><th>逼近方法</th></tr>
+<tr><td>LLM 量化</td><td>权重 INT4 量化（GPTQ）</td><td>逐层 L2 最小二乘 + Hessian</td></tr>
+<tr><td>LLM 稀疏化</td><td>SparseGPT 剪枝</td><td>L1 正则 + OBS 框架</td></tr>
+<tr><td>机器人</td><td>多传感器外参标定</td><td>鲁棒最小二乘（Huber）</td></tr>
+<tr><td>HPC</td><td>性能瓶颈自动分析</td><td>L1 正则化线性拟合</td></tr>
+</table>
+</section>
+<!-- SUPPLEMENT END -->
+
+</main>
+<script>let _=(id)=>document.getElementById(id);let _cx=(id)=>{let c=_(id);return c?c.getContext("2d"):null;};function toggleDark(){document.body.classList.toggle("dark");_("dark-toggle").textContent=document.body.classList.contains("dark")?"☀️":"🌙";}function _sz(c){return c.parentElement.clientWidth||700;}let _ls=document.querySelectorAll("#sidebar nav a");window.addEventListener("scroll",()=>{let cur="";document.querySelectorAll("h2[id]").forEach(el=>{if(el.getBoundingClientRect().top<=120)cur=el.id;});_ls.forEach(a=>a.classList.remove("active"));if(cur){let l=document.querySelector("#sidebar nav a[href=\x23"+cur+"]");if(l)l.classList.add("active");}});</script>
+
+<script>
+let _=id=>document.getElementById(id);let _cx=id=>{let c=_(id);return c?c.getContext("2d"):null;};
+function draw61(){let c=_("cv61"),ctx=_cx("cv61");if(!ctx||!c)return;let W=c.width=c.parentElement.clientWidth||500,H=c.height;ctx.clearRect(0,0,W,H);let cx=W/2,cy=H/2,pV=parseInt(_("p61").value)/10,p=pV<1?0.5:(pV>=9.9?1/0:pV);_("pv61").textContent=p===1/0?"inf":p.toFixed(1);let r=90;function xy(a){let cs=Math.cos(a),sn=Math.sin(a),dx,dy;if(p===1/0){let s=r/Math.max(Math.abs(cs),Math.abs(sn));dx=s*cs;dy=s*sn;}else{let d=Math.pow(Math.abs(cs),p)+Math.pow(Math.abs(sn),p);let s=r/Math.pow(d||1,1/p);dx=s*cs;dy=s*sn;}return[dx,dy];}let cols={2:[59,130,246],1:[239,68,68]},names={2:"L2 (circle)",1:"L1 (diamond)"},flags={2:_("sh2_61"),1:_("sh1_61")};for(let tp of[2,1]){if(!flags[tp]||!flags[tp].checked)continue;ctx.fillStyle="rgba("+cols[tp].join(",")+",0.12)";ctx.strokeStyle="rgb("+cols[tp].join(",")+")";ctx.lineWidth=2;ctx.beginPath();for(let i=0;i<=360;i++){let[dx,dy]=xy(i/360*Math.PI*2);if(i==0)ctx.moveTo(cx+dx,cy-dy);else ctx.lineTo(cx+dx,cy-dy);}ctx.closePath();ctx.fill();ctx.stroke();ctx.fillStyle="rgb("+cols[tp].join(",")+")";ctx.font="11px sans-serif";ctx.fillText(names[tp],cx+r+5,cy-5);}if(_("shi_61")&&_("shi_61").checked){ctx.strokeStyle="#22c55e";ctx.lineWidth=2;ctx.strokeRect(cx-r,cy-r,2*r,2*r);ctx.fillStyle="#16a34a";ctx.font="11px sans-serif";ctx.fillText("Linf (square)",cx+r+5,cy-20);}}
+function draw63(){let c=_("cv63"),ctx=_cx("cv63");if(!ctx||!c)return;let W=c.width=c.parentElement.clientWidth||500,H=c.height;ctx.clearRect(0,0,W,H);let cx=W/2,cy=H/2,g=parseInt(_("g63").value)/100,tp=_("tp63").value;_("gv63").textContent=g.toFixed(2);for(let py=0;py<H;py+=4){for(let px=0;px<W;px+=4){let x1=(px-cx)/70,x2=(cy-py)/70,fv=x1*x1+x2*x2+(tp==="l2"?g*(x1*x1+x2*x2):g*(Math.abs(x1)+Math.abs(x2)));let a=Math.max(0,0.5-fv*0.3);if(a>0){ctx.fillStyle="rgba(139,92,246,"+a.toFixed(2)+")";ctx.fillRect(px,py,4,4);}}}ctx.fillStyle="#ef4444";ctx.beginPath();let ox=cx-(tp==="l2"?g*30:0),oy=cy-(tp==="l1"?Math.max(0,(1-g)*25):0);ctx.arc(ox,oy,6,0,Math.PI*2);ctx.fill();ctx.fillStyle="#991b1b";ctx.font="11px sans-serif";ctx.fillText(tp==="l2"?"L2 pulls to origin":"L1 zeros components",ox+10,oy-5);}
+setTimeout(function(){draw61();draw63();},300);
+</script>
+</body></html>

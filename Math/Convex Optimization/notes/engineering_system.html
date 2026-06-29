@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>凸优化工程系统 | Ch6-11 交互式深度实践</title>
+<script>MathJax={tex:{inlineMath:[["$","$"],["\\(","\\)"]],displayMath:[["$$","$$"],["\\[","\\]"]]}};</script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<style>
+:root{--bg:#f8fafc;--text:#1e293b;--sb-bg:#0f172a;--sb-text:#cbd5e1;--accent:#6366f1;--card-bg:#fff;--card-sh:0 1px 3px rgba(0,0,0,.06);--brd:#e2e8f0;--code-bg:#f1f5f9;--h1:#0f172a;--def-bg:#eff6ff;--intu-bg:#fefce8;--ex-bg:#f0fdf4;--sum-bg:#f5f3ff}
+.dark{--bg:#0f172a;--text:#e2e8f0;--sb-bg:#020617;--sb-text:#94a3b8;--card-bg:#1e293b;--brd:#334155;--code-bg:#1e293b;--h1:#f1f5f9;--def-bg:#0c1929;--intu-bg:#1a1a05;--ex-bg:#051a0a;--sum-bg:#0f051a}
+*{box-sizing:border-box;margin:0;padding:0}html{scroll-behavior:smooth}
+body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;transition:background .3s,color .3s}
+#sidebar{width:260px;min-width:260px;background:var(--sb-bg);color:var(--sb-text);position:fixed;top:0;left:0;height:100vh;overflow-y:auto;z-index:100;padding:18px 0}
+#sidebar h2{font-size:.9rem;padding:0 18px 12px;color:#818cf8;font-weight:700}
+#search-box{margin:0 14px 10px;padding:7px 10px;border-radius:6px;border:1px solid var(--brd);background:var(--card-bg);color:var(--text);width:calc(100% - 28px);font-size:.78rem}
+#sidebar nav a{display:block;padding:4px 18px;font-size:.76rem;color:var(--sb-text);text-decoration:none;border-left:3px solid transparent}
+#sidebar nav a:hover,#sidebar nav a.active{background:var(--sb-bg);color:#fff;border-left-color:#818cf8}
+#sidebar nav a.sub{font-size:.7rem;padding-left:32px}
+#toolbar{position:fixed;top:10px;right:18px;z-index:200;display:flex;gap:6px}
+#toolbar button{width:32px;height:32px;border-radius:6px;border:1px solid var(--brd);background:var(--card-bg);cursor:pointer;font-size:.9rem;display:flex;align-items:center;justify-content:center;box-shadow:var(--card-sh)}
+#main{margin-left:260px;padding:32px 40px;max-width:1100px;width:100%}
+#main h1{font-size:1.8rem;color:var(--h1);margin-bottom:4px;font-weight:800}
+#main h2{font-size:1.3rem;color:var(--h1);margin:36px 0 12px;padding-bottom:6px;border-bottom:2px solid var(--accent);font-weight:700}
+#main h3{font-size:1.05rem;color:var(--h1);margin:24px 0 8px;font-weight:600}
+.intro{font-size:.85rem;line-height:1.8;padding:14px 18px;background:var(--def-bg);border-radius:8px;border-left:4px solid var(--accent);margin-bottom:24px}
+.sec-card{background:var(--card-bg);border:1px solid var(--brd);border-radius:8px;padding:20px 24px;margin:16px 0;box-shadow:var(--card-sh)}
+.def{background:var(--def-bg);border-left:4px solid #3b82f6;padding:12px 16px;margin:8px 0;border-radius:0 6px 6px 0;font-size:.84rem;line-height:1.8}
+.def .label,.intuition .label,.example-box .label,.counter .label,.summary .label{font-weight:700;font-size:.78rem;margin-bottom:4px}
+.def .label{color:#2563eb}.intuition .label{color:#a16207}.example-box .label{color:#059669}.counter .label{color:#dc2626}.summary .label{color:#7c3aed}
+.intuition{background:var(--intu-bg);border-left:4px solid #eab308;padding:12px 16px;margin:8px 0;border-radius:0 6px 6px 0;font-size:.84rem;line-height:1.8}
+.example-box{background:var(--ex-bg);border-left:4px solid #22c55e;padding:12px 16px;margin:8px 0;border-radius:0 6px 6px 0;font-size:.84rem;line-height:1.8}
+.counter{background:#fef2f2;border-left:4px solid #ef4444;padding:12px 16px;margin:8px 0;border-radius:0 6px 6px 0;font-size:.84rem;line-height:1.8}
+.summary{background:var(--sum-bg);border-left:4px solid #8b5cf6;padding:12px 16px;margin:8px 0;border-radius:0 6px 6px 0;font-size:.84rem;line-height:1.8}
+.eng-box{background:#ecfdf5;border:1px solid #5eead4;border-radius:8px;padding:14px 18px;margin:12px 0;font-size:.82rem;line-height:1.8}
+.eng-box .label{font-weight:700;color:#0f766e;font-size:.78rem;margin-bottom:4px}
+.system-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0}
+.sys-card{background:var(--card-bg);border:1px solid var(--brd);border-radius:6px;padding:10px 12px;font-size:.76rem;line-height:1.6}
+.sys-label{font-weight:700;font-size:.72rem;margin-bottom:3px}
+.sys-robot{color:#dc2626}.sys-dl{color:#7c3aed}.sys-hpc{color:#0891b2}.sys-arch{color:#ca8a04}
+pre{background:var(--code-bg);padding:10px 14px;border-radius:6px;overflow-x:auto;font-size:.74rem;line-height:1.6;border:1px solid var(--brd);margin:6px 0}
+code{font-family:monospace;font-size:.85em}
+.interview-q{background:#fef2f2;border-left:4px solid #ef4444;padding:10px 14px;margin:8px 0;border-radius:0 6px 6px 0;font-size:.82rem;line-height:1.7}
+.interview-q .label{color:#dc2626}
+.viz{margin:12px 0;border:1px solid var(--brd);border-radius:8px;overflow:hidden;background:var(--card-bg)}
+.viz canvas{display:block;width:100%}
+.viz .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px;background:var(--code-bg);border-top:1px solid var(--brd);font-size:.72rem}
+.viz .controls input[type=range]{flex:1;min-width:50px;accent-color:var(--accent)}
+.viz .controls .val{font-weight:600;color:var(--accent);min-width:28px;text-align:center}
+.viz .controls button{font-size:.68rem;padding:2px 8px;border:1px solid var(--brd);border-radius:4px;background:var(--card-bg);cursor:pointer}
+table{width:100%;border-collapse:collapse;margin:8px 0;font-size:.78rem}
+th,td{border:1px solid var(--brd);padding:6px 9px;text-align:left}th{background:var(--code-bg);font-weight:700}
+@media(max-width:768px){#sidebar{transform:translateX(-260px)}#sidebar.open{transform:translateX(0)}#main{margin-left:0;padding:16px}}
+</style></head><body>
+<div id="toolbar"><button onclick="toggleDark()" title="dark" id="dm">🌙</button></div>
+<aside id="sidebar"><h2>⚡ 凸优化工程系统</h2>
+<input type="text" id="search-box" placeholder="Search..." oninput="search(this.value)">
+<nav id="toc"><a href="#ch6">Ch6 逼近与拟合</a><a href="#ch6_1" class="sub">6.1 范数逼近</a><a href="#ch6_2" class="sub">6.2 最小范数</a><a href="#ch6_3" class="sub">6.3 正则化</a><a href="#ch6_4" class="sub">6.4 鲁棒逼近</a>
+<a href="#ch7">Ch7 统计估计</a><a href="#ch7_1" class="sub">7.1 MLE</a><a href="#ch7_2" class="sub">7.2 MAP</a><a href="#ch7_3" class="sub">7.3 检测器</a>
+<a href="#ch8">Ch8 几何问题</a><a href="#ch8_1" class="sub">8.1 投影</a><a href="#ch8_2" class="sub">8.2 极值椭球</a><a href="#ch8_3" class="sub">8.3 距离分离</a>
+<a href="#ch9">Ch9 无约束最小化</a><a href="#ch9_1" class="sub">9.1 下降方法</a><a href="#ch9_2" class="sub">9.2 牛顿法</a>
+<a href="#ch10">Ch10 等式约束</a><a href="#ch10_1" class="sub">10.1 KKT系统</a><a href="#ch10_2" class="sub">10.2 消元法</a>
+<a href="#ch11">Ch11 内点法</a><a href="#ch11_1" class="sub">11.1 对数障碍</a><a href="#ch11_2" class="sub">11.2 中心路径</a></nav></aside>
+<main id="main">
+<h1>凸优化工程系统 — Ch6-11</h1>
+<div class="intro"><b>这不是教科书，这是工程实战系统。</b>每个概念映射到四大领域：🤖机器人 | 🧠深度学习 | ⚡HPC | 🏗体系结构。每节包含：数学定义→几何直觉→Canvas可视化→CVXPY代码→工程应用→面试问题。</div>
+
+<h2 id="ch6">第六章 逼近与拟合 — Approximation & Fitting</h2>
+
+<h3 id="ch6_1">6.1 范数逼近 — min||Ax-b||</h3>
+<div class="sec-card">
+<div class="def"><div class="label">数学定义</div>
+<p>$$\min_x \|Ax-b\|$$ A是数据矩阵(m×n)，b是观测值(m×1)，x是参数(n×1)。选择不同范数=选择不同逼近策略。<br>
+<b>L2:</b> ||r||_2 = sqrt(sum r_i^2) — 高斯噪声最优，解析解 x*=(A^TA)^{-1}A^Tb<br>
+<b>L1:</b> ||r||_1 = sum|r_i| — 拉普拉斯噪声最优，产生稀疏残差<br>
+<b>Linf:</b> ||r||_inf = max|r_i| — 最坏情况最优，Chebyshev逼近</p></div>
+
+<div class="intuition"><div class="label">几何直觉</div><p>L2想"平均照顾"每个点→被异常值拉偏。L1允许某些点完全对齐(零残差)→异常值几乎不影响。Linf保证每个点的偏差都不超过最优值→"公平对待"。</p></div>
+
+<div class="viz"><canvas id="cv61" height="260"></canvas>
+<div class="controls"><label>p</label><input type="range" id="p61" min="10" max="100" value="20" oninput="draw61()"><span class="val" id="pv61">2.0</span>
+<label>L1</label><input type="checkbox" id="sh1" checked onchange="draw61()"><label>L2</label><input type="checkbox" id="sh2" checked onchange="draw61()"><label>Linf</label><input type="checkbox" id="shi" checked onchange="draw61()"> Norm balls</div></div>
+
+<div class="example-box"><div class="label">CVXPY实现</div>
+<pre>import cvxpy as cp, numpy as np
+A = np.random.randn(100, 20); b = np.random.randn(100)
+x = cp.Variable(20)
+
+# L2 (QP)
+cp.Problem(cp.Minimize(cp.norm(A@x-b, 2))).solve()
+# L1 (LP) — robust to outliers
+cp.Problem(cp.Minimize(cp.norm(A@x-b, 1))).solve()
+# Linf (LP) — Chebyshev
+cp.Problem(cp.Minimize(cp.norm(A@x-b, 'inf'))).solve()</pre></div>
+
+<div class="eng-box"><div class="label">四大工程系统映射</div>
+<div class="system-grid">
+<div class="sys-card"><span class="sys-label sys-robot">🤖 机器人</span>SLAM回环检测：min||位姿约束残差||。L2用于视觉SLAM(高斯噪声)；L1用于鲁棒SLAM(错误回环)。传感器标定=L2最小化重投影误差。</div>
+<div class="sys-card"><span class="sys-label sys-dl">🧠 深度学习</span>VLA行为克隆loss=L2(连续动作)或交叉熵(离散)。L1正则用于模型剪枝→边缘部署。知识蒸馏=L2匹配教师-学生logits。</div>
+<div class="sys-card"><span class="sys-label sys-hpc">⚡ HPC</span>QR分解在GPU上用cuSOLVER。分布式ADMM分解L1问题。通信带宽约束=Linf逼近保证每节点不超上限。</div>
+<div class="sys-card"><span class="sys-label sys-arch">🏗 体系结构</span>Cache miss惩罚=Huber损失(小miss用L2精确，大miss用L1鲁棒)。GPU occupancy优化=min||配置-峰值||。</div></div></div>
+
+<div class="counter"><div class="label">工程中什么会出错</div><p><b>L2的陷阱：</b>一个离群点毁掉整个解。金融flash crash→L2回归全部偏移。<b>修复：</b>先用L1筛异常点，再用L2精修。或直接用Huber(M=1.345)。</p></div>
+
+<div class="interview-q"><div class="label">面试问题</div><p><b>Q:</b> 为什么L1产生稀疏解L2不？<b>A:</b> L1的次梯度在0处是区间[-1,1]→最优解可以精确为0。L2的梯度与|x|成正比→只能趋于0永不为0。几何上：L1球的尖角在坐标轴上→解落在轴上→稀疏。</p></div>
+
+<div class="summary"><div class="label">一句话总结</div><p><strong>选择范数=选择对误差的度量哲学。L2(均值/高斯)、L1(中位数/拉普拉斯)、Linf(中距/均匀)。CVXPY中一行切换。</strong></p></div>
+</div>
+
+<h3 id="ch6_2">6.2 最小范数 — min||x|| s.t. Ax=b</h3>
+<div class="sec-card">
+<div class="def"><div class="label">定义</div><p>min||x|| s.t. Ax=b。欠定系统(m<n)的标准处理。L2解: x*=A^T(AA^T)^{-1}b(伪逆)。L1解: Basis Pursuit—压缩感知核心。</p></div>
+<div class="example-box"><div class="label">CVXPY：压缩感知</div><pre>n,m=256,80; A=np.random.randn(m,n); x_true=np.zeros(n); x_true[np.random.choice(n,10)]=np.random.randn(10); b=A@x_true
+x_rec=cp.Variable(n); cp.Problem(cp.Minimize(cp.norm(x_rec,1)),[A@x_rec==b]).solve(solver=cp.ECOS)
+print(f"Error: {np.linalg.norm(x_rec.value-x_true):.4f}")  # 80测量恢复256维的10非零元!</pre></div>
+<div class="eng-box"><div class="label">工程映射</div><p>🤖 欠驱动机器人控制—在多个可行控制中选"最省力"的(min||u||)。<br>🧠 VLA模型压缩—保持输出精度下最小化权重L1范数→稀疏网络→边缘部署。<br>⚡ GPU内存分配—满足计算图依赖(Ax=b)下最小化峰值内存(min||mem||_inf)。</p></div>
+</div>
+
+<h3 id="ch6_3">6.3 正则化 — min||Ax-b||+gamma*||x||</h3>
+<div class="sec-card">
+<div class="def"><div class="label">定义</div><p>Ridge(L2): 解析解(A^TA+gamma*I)^{-1}A^Tb。LASSO(L1): 无解析解但产生稀疏—自动特征选择。Elastic Net: 组合两者。</p></div>
+<div class="example-box"><div class="label">CVXPY：弹性网</div><pre>loss=cp.sum_squares(A@x-b); reg=0.5*cp.norm(x,1)+0.5*0.1*cp.sum_squares(x)
+cp.Problem(cp.Minimize(loss+reg)).solve()</pre></div>
+<div class="eng-box"><div class="label">工程映射</div><p>🧠 DL VLA剪枝：训练时加L1正则→50-90%权重变零→推理时稀疏矩阵乘法→边缘GPU实时运行。<br>🤖 MPC：L1正则控制输入→稀疏控制(只在关键时刻动作)→节能。<br>🏗 编译器优化pass选择—满足正确性约束下最小化pass数量(L0→L1凸松弛)。</p></div>
+<div class="interview-q"><div class="label">面试</div><p><b>Q:</b> Ridge vs LASSO: 何时用哪个? <b>A:</b> n>>p: Ridge(特征都重要需防过拟合)。p>>n: LASSO(特征数超样本数，唯一选择)。需要可解释性: LASSO(自动选特征)。</p></div>
+</div>
+
+<h3 id="ch6_4">6.4 鲁棒逼近 — 当A不确定时</h3>
+<div class="sec-card">
+<div class="def"><div class="label">定义</div><p>min_x sup_{A in A_set} ||Ax-b||。A不确定→最小化最坏情况残差。域随机化的数学基础。Huber损失=小误差L2+大误差L1的平滑混合。</p></div>
+<div class="eng-box"><div class="label">工程映射</div><p>🤖 机器人Sim-to-Real：域随机化=分布鲁棒优化→在仿真中对物理参数随机采样→训练策略对真实世界鲁棒。<br>🧠 DL VLA：模型在仿真环境变化(光照/纹理/动力学)下训练→最坏情况鲁棒→部署时不因环境变化失败。</p></div>
+</div>
+
+<h2 id="ch7">第七章 统计估计 — Statistical Estimation</h2>
+
+<h3 id="ch7_1">7.1 MLE — 最大似然估计</h3>
+<div class="sec-card">
+<div class="def"><div class="label">核心原理</div><p>$$\hat{x}_{ML} = rg\max_x \log p_x(y)$$ <b>噪声分布→损失函数：</b>Gaussian→L2(||Ax-b||^2)；Laplace→L1(||Ax-b||_1)；Logistic→交叉熵。MLE告诉你损失函数该长什么样。</p></div>
+<div class="example-box"><div class="label">CVXPY：逻辑回归(VLA行为分类)</div><pre>X=np.random.randn(200,10); y=(X@np.array([1,0.5,-0.3,0,0,0.2,0,0,0,0])+0.1*np.random.randn(200)>0).astype(float)
+beta=cp.Variable(10); log_like=cp.sum(cp.multiply(y,X@beta)-cp.logistic(X@beta))
+cp.Problem(cp.Maximize(log_like)).solve()</pre></div>
+<div class="eng-box"><div class="label">工程映射</div><p>🤖 机器人SLAM：IMU偏置估计=高斯MLE=Kalman滤波。视觉特征匹配RANSAC(L1思想)+光束平差(L2精修)。<br>🧠 VLA：动作token预测=交叉熵MLE。探索策略熵正则化=最大化策略熵。<br>⚡ HPC：Roofline模型拟合=从benchmark估计memory bandwidth和peak flops。</p></div>
+<div class="interview-q"><div class="label">面试</div><p><b>Q:</b> 为什么MLE而不是直接最小二乘? <b>A:</b> MLE从第一性原理推导损失—告诉你损失函数"应该长什么样"。假设高斯→MLE=L2;假设拉普拉斯→MLE=L1。用L2只是习惯，用MLE是理解。</p></div>
+</div>
+
+<h3 id="ch7_2">7.2 MAP — 最大后验 = MLE + 先验</h3>
+<div class="sec-card">
+<div class="def"><div class="label">定义</div><p>$$\hat{x}_{MAP}=rg\max[\log p_x(y)+\log p(x)]$$ p(x)是先验—你看数据前对x的信念。-log p(x)就是正则化项! Laplace先验→L1正则; Gaussian先验→L2正则。</p></div>
+<div class="eng-box"><div class="label">工程映射</div><p>🤖 Kalman滤波=MAP特例：预测步=先验，更新步=似然。<br>🧠 BayesNN变分推断=ELBO最小化KL(q||p)→凸子问题。<br>🏗 分支预测器=MAP—历史跳转数据(似然)+静态分析先验(大部分分支不跳)。</p></div>
+</div>
+
+<h3 id="ch7_3">7.3 最优检测器设计</h3>
+<div class="sec-card">
+<div class="def"><div class="label">定义</div><p>设计检测器K最小化最坏情况误报率：min_K max_i ||K a_i||。可写为SOCP。</p></div>
+<div class="eng-box"><div class="label">工程映射</div><p>🤖 机器人异常检测：检测传感器故障(IMU饱和/LiDAR mirror reflection)。<br>🧠 VLA safety monitor：判断策略是否安全→最坏情况鲁棒检测器。<br>⚡ 5G/6G MIMO检测器设计—SOCP/SDP。</p></div>
+</div>
+
+<h2 id="ch8">第八章 几何问题 — Geometric Problems</h2>
+
+<h3 id="ch8_1">8.1 投影 — proj_C(x0)=argmin_{x in C}||x0-x||</h3>
+<div class="sec-card">
+<div class="def"><div class="label">定义</div><p>在凸集C中找离x0最近的点。若x0在C内→投影=x0。近端算法(Proximal Algorithms)基石。到PSD锥的投影=特征值截断(解析!)。到L1球=软阈值。</p></div>
+<div class="viz"><canvas id="cv81" height="240"></canvas><div class="controls"><span style="font-size:.7rem">x0(红)→最近点proj(绿)</span></div></div>
+<div class="example-box"><div class="label">CVXPY：到箱约束的投影</div><pre>x0=np.array([1.5,0.8]); x=cp.Variable(2)
+cp.Problem(cp.Minimize(cp.sum_squares(x-x0)),[cp.norm(x,'inf')<=1]).solve()
+# -> (1.0, 0.8): 1.5被截断到1</pre></div>
+<div class="eng-box"><div class="label">四大系统映射</div>
+<p>🤖 <b>MPC：</b>每步QP后投影回约束集(修正数值误差)。<br>🧠 <b>DL对抗训练：</b>PGD攻击=在Linf球内投影扰动→最大化loss。<br>⚡ <b>HPC：</b>GPU线程块配置投影到硬件限制(<=1024线程)。<br>🏗 <b>寄存器分配：</b>投影到可用寄存器数的多面体上。</p></div>
+</div>
+
+<h3 id="ch8_2">8.2 极值椭球</h3>
+<div class="sec-card">
+<div class="def"><div class="label">定义</div><p><b>最小覆盖(Lowner-John)：</b>包含给定点集的最小椭球→SDP。<b>最大内接：</b>凸集内容纳的最大椭球→SDP。鲁棒控制不变集的核心工具。</p></div>
+<div class="eng-box"><div class="label">应用</div><p>🤖 用最大内接椭球近似机器人安全区域→椭球内任何状态安全。最小覆盖椭球给出不确定性最紧描述。</p></div>
+</div>
+
+<h3 id="ch8_3">8.3 集合距离与分离</h3>
+<div class="sec-card">
+<div class="def"><div class="label">定义</div><p>dist(C,D)=inf{||x-y|| | x in C, y in D}。dist>0↔C,D不相交。GJK算法迭代计算凸集距离。</p></div>
+<div class="eng-box"><div class="label">应用</div><p>🤖 碰撞检测=GJK→QP子问题→每帧数千次。MuJoCo/Isaac Gym物理引擎核心。<br>🏗 Cache冲突检测=两数组访问模式是否映射到同一set→几何距离估算冲突概率。</p></div>
+</div>
+
+<h2 id="ch9">第九章 无约束最小化 — Unconstrained Minimization</h2>
+
+<h3 id="ch9_1">9.1 下降方法 — x_{k+1}=x_k+t_k*Delta_x_k</h3>
+<div class="sec-card">
+<div class="def"><div class="label">框架</div><p>Delta_x_k是搜索方向(grad_f^T*Delta_x<0)。回溯线搜索(Armijo)：从t=1反复折半直到下降够。alpha=0.3, beta=0.8是常用参数。</p></div>
+<div class="viz"><canvas id="cv93" height="280"></canvas>
+<div class="controls"><label>x0</label><input type="range" id="x093" min="-120" max="120" value="-90" oninput="draw93()"><span class="val" id="x0v93">-0.90</span>
+<select id="m93" onchange="draw93()"><option value="gd">GD</option><option value="nt">Newton</option></select><button onclick="anim93()">▶</button></div></div>
+<div class="eng-box"><div class="label">工程映射</div>
+<p>🤖 <b>IK：</b>每步=雅可比伪逆→关节更新。实时<1ms→最多3-5次迭代。<br>🧠 <b>DL：</b>SGD/Adam/AdamW。VLA训练用AdamW(解耦weight decay)。<br>⚡ <b>HPC：</b>Nesterov加速→O(1/k)→O(1/k^2)。cuDNN算法选择=梯度调优。<br>🏗 <b>编译优化：</b>pass排序=黑箱优化→贝叶斯优化(代理模型≈二阶信息)。</p></div>
+<div class="counter"><div class="label">GD vs Newton: 何时用什么?</div><p><b>GD：</b>n>10000—每次O(n)便宜，但需要数千步。峡谷地形走Z字—慢。<b>Newton：</b>n<5000—每次O(n^3)贵，但10-20步收敛。用曲率信息避免Z字。<b>实践：</b>先GD靠近，再切L-BFGS(拟牛顿，O(mn)存储)。</p></div>
+</div>
+
+<h3 id="ch9_2">9.2 牛顿法 — Delta_x = -H^{-1}*grad_f</h3>
+<div class="sec-card">
+<div class="def"><div class="label">算法</div><p><b>阻尼阶段</b>(lambda>eta)：线性收敛，需线搜索。<b>纯阶段</b>(lambda<=eta)：步长=1，<b>二次收敛</b>—||x_{k+1}-x*|| <= C||x_k-x*||^2。误差每次迭代平方缩小!</p></div>
+<div class="example-box"><div class="label">CVXPY幕后</div><pre># 求解器内部(KTT系统):
+# [[H, A^T], [A, 0]] * [dx; nu] = [-g; 0]
+# 稀疏Cholesky分解→牛顿步。典型LP:20-40次迭代,每次<1ms</pre></div>
+<div class="counter"><div class="label">牛顿法何时失败?</div><p><b>Hessian奇异/病态：</b>→加阻尼(H←H+lambda*I, Levenberg-Marquardt)。<b>远离最优：</b>二阶近似差→先GD再切Newton。<b>n>5000：</b>用L-BFGS(存m=10-20步梯度差)或共轭梯度。</p></div>
+</div>
+
+<h2 id="ch10">第十章 等式约束最小化</h2>
+
+<h3 id="ch10_1">10.1 KKT系统 — [[H,A^T],[A,0]]*[dx;nu]=[-g;0]</h3>
+<div class="sec-card">
+<div class="def"><div class="label">定义</div><p>min f(x) s.t. Ax=b的牛顿步。dx必须在A的零空间(A*dx=0)—保持在约束子空间内。nu是对偶变量("约束力")。</p></div>
+<div class="example-box"><div class="label">手写牛顿 vs CVXPY</div><pre># CVXPY (一行):
+x=cp.Variable(2); cp.Problem(cp.Minimize(cp.sum_squares(x)),[cp.sum(x)==1]).solve()
+# 手写Newton (n=2,p=1):
+x=np.array([0.5,0.5]); A=np.ones((1,2)); b=np.array([1.])
+for _ in range(3):
+    H=2*np.eye(2); g=2*x
+    KKT=np.block([[H,A.T],[A,np.zeros((1,1))]])
+    dx_nu=np.linalg.solve(KKT,np.concatenate([-g,[0.]]))
+    x+=dx_nu[:2]
+print(x) # -> [0.5, 0.5] 牛顿法一步收敛!</pre></div>
+<div class="eng-box"><div class="label">工程映射</div><p>🤖 <b>MPC：</b>每步QP的KKT系统。p(预测步)<<n(状态)→消元法加速。<br>🧠 <b>DL：</b>BatchNorm统计约束(均值=0,方差=1)=等式约束→反向传播隐式满足。<br>⚡ <b>HPC：</b>GPU稀疏KKT用cuSOLVER Cholesky→10-100x加速。通信约束=等式(发送=接收)。</p></div>
+</div>
+
+<h3 id="ch10_2">10.2 消元法 — p远小于n时的杀手锏</h3>
+<div class="sec-card">
+<div class="def"><div class="label">Schur补消元</div><p>消去dx: (A H^{-1} A^T)nu = -A H^{-1} g。先解p×p系统→回代dx。复杂度O(n^3/p)。p=1时加速~p^2倍!</p></div>
+<div class="eng-box"><div class="label">MPC加速</div><p>n=100状态,p=10预测步。直接KKT:O(110^3)。消元:O(100^3/10)=O(100k)→约1000倍加速! OSQP能在<1ms内求解MPC的QP。</p></div>
+</div>
+
+<h2 id="ch11">第十一章 内点法 — Interior-Point Methods</h2>
+
+<h3 id="ch11_1">11.1 对数障碍 — phi(x)=-sum log(-f_i(x))</h3>
+<div class="sec-card">
+<div class="def"><div class="label">障碍法核心</div><p>min t*f0(x)+phi(x) s.t. Ax=b。t增大→"软墙"变薄→逼近原问题。log barrier自和谐→牛顿法常数步收敛!</p></div>
+<div class="viz"><canvas id="cv113" height="260"></canvas>
+<div class="controls"><label>t</label><input type="range" id="t113" min="1" max="100" value="10" oninput="draw113()"><span class="val" id="tv113">0.10</span><button onclick="anim113()">▶</button> Central path</div></div>
+<div class="example-box"><div class="label">手写障碍法 vs CVXPY</div><pre># CVXPY:
+x=cp.Variable(); cp.Problem(cp.Minimize(x**2),[x>=1]).solve() # -> 1.0
+
+# 手写障碍法:
+x,t,mu=2.0,0.1,10.0
+for _ in range(8):
+    for _ in range(20): x-= (2*t*x-1/(x-1))/(2*t+1/(x-1)**2)
+    t*=mu
+print(f"x*={x:.6f}") # -> 1.000000</pre></div>
+<div class="eng-box"><div class="label">四大系统映射</div>
+<p>🤖 <b>安全RL：</b>障碍法=约束MDP安全探索。log barrier防策略进入危险状态。<br>🧠 <b>DL VLA：</b>DCO层=cvxpylayers将QP嵌入PyTorch(可微!)→端到端训练。<br>⚡ <b>HPC：</b>GPU内点法=MOSEK在A100上求解10000变量SDP秒级。cuSOLVER稀疏Cholesky核心。<br>🏗 <b>编译优化：</b>寄存器分配整数规划→SDP松弛(PSD锥)→内点法求解→投影回整数。</p></div>
+<div class="counter"><div class="label">内点法何时失败?</div><p>1.无严格可行点(Slater不满足)→可能无数值解。2.条件数>10^12→Hessian病态→需预处理。3.mu太大(t跳太多)→牛顿法需很多步→反而慢(mu=10-20最佳)。4.初始点不在内部→需Phase I方法先找可行点。</p></div>
+<div class="interview-q"><div class="label">面试问题汇总</div><p><b>Q:</b> 内点法vs单纯形法? <b>A:</b>内点法迭代~O(sqrt(n)log(1/eps))—随规模增长慢。单纯形法最坏指数。n>10^5时内点法更快。<br><b>Q:</b> Hessian不正定? <b>A:</b>加阻尼H←H+lambda*I;或切梯度下降。<br><b>Q:</b> 如何选求解器? <b>A:</b> LP→Gurobi; QP→OSQP; SOCP→ECOS/MOSEK; SDP→SDPT3/MOSEK; 无约束→L-BFGS(scipy)。</p></div>
+</div>
+
+<h3 id="ch11_2">11.2 中心路径 — {x*(t) | t>0} 光滑渐近线</h3>
+<div class="sec-card">
+<div class="def"><div class="label">性质</div><p>f0(x*(t))-p* <= m/t。每增大t一个因子mu≈10-20，精度提升一个数量级。从中心路径可提取对偶可行点：lambda_i*(t)=-1/(t*f_i(x*(t)))。</p></div>
+<div class="intuition"><div class="label">工程类比</div><p>机器人安全裕度切换—t小=离障碍远(保守)，t大=离障碍近(激进)。中心路径=从保守到激进的最优过渡。安全RL中"约束逐步收紧"对应t逐步增大。</p></div>
+<div class="summary"><div class="label">Ch11核心</div><p><strong>内点法=障碍法+中心路径+牛顿法。理解它=理解为什么cvxpy代码在几毫秒内求解数千变量问题。工业求解器(MOSEK/Gurobi)的核心引擎。</strong></p></div>
+</div>
+
+<section id="applications">
+<h2 id="applications_title">💡 本章知识的应用与前景</h2>
+
+<h3>你学到了什么</h3>
+<p>你亲手将第 6-11 章的理论串联了起来：从数据逼近、统计建模，到几何约束，再到无约束 / 等式约束 / 内点法求解。这不是纸上谈兵，而是可以在 Jupyter / Python 中直接运行的交互式实现。</p>
+
+<h3>未来能做什么</h3>
+<ul>
+<li><strong>LLM 推理系统</strong>：将你在本系统中学到的约束优化思维直接应用于 vLLM/SGLang 的调度策略设计——continuous batching、prefix caching、KV 驱逐策略的背后都是约束优化</li>
+<li><strong>LLM 训练系统</strong>：Megatron-LM 的流水线并行气泡率最小化 → 整数规划；ZeRO 的显存卸载策略 → 约束满足问题</li>
+<li><strong>机器人部署</strong>：将本系统的求解器思路（CVXPY → OSQP/SCS）迁移到 C++ 中实现嵌入式 MPC——真正跑在机器人上的实时控制器</li>
+<li><strong>HPC 编译栈</strong>：TVM/MLIR 的调度空间搜索 → 带整数约束的优化问题；本系统中的建模-求解分离范式是 Auto-scheduling 的基础</li>
+<li><strong>芯片 EDA</strong>：布局布线、时钟树综合、功耗优化的核心算法都是凸优化 + 分解技巧——这是 GPU/NPU 芯片设计的基础设施</li>
+</ul>
+
+<h3>下一步行动建议</h3>
+<table>
+<tr><th>如果你想做</th><th>下一步学什么</th><th>工具</th></tr>
+<tr><td>LLM 推理系统</td><td>整数规划 + 在线算法（vLLM scheduler 源码）</td><td>vLLM, SGLang</td></tr>
+<tr><td>机器人控制</td><td>非线性 MPC + 接触动力学（Drake, Pinocchio）</td><td>C++, OSQP, HPIPM</td></tr>
+<tr><td>HPC 编译</td><td>Polyhedral compilation + AutoTVM/Ansor 源码</td><td>TVM, MLIR</td></tr>
+<tr><td>GPU 算子开发</td><td>CUDA C++ + CUTLASS + Triton</td><td>NVIDIA Nsight, Triton DSL</td></tr>
+</table>
+</section>
+</main>
+<script>
+let _=id=>document.getElementById(id);let _cx=id=>{let c=_(id);return c?c.getContext('2d'):null;};function _sz(c){return c.parentElement.clientWidth||500;}
+function toggleDark(){let b=document.body;b.classList.toggle('dark');_('dm').textContent=b.classList.contains('dark')?'☀️':'🌙';}
+function search(q){document.querySelectorAll('#toc a').forEach(a=>{a.style.display=(!q||a.textContent.toLowerCase().includes(q.toLowerCase()))?'block':'none';});}
+let _ls=document.querySelectorAll('#sidebar nav a');window.addEventListener('scroll',()=>{let cur='';document.querySelectorAll('h2[id],h3[id]').forEach(el=>{if(el.getBoundingClientRect().top<=120)cur=el.id;});_ls.forEach(a=>a.classList.remove('active'));if(cur){let l=document.querySelector('#sidebar nav a[href="#'+cur+'"]');if(l)l.classList.add('active');}});
+
+function draw61(){let c=_('cv61'),ctx=_cx('cv61');if(!ctx||!c)return;let W=c.width=_sz(c),H=c.height;ctx.clearRect(0,0,W,H);let cx=W/2,cy=H/2,pV=parseInt(_('p61').value)/10,p=pV<1?0.5:(pV>=9.9?1/0:pV);_('pv61').textContent=p===1/0?'inf':p.toFixed(1);let r=80;function xy(a){let cs=Math.cos(a),sn=Math.sin(a),dx,dy;if(p===1/0){let s=r/Math.max(Math.abs(cs),Math.abs(sn));dx=s*cs;dy=s*sn;}else{let d=Math.pow(Math.abs(cs),p)+Math.pow(Math.abs(sn),p);let s=r/Math.pow(d||1,1/p);dx=s*cs;dy=s*sn;}return[dx,dy];}let cols={2:[59,130,246],1:[239,68,68]},names={2:'L2',1:'L1'},flags={2:_('sh2'),1:_('sh1')};for(let tp of[2,1]){if(!flags[tp]||!flags[tp].checked)continue;ctx.fillStyle='rgba('+cols[tp].join(',')+',0.1)';ctx.strokeStyle='rgb('+cols[tp].join(',')+')';ctx.lineWidth=2;ctx.beginPath();for(let i=0;i<=360;i++){let[dx,dy]=xy(i/360*Math.PI*2);if(i==0)ctx.moveTo(cx+dx,cy-dy);else ctx.lineTo(cx+dx,cy-dy);}ctx.closePath();ctx.fill();ctx.stroke();ctx.fillStyle='rgb('+cols[tp].join(',')+')';ctx.font='10px sans-serif';ctx.fillText(names[tp],cx+r+3,cy-3);}if(_('shi')&&_('shi').checked){ctx.strokeStyle='#22c55e';ctx.lineWidth=2;ctx.strokeRect(cx-r,cy-r,2*r,2*r);ctx.fillStyle='#16a34a';ctx.font='10px sans-serif';ctx.fillText('Linf',cx+r+3,cy-15);}}
+setTimeout(draw61,200);
+
+function draw81(){let c=_('cv81'),ctx=_cx('cv81');if(!ctx||!c)return;let W=c.width=_sz(c),H=c.height;ctx.clearRect(0,0,W,H);let cx=W/2,cy=H/2;ctx.fillStyle='rgba(139,92,246,0.06)';ctx.strokeStyle='#8b5cf6';ctx.lineWidth=2;ctx.beginPath();ctx.arc(cx,cy,90,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.fillText('feasible',cx-20,cy-100);let x0x=cx+85,x0y=cy-45;ctx.fillStyle='#ef4444';ctx.beginPath();ctx.arc(x0x,x0y,5,0,Math.PI*2);ctx.fill();ctx.fillText('x0',x0x+6,x0y-6);let dx=x0x-cx,dy=x0y-cy,nr=Math.sqrt(dx*dx+dy*dy)||1,sc=Math.min(1,90/nr);let ppx=cx+dx*sc,ppy=cy+dy*sc;ctx.strokeStyle='#22c55e';ctx.lineWidth=1.5;ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(x0x,x0y);ctx.lineTo(ppx,ppy);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='#16a34a';ctx.beginPath();ctx.arc(ppx,ppy,5,0,Math.PI*2);ctx.fill();ctx.fillText('proj',ppx+6,ppy-4);}
+setTimeout(draw81,200);
+
+function draw93(){let c=_('cv93'),ctx=_cx('cv93');if(!ctx||!c)return;let W=c.width=_sz(c),H=c.height;ctx.clearRect(0,0,W,H);let pad=30,cx=W/2,cy=H-45,sx=(W-2*pad)/4,sy=(H-2*pad)/9;function px(x){return cx+x*sx;}function py(y){return cy-y*sy;}ctx.strokeStyle='#2563eb';ctx.lineWidth=2;ctx.beginPath();let f=true;for(let ix=pad;ix<=W-pad;ix+=2){let x=(ix-cx)/sx,y=0.5*x*x,iy=py(y);if(iy>pad&&iy<H-pad){if(f){ctx.moveTo(ix,iy);f=false;}else ctx.lineTo(ix,iy);}}ctx.stroke();let x0=parseInt(_('x093').value)/100;_('x0v93').textContent=x0.toFixed(2);let m=_('m93').value,x=x0,pts=[{x:x,y:0.5*x*x}];if(m==='gd'){for(let i=0;i<12;i++){x-=0.22*x;pts.push({x:x,y:0.5*x*x});if(Math.abs(x)<0.015)break;}}else{pts.push({x:0,y:0});}for(let i=0;i<pts.length-1;i++){let p1=pts[i],p2=pts[i+1];ctx.strokeStyle=i===0?'#ef4444':'#eab308';ctx.lineWidth=i===0?2:1;ctx.beginPath();ctx.moveTo(px(p1.x),py(p1.y));ctx.lineTo(px(p2.x),py(p2.y));ctx.stroke();ctx.fillStyle=i===0?'#ef4444':'#eab308';ctx.beginPath();ctx.arc(px(p1.x),py(p1.y),3,0,Math.PI*2);ctx.fill();}let lst=pts[pts.length-1];ctx.fillStyle='#22c55e';ctx.beginPath();ctx.arc(px(lst.x),py(lst.y),5,0,Math.PI*2);ctx.fill();ctx.fillText(m==='gd'?'GD:many steps':'Newton:1step!',W*.25,H*.08);}
+let a93=null;function anim93(){if(a93){clearInterval(a93);a93=null;return;}a93=setInterval(()=>{let v=parseInt(_('x093').value)+3;if(v>100)v=-100;_('x093').value=v;draw93();},60);}
+setTimeout(draw93,200);
+
+function draw113(){let c=_('cv113'),ctx=_cx('cv113');if(!ctx||!c)return;let W=c.width=_sz(c),H=c.height;ctx.clearRect(0,0,W,H);let pad=30,tRaw=parseInt(_('t113').value)/100,t=tRaw===0?0.01:tRaw;_('tv113').textContent=t.toFixed(2);let sx=(W-2*pad)/3.5,sy=(H-2*pad)/12;function px(x){return pad+(x-0.5)*sx;}function py(y){return H-pad-y*sy;}ctx.strokeStyle='#2563eb';ctx.lineWidth=2;ctx.beginPath();let f=true;for(let ix=pad;ix<=W-pad;ix+=2){let x=(ix-pad)/sx+0.5,y=x*x,iy=py(y);if(iy>pad&&iy<H-pad){if(f){ctx.moveTo(ix,iy);f=false;}else ctx.lineTo(ix,iy);}}ctx.stroke();ctx.fillStyle='rgba(139,92,246,0.06)';ctx.fillRect(px(1),pad,W-px(1)-3,H-2*pad);ctx.strokeStyle='#ef4444';ctx.lineWidth=2;ctx.setLineDash([5,5]);ctx.beginPath();ctx.moveTo(px(1),pad);ctx.lineTo(px(1),H-pad);ctx.stroke();ctx.setLineDash([]);ctx.fillText('x>=1',px(1)+4,pad+10);let xs=0.5+Math.sqrt(0.25+1/(2*t));ctx.fillStyle='#22c55e';ctx.beginPath();ctx.arc(px(xs),py(xs*xs),6,0,Math.PI*2);ctx.fill();ctx.fillText('x*('+t.toFixed(2)+')='+xs.toFixed(3),px(xs)+8,py(xs*xs)-6);}
+let a113=null;function anim113(){if(a113){clearInterval(a113);a113=null;return;}a113=setInterval(()=>{let v=parseInt(_('t113').value)+2;if(v>100)v=1;_('t113').value=v;draw113();},70);}
+setTimeout(draw113,200);
+</script></body></html>

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>30 天学习计划 | 交互式凸优化笔记</title>
+<style>
+:root{--bg:#fdfbf7;--text:#2c2c2c;--sb-bg:#1a1a2e;--sb-text:#e0e0e0;--sb-hov:#16213e;--accent:#8b5cf6;--card-bg:#fff;--card-sh:0 2px 12px rgba(0,0,0,.06);--brd:#e8e8e8;--code-bg:#f5f5f5;--h1:#1a1a2e;--h2:#2d2d44}
+.dark{--bg:#0f0f1a;--text:#d4d4d8;--sb-bg:#050510;--sb-text:#b0b0c0;--card-bg:#1a1a2e;--card-sh:0 2px 12px rgba(0,0,0,.3);--brd:#2a2a3e;--code-bg:#1e1e2e;--h1:#e0e0f0;--h2:#c8c8da}
+*{box-sizing:border-box;margin:0;padding:0}html{scroll-behavior:smooth}
+body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;transition:background .3s,color .3s}
+#sidebar{width:260px;min-width:260px;background:var(--sb-bg);color:var(--sb-text);position:fixed;top:0;left:0;height:100vh;overflow-y:auto;z-index:100;padding:24px 0}
+#sidebar h2{font-size:1rem;padding:0 20px 16px;color:#8b5cf6;font-weight:700}
+#sidebar nav a{display:block;padding:6px 20px;font-size:.82rem;color:var(--sb-text);text-decoration:none;border-left:3px solid transparent}
+#sidebar nav a:hover,#sidebar nav a.active{background:var(--sb-hov);color:#fff;border-left-color:#8b5cf6}
+#sidebar nav a.sub{font-size:.76rem;padding-left:36px}
+#dark-toggle{position:fixed;top:16px;right:24px;z-index:200;width:40px;height:40px;border-radius:50%;border:2px solid var(--brd);background:var(--card-bg);cursor:pointer;font-size:1.2rem;display:flex;align-items:center;justify-content:center;box-shadow:var(--card-sh)}
+#dark-toggle:hover{transform:scale(1.1)}
+#main{margin-left:260px;padding:40px 48px;max-width:1100px;width:100%}
+#main h1{font-size:2.2rem;color:var(--h1);margin-bottom:8px;font-weight:800}
+#main h2{font-size:1.5rem;color:var(--h2);margin:48px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--accent);font-weight:700}
+.sec-card{background:var(--card-bg);border:1px solid var(--brd);border-radius:10px;padding:24px 28px;margin:20px 0;box-shadow:var(--card-sh)}
+.intuition{background:#fefce8;border-left:4px solid #eab308;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.intuition .label{font-weight:700;font-size:.85rem;margin-bottom:6px;color:#ca8a04}
+table{border-collapse:collapse;width:100%;margin:12px 0}
+th,td{border:1px solid var(--brd);padding:10px 14px;text-align:left;font-size:.85rem}
+th{background:var(--code-bg);font-weight:700}
+.week-badge{display:inline-block;padding:4px 14px;border-radius:20px;font-size:.82rem;font-weight:700;margin-bottom:12px}
+.w1{background:#ede9fe;color:#6d28d9}.w2{background:#dbeafe;color:#1d4ed8}.w3{background:#d1fae5;color:#047857}.w4{background:#fef3c7;color:#b45309}.w5{background:#fce7f3;color:#be185d}
+.day-row{display:grid;grid-template-columns:50px 1fr 50px;gap:12px;align-items:center;padding:8px 14px;border-radius:6px;margin:4px 0;font-size:.85rem}
+.day-row:hover{background:var(--code-bg)}
+.day-num{font-weight:800;font-size:1.1rem;color:var(--accent);text-align:center}
+.day-time{text-align:right;font-weight:600}
+.rest{opacity:.5;font-style:italic}
+.progress-bar{height:6px;border-radius:3px;background:var(--brd);margin:16px 0;overflow:hidden}
+.progress-fill{height:100%;border-radius:3px;transition:width .5s}
+.tip-list{counter-reset:tip;margin-left:0}
+.tip-list li{counter-increment:tip;list-style:none;padding:10px 14px;margin:6px 0;border-radius:6px;background:var(--code-bg);font-size:.85rem;line-height:1.7}
+.tip-list li::before{content:"💡 " counter(tip) ". ";font-weight:700}
+@media(max-width:768px){#sidebar{display:none}#main{margin-left:0;padding:20px 16px}}
+</style></head><body>
+<button id="dark-toggle" onclick="toggleDark()">🌙</button>
+<aside id="sidebar"><h2>📐 学习计划</h2><nav>
+<a href="#overview">总览</a>
+<a href="#week1" class="sub">第 1 周：基础理论</a>
+<a href="#week2" class="sub">第 2 周：核心优化</a>
+<a href="#week3" class="sub">第 3 周：应用与算法</a>
+<a href="#week4" class="sub">第 4 周：内点法与实践</a>
+<a href="#week5" class="sub">第 5 周：可微性（扩展）</a>
+<a href="#tips">学习建议</a>
+</nav></aside>
+<main id="main">
+<h1 id="top">📅 凸优化 35 天学习计划（每天 1-2 小时）</h1>
+<div class="chapter-desc" style="font-size:.95rem;line-height:1.8;color:var(--text);opacity:.85;">
+覆盖 12 章正文 + 3 个附录 + 1 个交互系统，按「理论 → 核心 → 应用 → 算法 → 可微」五段进阶。每 7 天留有 1 天弹性休息日。
+</div>
+
+<h2 id="overview">📊 五周概览</h2>
+<div class="sec-card">
+<table>
+<tr><th>周次</th><th>章节</th><th>重点</th><th>核心技能</th></tr>
+<tr><td><span class="week-badge w1">第 1 周</span></td><td>Ch1-3</td><td>引言 → 凸集（4天）→ 凸函数（2天）</td><td>判断凸性、识别凸集、构造保凸变换</td></tr>
+<tr><td><span class="week-badge w2">第 2 周</span></td><td>Ch4-6</td><td>优化问题 → 对偶 → 逼近与拟合</td><td>建模为 LP/QP/SDP、写对偶问题、正则化设计</td></tr>
+<tr><td><span class="week-badge w3">第 3 周</span></td><td>Ch7-10</td><td>统计估计 → 几何 → 无约束/等式约束</td><td>MLE/MAP、梯度下降/Newton 法、KKT 求解</td></tr>
+<tr><td><span class="week-badge w4">第 4 周</span></td><td>Ch11 + 附录 + 实践</td><td>内点法 → 数学补充 → 交互实践</td><td>障碍法、原对偶内点法、数值线性代数</td></tr>
+<tr><td><span class="week-badge w5">第 5 周</span></td><td>Ch12 可微性</td><td>AD 原理 → 可微编程 → 可微仿真</td><td>反向传播实现、可微物理引擎、DCO 层</td></tr>
+</table>
+<div class="progress-bar"><div class="progress-fill" style="width:100%;background:linear-gradient(90deg,#8b5cf6,#3b82f6,#22c55e,#eab308,#ec4899)"></div></div>
+</div>
+
+
+<h2 id="week1"><span class="week-badge w1">第 1 周</span> 基础理论</h2>
+<div class="sec-card">
+<div class="day-row"><div class="day-num">1</div><div><b>01_引言</b> — 数学优化全貌、凸优化的独特地位</div><div class="day-time">1h</div></div>
+<div class="day-row"><div class="day-num">2</div><div><b>02_凸集</b> — 凸集定义、常见凸集（超平面、半空间、范数球/锥）</div><div class="day-time">2h</div></div>
+<div class="day-row"><div class="day-num">3</div><div><b>02_凸集</b> — 保凸运算（交、仿射、透视、线性分式）</div><div class="day-time">2h</div></div>
+<div class="day-row"><div class="day-num">4</div><div><b>02_凸集</b> — 广义不等式、对偶锥、分离超平面定理</div><div class="day-time">2h</div></div>
+<div class="day-row"><div class="day-num">5</div><div><b>02_凸集 收尾 + 03_凸函数</b> — 凸函数定义、一阶/二阶条件</div><div class="day-time">2h</div></div>
+<div class="day-row"><div class="day-num">6</div><div><b>03_凸函数</b> — 常见凸函数、保凸运算、共轭函数</div><div class="day-time">2h</div></div>
+<div class="day-row rest"><div class="day-num">7</div><div>弹性休息 / 补进度 / 回顾「章末应用」板块</div><div class="day-time">—</div></div>
+</div>
+
+
+<h2 id="week2"><span class="week-badge w2">第 2 周</span> 核心优化问题</h2>
+<div class="sec-card">
+<div class="day-row"><div class="day-num">8</div><div><b>04_凸优化问题</b> — 标准形式、LP、QP、QCQP、SOCP</div><div class="day-time">2h</div></div>
+<div class="day-row"><div class="day-num">9</div><div><b>04_凸优化问题</b> — GP（几何规划）、SDP（半定规划）</div><div class="day-time">2h</div></div>
+<div class="day-row"><div class="day-num">10</div><div><b>05_对偶</b> — Lagrange 对偶函数、对偶问题构建</div><div class="day-time">2h</div></div>
+<div class="day-row"><div class="day-num">11</div><div><b>05_对偶</b> — 强对偶（Slater 条件）、KKT 最优性条件</div><div class="day-time">2h</div></div>
+<div class="day-row"><div class="day-num">12</div><div><b>06_逼近与拟合</b> — 范数逼近、正则化、鲁棒逼近</div><div class="day-time">1.5h</div></div>
+<div class="day-row"><div class="day-num">13</div><div><b>第 1-6 章 阶段性回顾</b> — 梳理「凸集→凸函数→对偶→逼近」链</div><div class="day-time">2h</div></div>
+<div class="day-row rest"><div class="day-num">14</div><div>弹性休息 / 补进度</div><div class="day-time">—</div></div>
+</div>
+
+
+<h2 id="week3"><span class="week-badge w3">第 3 周</span> 应用与算法</h2>
+<div class="sec-card">
+<div class="day-row"><div class="day-num">15</div><div><b>07_统计估计</b> — MLE、MAP、实验设计</div><div class="day-time">1.5h</div></div>
+<div class="day-row"><div class="day-num">16</div><div><b>08_几何问题</b> — 投影、距离、体积、分类中的几何优化</div><div class="day-time">1.5h</div></div>
+<div class="day-row"><div class="day-num">17</div><div><b>09_无约束最小化</b> — 梯度下降、最速下降、收敛性分析</div><div class="day-time">2h</div></div>
+<div class="day-row"><div class="day-num">18</div><div><b>09_无约束最小化</b> — Newton 法、BFGS、L-BFGS</div><div class="day-time">2h</div></div>
+<div class="day-row"><div class="day-num">19</div><div><b>10_等式约束最小化</b> — KKT 系统、等式约束 Newton 法</div><div class="day-time">2h</div></div>
+<div class="day-row"><div class="day-num">20</div><div><b>算法实践日</b> — 用 Python 手写 GD / Newton / BFGS</div><div class="day-time">1.5h</div></div>
+<div class="day-row rest"><div class="day-num">21</div><div>弹性休息 / 补进度</div><div class="day-time">—</div></div>
+</div>
+
+
+<h2 id="week4"><span class="week-badge w4">第 4 周</span> 内点法、附录与实践</h2>
+<div class="sec-card">
+<div class="day-row"><div class="day-num">22</div><div><b>11_内点法</b> — 对数障碍函数、中心路径、对偶间隙</div><div class="day-time">2h</div></div>
+<div class="day-row"><div class="day-num">23</div><div><b>11_内点法</b> — 原对偶内点法、自和谐函数理论</div><div class="day-time">2h</div></div>
+<div class="day-row"><div class="day-num">24</div><div><b>A_数学基础 + B_双二次函数</b> — 线性代数与分析复习</div><div class="day-time">1h</div></div>
+<div class="day-row"><div class="day-num">25</div><div><b>C_数值线性代数</b> — 矩阵分解、条件数、数值稳定性</div><div class="day-time">1h</div></div>
+<div class="day-row"><div class="day-num">26</div><div><b>engineering_system</b> — Ch6-11 交互式深度实践</div><div class="day-time">2h</div></div>
+<div class="day-row"><div class="day-num">27</div><div><b>全书总复习（理论）</b> — 凸集→凸函数→对偶→算法</div><div class="day-time">2h</div></div>
+<div class="day-row rest"><div class="day-num">28</div><div>弹性休息 / 补进度</div><div class="day-time">—</div></div>
+</div>
+
+
+<h2 id="week5"><span class="week-badge w5">第 5 周</span> 可微性（扩展）</h2>
+<div class="sec-card">
+<div class="day-row"><div class="day-num">29</div><div><b>12_可微</b> — 导数/梯度/Jacobi/Hessian 定义、次梯度、不可微处理</div><div class="day-time">2h</div></div>
+<div class="day-row"><div class="day-num">30</div><div><b>12_可微</b> — 数值微分 vs 符号微分 vs 自动微分（前向/反向模式）</div><div class="day-time">2h</div></div>
+<div class="day-row"><div class="day-num">31</div><div><b>12_可微</b> — 可微编程四种核心机制（分支/状态/STE/循环）</div><div class="day-time">2h</div></div>
+<div class="day-row"><div class="day-num">32</div><div><b>12_可微</b> — 可微物理引擎（伴随法/隐函数/REINFORCE 三种路径）</div><div class="day-time">2h</div></div>
+<div class="day-row"><div class="day-num">33</div><div><b>12_可微</b> — DCO 层 + 凸优化 ↔ 可微编程统一视角</div><div class="day-time">1.5h</div></div>
+<div class="day-row"><div class="day-num">34</div><div><b>全书总复习（应用）</b> — 回顾各章典型应用场景与建模技巧</div><div class="day-time">2h</div></div>
+<div class="day-row rest"><div class="day-num">35</div><div>查漏补缺 / 庆祝完成 🎉</div><div class="day-time">—</div></div>
+</div>
+
+
+<h2 id="tips">💡 学习建议</h2>
+<div class="sec-card">
+<ol class="tip-list">
+<li><b>先框架后细节：</b>每天花 5 分钟先扫一遍标题结构，再细读正文</li>
+<li><b>动手推导：</b>关键定理（KKT、对偶间隙、Newton 步长）亲手推一遍 —— 纸笔推导，不要只看</li>
+<li><b>结合代码：</b>第 9-11 章的算法用 Python / CVXPY 实现一遍；第 12 章的 AD 概念用 PyTorch 的 <code>torch.autograd.gradcheck</code> 验证</li>
+<li><b>定期回顾：</b>每周末花 30 分钟梳理本周的定理-算法映射关系</li>
+<li><b>重点章节：</b>第 2 章（凸集）、第 5 章（对偶）是全书基石，多花时间；第 12 章（可微）是连接理论与工程的桥梁</li>
+<li><b>善用章末板块：</b>每章末尾的「💡 本章知识的应用与前景」列出了 HPC / 机器人 / LLM 的具体案例 —— 学完一章回头看，加深理解</li>
+</ol>
+
+<div class="intuition" style="margin-top:20px;"><div class="label">⏱ 每日节奏建议（以 2h 为例）</div>
+<p style="line-height:2.0;">
+<b>0-5 min：</b>扫标题、回忆前一天内容<br>
+<b>5-90 min：</b>精读正文 + 推公式（核心时段）<br>
+<b>90-110 min：</b>读「章末应用」板块 + 思考自己领域的对应问题<br>
+<b>110-120 min：</b>写 3 行笔记总结今日所得
+</p></div>
+</div>
+
+</main>
+<script>let _=(id)=>document.getElementById(id);function toggleDark(){document.body.classList.toggle('dark');_('dark-toggle').textContent=document.body.classList.contains('dark')?'☀️':'🌙';}
+let _ls=document.querySelectorAll('#sidebar nav a');
+window.addEventListener('scroll',()=>{
+  let cur='';document.querySelectorAll('h2[id]').forEach(el=>{if(el.getBoundingClientRect().top<=120)cur=el.id;});
+  _ls.forEach(a=>a.classList.remove('active'));
+  if(cur){let l=document.querySelector('#sidebar nav a[href="#'+cur+'"]');if(l)l.classList.add('active');}
+});</script></body></html>

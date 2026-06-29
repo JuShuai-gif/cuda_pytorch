@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>第九章 无约束最小化 | 交互式凸优化笔记</title>
+<script>MathJax={tex:{inlineMath:[["$","$"],["\\(","\\)"]],displayMath:[["$$","$$"],["\\[","\\]"]]}};</script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script><style>
+:root{--bg:#fdfbf7;--text:#2c2c2c;--sb-bg:#1a1a2e;--sb-text:#e0e0e0;--sb-hov:#16213e;--accent:#8b5cf6;--card-bg:#fff;--card-sh:0 2px 12px rgba(0,0,0,.06);--brd:#e8e8e8;--code-bg:#f5f5f5;--h1:#1a1a2e;--h2:#2d2d44;--h3:#4a4a6a;--def-bg:#f0f9ff;--intu-bg:#fefce8;--ex-bg:#f0fdf4;--ctr-bg:#fef2f2;--sum-bg:#f5f3ff}
+.dark{--bg:#0f0f1a;--text:#d4d4d8;--sb-bg:#050510;--sb-text:#b0b0c0;--card-bg:#1a1a2e;--card-sh:0 2px 12px rgba(0,0,0,.3);--brd:#2a2a3e;--code-bg:#1e1e2e;--h1:#e0e0f0;--h2:#c8c8da;--h3:#a8a8be;--def-bg:#0c1a2a;--intu-bg:#1a1a0a;--ex-bg:#0a1a10;--ctr-bg:#1a0a0a;--sum-bg:#120a1a}
+*{box-sizing:border-box;margin:0;padding:0}html{scroll-behavior:smooth}
+body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;transition:background .3s,color .3s}
+#sidebar{width:280px;min-width:280px;background:var(--sb-bg);color:var(--sb-text);position:fixed;top:0;left:0;height:100vh;overflow-y:auto;z-index:100;padding:24px 0}
+#sidebar h2{font-size:1rem;padding:0 20px 16px;color:#8b5cf6;font-weight:700}
+#sidebar nav a{display:block;padding:6px 20px;font-size:.82rem;color:var(--sb-text);text-decoration:none;border-left:3px solid transparent}
+#sidebar nav a:hover,#sidebar nav a.active{background:var(--sb-hov);color:#fff;border-left-color:#8b5cf6}
+#sidebar nav a.sub{font-size:.76rem;padding-left:36px}
+#dark-toggle{position:fixed;top:16px;right:24px;z-index:200;width:40px;height:40px;border-radius:50%;border:2px solid var(--brd);background:var(--card-bg);cursor:pointer;font-size:1.2rem;display:flex;align-items:center;justify-content:center;box-shadow:var(--card-sh)}
+#dark-toggle:hover{transform:scale(1.1)}
+#main{margin-left:280px;padding:40px 48px;max-width:1100px;width:100%}
+#main h1{font-size:2.2rem;color:var(--h1);margin-bottom:8px;font-weight:800}
+#main h2{font-size:1.5rem;color:var(--h2);margin:48px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--accent);font-weight:700}
+#main h3{font-size:1.15rem;color:var(--h3);margin:32px 0 12px;font-weight:600}
+#main h3::before{content:"§ ";color:var(--accent);font-size:.85rem}
+.sec-card{background:var(--card-bg);border:1px solid var(--brd);border-radius:10px;padding:24px 28px;margin:20px 0;box-shadow:var(--card-sh)}
+.def{background:var(--def-bg);border-left:4px solid #3b82f6;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.def .label,.intuition .label,.example-box .label,.counter .label,.summary .label{font-weight:700;font-size:.85rem;margin-bottom:6px}
+.def .label{color:#3b82f6}
+.intuition{background:var(--intu-bg);border-left:4px solid #eab308;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.intuition .label{color:#ca8a04}
+.example-box{background:var(--ex-bg);border-left:4px solid #22c55e;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.example-box .label{color:#16a34a}
+.counter{background:var(--ctr-bg);border-left:4px solid #ef4444;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.counter .label{color:#dc2626}
+.summary{background:var(--sum-bg);border-left:4px solid #8b5cf6;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.summary .label{color:#7c3aed}
+.concept-box{background:var(--def-bg);border-radius:8px;padding:14px}
+.concept-box .label{color:#2563eb}
+.domain-box{background:#dcfce7;border:1px solid #86efac;border-radius:10px;padding:16px 20px;margin:14px 0}
+.domain-box .label{font-weight:700;color:#166534;font-size:.85rem;margin-bottom:6px}
+.formula-block{overflow-x:auto;padding:8px 0}
+.usecase-box{background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px 20px;margin:14px 0}
+.usecase-box .label{font-weight:700;color:#059669;font-size:.85rem;margin-bottom:6px}
+.num-box{background:#fefce8;border:1px solid #facc15;border-radius:10px;padding:16px 20px;margin:14px 0}
+.num-box .label{font-weight:700;color:#a16207;font-size:.85rem;margin-bottom:6px}
+.viz{position:relative;margin:20px 0;border:1px solid var(--brd);border-radius:10px;overflow:hidden;background:var(--card-bg);box-shadow:var(--card-sh)}
+.viz canvas{display:block;width:100%}
+.viz .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 16px;background:var(--code-bg);border-top:1px solid var(--brd)}
+.viz .controls label{font-size:.8rem;color:var(--h3);font-weight:500;white-space:nowrap}
+.viz .controls input[type=range]{flex:1;min-width:80px;accent-color:var(--accent)}
+.viz .controls .val{font-size:.78rem;font-weight:600;color:var(--accent);min-width:36px;text-align:center}
+.viz .controls button{font-size:.78rem;padding:4px 12px;border:1px solid var(--brd);border-radius:6px;background:var(--card-bg);color:var(--text);cursor:pointer}
+.viz .controls button:hover{background:var(--ac-lit);border-color:var(--accent)}
+table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid var(--brd);padding:8px 12px;text-align:left;font-size:.82rem}th{background:var(--code-bg);font-weight:700}
+@media(max-width:768px){#sidebar{transform:translateX(-280px)}#sidebar.open{transform:translateX(0)}#main{margin-left:0;padding:20px 16px}}
+</style>
+</head><body>
+<button id="dark-toggle" onclick="toggleDark()">🌙</button>
+<aside id="sidebar"><h2>📐 凸优化 · Ch9</h2><nav>
+<a href="#top">第九章 无约束最小化</a>
+<a href="#9_1" class="sub">9.1 下降框架</a><a href="#9_2" class="sub">9.2 梯度下降</a><a href="#9_3" class="sub">9.3 牛顿法</a><a href="#9_4" class="sub">9.4 自和谐</a><a href="#concepts" class="sub">💡 概念</a><a href="#exercises" class="sub">📝 习题</a>
+</nav></aside>
+<main id="main">
+<
+<h1 id="top">第九章 无约束最小化</h1>
+<div class="def"><div class="label">概述</div><p>本章讨论<b>无约束凸优化 min f(x)</b>的数值求解方法。f凸且二阶连续可微。从梯度下降到牛顿法，再到自和谐函数理论——这是理解所有凸优化算法的基础，也是PyTorch/TensorFlow优化器的理论原型。</p></div>
+
+<h2 id="concepts">关键概念速查</h2><div class="sec-card"><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+<div class="concept-box"><div class="label">下降方向: grad_f^T * Delta_x &lt; 0</div><p style="font-size:.8rem">方向导数负则沿此方向走一步目标下降。Armijo条件确保下降足够多</p></div>
+<div class="concept-box"><div class="label">牛顿法 = 用曲率修正方向</div><p style="font-size:.8rem">Delta_x = -H^{-1} grad_f。阻尼阶段线性收敛，纯阶段二次收敛(误差平方缩小!)</p></div>
+<div class="concept-box"><div class="label">自和谐函数</div><p style="font-size:.8rem">三阶导数被二阶导数约束。此族上牛顿法收敛速度与维度无关，内点法理论基础</p></div>
+<div class="concept-box"><div class="label">GD vs Newton</div><p style="font-size:.8rem">GD:O(n)/迭代,线性收敛,大n首选;NT:O(n^3)/迭代,二次收敛,中小n首选</p></div>
+</div></div>
+
+
+<div class="interview-q"><div class="label" style="color:#dc2626">🎤 面试高频问题 & 工程落地陷阱</div><p style="margin:6px 0;"><b>Q: 梯度下降在什么情况下比牛顿法更好？</b><br><b>A:</b> 1)n>10000→牛顿法Hessian存储/求逆不现实。2)数据流式输入(在线学习)→SGD自然适应。3)非光滑目标(如L1)→用次梯度。4)需要随机性(逃离局部最优)。DL中: Adam≈SGD+自适应步长+动量→最实用。</p><p style="margin:6px 0;"><b>Q: 牛顿法在工程中怎么轻量化？</b><br><b>A:</b> 用L-BFGS:只存最近m=10-20步的s_k和y_k→Hessian近似=Σ(sy^T)/(yy^T)→O(mn)存储而非O(n^2)。scipy.optimize.minimize(method="L-BFGS-B")→十万变量可解。</p><p style="margin:6px 0;"><b>Q: 回溯线搜索的alpha和beta怎么调？</b><br><b>A:</b> alpha=0.01~0.3(越小越宽容,越大越严格); beta=0.5~0.8。Robot IK: alpha=0.1,beta=0.5(快速粗调)。精调: alpha=0.3,beta=0.8(严格保证收敛)。失败时缩小alpha。</p></div>
+
+<div style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:22px 26px;margin:16px 0;"><div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📖 多层公式解读 —— 回溯线搜索 Armijo条件 f(x+tΔx) ≤ f(x)+αt∇fᵀΔx</div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第1层：为什么需要线搜索</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">牛顿步或梯度步给出的方向是对的,但步长t=1可能太大→越过最低点→甚至上升。线搜索自动找到"不太大也不太小"的步长。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第2层：右边是什么</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">f(x)+αt∇fᵀΔx = "如果函数在这个方向线性下降,走t步后该达到的值" × 折扣因子α。α∈(0,0.5): α小=宽容(差不多就行), α大=严格(必须接近线性预测)。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第3层：工程直觉</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">α=0.01: 几乎接受任何下降→步长可能太大→震荡。α=0.3: 适中→通常收敛最好。α=0.5: 严格→步长可能太小→收敛慢。常用组合: α=0.3, β=0.8(L-BFGS默认)。</p></div></div>
+<h2 id="9_1">9.1 下降方法框架</h2><div class="sec-card">
+<div class="def"><div class="label">一般下降方法 (Boyd 9.2)</div>
+$$x_{k+1} = x_k + t_k \Delta x_k$$
+<p>$\Delta x_k$是搜索方向（满足$\nabla f(x_k)^T\Delta x_k < 0$），$t_k>0$是步长。</p>
+<p><b>回溯线搜索 (Armijo条件)：</b>从$t=1$开始，反复$t:=\beta t$直到：$f(x+t\Delta x) \le f(x) + \alpha t\nabla f(x)^T\Delta x$。$\alpha\in(0,0.5)$控制严格度，$\beta\in(0,1)$控制缩减速度。</p></div>
+<div class="intuition"><div class="label">Armijo条件的直觉</div><p>右边="如果函数在x处线性下降，t步后该达到的值"乘以折扣因子alpha。实际下降必须不小于这个值的alpha倍才算合格。alpha越大则越严格，需要的步长越小。</p></div>
+</div>
+
+
+<h3>9.1.2 强凸性及其推论 (Boyd 9.1.2)</h3>
+<div class="sec-card">
+<div class="def"><div class="label">强凸性的定义</div>
+<p>f是m-强凸的：$\nabla^2 f(x) \succeq mI$对所有x成立。等价于$f(y) \ge f(x)+\nabla f(x)^T(y-x)+m/2\|y-x\|^2$。</p>
+<p><b>推论1：</b>梯度很小时，x接近最优——$\|x-x^*\| \le (2/m)\|\nabla f(x)\|$。</p>
+<p><b>推论2：</b>梯度下降收敛速度由$m$和$M$(光滑常数)决定——$f(x_k)-p^* \le (1-m/M)^k (f(x_0)-p^*)$。</p>
+<p><b>工程直觉：</b>$m/M$越接近1→收敛越快(椭圆接近圆)。$m/M \ll 1$→收敛慢(峡谷效应)。</p></div></div>
+
+<h3>9.3.1 梯度下降收敛性分析 (Boyd 9.3.1)</h3>
+<div class="sec-card">
+<div class="def"><div class="label">精确线搜索下的收敛</div>
+<p>对$f(x)=\frac12 x^T Q x$($Q\succ0$)，精确线搜索梯度下降收敛速度$\sim ((\kappa-1)/(\kappa+1))^{2k}$，其中$\kappa=\lambda_{\max}/\lambda_{\min}$(条件数)。</p>
+<p><b>数值例：</b>$\kappa=1$(圆)→一步收敛。$\kappa=10$→需约15步。$\kappa=100$→需约150步。$\kappa=1000$→需约1500步!</p></div></div>
+
+<h3>9.5 牛顿法完整分析 (Boyd 9.5)</h3>
+<div class="sec-card">
+<div class="def"><div class="label">仿射不变性与牛顿减量</div>
+<p><b>仿射不变性：</b>牛顿法对坐标变换不变——若优化$g(y)=f(Ty)$，牛顿法在y空间和x空间的迭代轨迹通过T对应。梯度下降没有这个性质。</p>
+<p><b>牛顿减量：</b>$\lambda(x)=(\nabla f^T (\nabla^2 f)^{-1} \nabla f)^{1/2}$。$\lambda(x)^2/2 \approx f(x)-p^*$。当$\lambda(x)\le\eta=1/4$时进入纯牛顿阶段→二次收敛。</p></div></div>
+
+<h3>9.6 自和谐函数 (Boyd 9.6)</h3>
+<div class="sec-card">
+<div class="def"><div class="label">自和谐函数的完整理论</div>
+<p>一维自和谐：$|f^{(3)}(x)| \le 2 f^{(2)}(x)^{3/2}$。高维：$f^{(3)}(x)[u,u,u] \le 2 (u^T f^{(2)}(x) u)^{3/2}$。</p>
+<p><b>关键性质：</b>1)线性、凸二次函数自和谐。2)自和谐函数的非负加权和自和谐。3)$-\log x$自和谐。4)log-sum-exp的屏障变形自和谐。</p>
+<p><b>复杂度：</b>阻尼牛顿阶段最多$O((f(x_0)-p^*)/\gamma)$次迭代；纯牛顿阶段最多$O(\log\log(1/\varepsilon))$次迭代——双重对数!</p></div></div>
+
+<h2 id="9_2">9.2 梯度下降法</h2><div class="sec-card">
+<div class="def"><div class="label">算法</div>
+$$\Delta x = -\nabla f(x)$$
+<p>最陡下降方向。O(n)每次迭代，线性收敛。适合n>10000的大规模问题。</p></div>
+<div class="num-box"><div class="label">数值例子：f(x)=x^2/2, x0=5, 步长t=0.3</div><p>x1=5-0.3*5=3.5, x2=2.45, x3=1.72, x4=1.20, ... 需要约15步到0.01以下。条件数越大则收敛越慢。</p></div>
+<div class="domain-box"><div class="label">机器人逆运动学(IK)=梯度下降——每步计算末端位置误差，雅可比伪逆，关节角更新。轨迹直接配点=大规模梯度下降(数千变量)。域随机化=SGD。DL训练=随机梯度下降。</div></div>
+</div>
+
+<h2 id="9_3">9.3 牛顿法</h2><div class="sec-card">
+<div class="def"><div class="label">牛顿步 (Boyd 9.5)</div>
+$$\Delta x_{\text{nt}} = -(\nabla^2 f(x))^{-1}\nabla f(x)$$
+<p>这是最小化f在x处的二阶Taylor展开的解。牛顿减量$\lambda(x)=(\nabla f^T(\nabla^2 f)^{-1}\nabla f)^{1/2}$度量离最优解的距离。</p></div>
+
+<div class="intuition"><div class="label">两个收敛阶段</div>
+<p><b>阻尼阶段</b>($\lambda>\eta$)：需要回溯线搜索确定步长，线性收敛。<br><b>纯牛顿阶段</b>($\lambda\le\eta$)：步长=1就是最优，<b>二次收敛！</b>$\lambda_{k+1}\le C\lambda_k^2$。误差每次迭代平方缩小——从$10^{-3}$到$10^{-6}$到$10^{-12}$只需几次迭代。</p></div>
+
+<div class="num-box"><div class="label">数值对比：f(x)=x^2/2, x0=5</div><p>梯度下降(t=0.3)：需约15步到0。牛顿法：一步收敛到0! 因为f''(x)=1常数——二阶模型就是函数本身——牛顿步直接跳到全局最优。</p></div>
+
+<div class="domain-box"><div class="label">机器人动力学参数辨识——牛顿法一步收敛(回归矩阵Y给出常数Hessian=Y^T Y)；IK的高斯-牛顿法=牛顿法的近似版；L-BFGS=大规模牛顿近似(scipy默认)</div></div>
+</div>
+
+<h2 id="9_4">9.4 自和谐函数 (Self-Concordant)</h2><div class="sec-card">
+<div class="def"><div class="label">定义与重要性 (Boyd 9.6)</div>
+<p>一维条件：$|f'''(x)| \le 2f''(x)^{3/2}$。高维推广：Newton decrement的Lipschitz条件。</p>
+<p><b>为什么重要：</b>自和谐函数族上的牛顿法具有<b>与问题维度和条件数无关</b>的常数迭代上界。这是内点法多项式时间复杂度的理论基础。</p></div>
+<div class="example-box"><div class="label">自和谐函数例子 (Boyd例9.3-9.8)</div><p>线性函数、凸二次函数、$-\log x$、$-\log\det X$、log-sum-exp的屏障变形。非自和谐：$e^x$（三阶导数增长太快破坏条件）。</p></div>
+<div class="summary"><div class="label">一句话总结</div><p><strong>自和谐性确保牛顿法在常数步内收敛——不管问题多大。这就是内点法不害怕高维问题的原因。</strong></p></div>
+</div>
+
+<!-- SUPPLEMENT START -->
+<div data-sup="ch9-usage" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">🧭 选择指南 — 梯度下降 vs 牛顿法</div>
+<table style="width:100%;border-collapse:collapse;font-size:.9rem;">
+<tr style="background:#dbeafe;"><th style="padding:6px;border:1px solid #93c5fd;">维度</th><th style="padding:6px;border:1px solid #93c5fd;">梯度下降</th><th style="padding:6px;border:1px solid #93c5fd;">牛顿法</th></tr>
+<tr><td style="padding:6px;border:1px solid #bfdbfe;">每步成本</td><td style="padding:6px;border:1px solid #bfdbfe;">低 $O(n)$，只需梯度</td><td style="padding:6px;border:1px solid #bfdbfe;">高 $O(n^3)$，需解 Hessian 方程组</td></tr>
+<tr><td style="padding:6px;border:1px solid #bfdbfe;">收敛速度</td><td style="padding:6px;border:1px solid #bfdbfe;">线性，受条件数拖累</td><td style="padding:6px;border:1px solid #bfdbfe;">近最优时二次收敛(极快)</td></tr>
+<tr><td style="padding:6px;border:1px solid #bfdbfe;">适用规模</td><td style="padding:6px;border:1px solid #bfdbfe;">超大规模/深度学习</td><td style="padding:6px;border:1px solid #bfdbfe;">中小规模/高精度</td></tr>
+</table>
+<p>口诀：$n$ 很大或只要中等精度 → 一阶法(梯度/共轭梯度/拟牛顿 L-BFGS)；$n$ 不大且要高精度 → 牛顿法。问题病态(条件数大)时牛顿法的仿射不变性是巨大优势。</p>
+</div>
+<div data-sup="miss-9-1" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📕 补充 (9.4) — 最速下降法 (Steepest Descent)</div>
+<p>广义最速下降：在某范数 $\|\cdot\|$ 下取 $\Delta x_{\text{sd}}=\arg\min\{\nabla f(x)^Tv\mid\|v\|\le1\}$。不同范数给不同算法：</p>
+<ul style="line-height:1.9;margin-left:18px;">
+<li><b>$\ell_2$ 范数</b> → 普通负梯度方向 $-\nabla f$。</li>
+<li><b>$\ell_1$ 范数</b> → 坐标下降(只沿最大梯度分量的坐标轴走)。</li>
+<li><b>二次范数 $\|v\|_P=\sqrt{v^TPv}$</b> → $-P^{-1}\nabla f$；取 $P=\nabla^2f$ 即牛顿法。</li>
+</ul>
+<p>选对范数(逼近 Hessian 的几何)能大幅改善病态问题的收敛——这统一解释了为何牛顿法是"最优范数下的最速下降"。</p>
+</div>
+<!-- SUPPLEMENT END -->
+
+<h2 id="exercises">练习题 (32题,Boyd课本原题)</h2>
+<div class="sec-card">
+<div class="def"><div class="label">说明</div><p>以下习题选自Boyd课本对应章节。</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.1</div><p style="font-size:.8rem;line-height:1.6;">9.1 Minimizing a quadratic function.   Consider the problem of minimizing a quadratic</p><p style="font-size:.75rem;color:#92400e;">function: minimize f (x) = (1/2)xT P x + q T x + r, n where P ∈ S (but we do not assume P  0). (a) Show that if P 6 0, i.e., the objective function f is not convex, then the problem is unbounded below. (b) Now suppose </p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.2</div><p style="font-size:.8rem;line-height:1.6;">9.2 Minimizing a quadratic-over-linear fractional function. Consider the problem of minimiz-</p><p style="font-size:.75rem;color:#92400e;">ing the function f : Rn → R, defined as kAx − bk22 f (x) =       ,             dom f = {x | cT x + d > 0}. cT x + d We assume rank A = n and b 6∈ R(A). (a) Show that f is closed. (b) Show that the minimizer x⋆ of f is gi</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.3</div><p style="font-size:.8rem;line-height:1.6;">9.3 Initial point and sublevel set condition. Consider the function f (x) = x21 + x22 with domain</p><p style="font-size:.75rem;color:#92400e;">dom f = {(x1 , x2 ) | x1 > 1}. (a) What is p⋆ ? (b) Draw the sublevel set S = {x | f (x) ≤ f (x(0) )} for x(0) = (2, 2). Is the sublevel set S closed? Is f strongly convex on S? (c) What happens if we apply the gradient </p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.4</div><p style="font-size:.8rem;line-height:1.6;">9.4 Do you agree with the following argument? The ℓ1 -norm of a vector x ∈ Rm can be</p><p style="font-size:.75rem;color:#92400e;">expressed as                                           ! m X kxk1 = (1/2) inf         2 xi /yi + 1T y    . y≻0 i=1</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.5</div><p style="font-size:.8rem;line-height:1.6;">9.5 Backtracking line search. Suppose f is strongly convex with mI  ∇2 f (x)  M I. Let</p><p style="font-size:.75rem;color:#92400e;">∆x be a descent direction at x. Show that the backtracking stopping condition holds for ∇f (x)T ∆x 0<t≤−                    . M k∆xk22 Use this to give an upper bound on the number of backtracking iterations. Exercises  </p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.6</div><p style="font-size:.8rem;line-height:1.6;">9.6 Quadratic problem in R2 . Verify the expressions for the iterates x(k) in the first example</p><p style="font-size:.75rem;color:#92400e;">of §9.3.2.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.7</div><p style="font-size:.8rem;line-height:1.6;">9.7 Let ∆xnsd and ∆xsd be the normalized and unnormalized steepest descent directions at</p><p style="font-size:.75rem;color:#92400e;">x, for the norm k · k. Prove the following identities. (a) ∇f (x)T ∆xnsd = −k∇f (x)k∗ . (b) ∇f (x)T ∆xsd = −k∇f (x)k2∗ . (c) ∆xsd = argminv (∇f (x)T v + (1/2)kvk2 ).</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.8</div><p style="font-size:.8rem;line-height:1.6;">9.8 Steepest descent method in ℓ∞ -norm. Explain how to find a steepest descent direction in</p><p style="font-size:.75rem;color:#92400e;">the ℓ∞ -norm, and give a simple interpretation. Newton’s method</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.9</div><p style="font-size:.8rem;line-height:1.6;">9.9 Newton decrement. Show that the Newton decrement λ(x) satisfies</p><p style="font-size:.75rem;color:#92400e;">−v T ∇f (x) λ(x) =        sup      (−v T ∇f (x)) = sup                          . v T ∇2 f (x)v=1                v6=0   (v T ∇2 f (x)v)1/2</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.10</div><p style="font-size:.8rem;line-height:1.6;">9.10 The pure Newton method. Newton’s method with fixed step size t = 1 can diverge if the</p><p style="font-size:.75rem;color:#92400e;">initial point is not close to x⋆ . In this problem we consider two examples. (a) f (x) = log(ex + e−x ) has a unique minimizer x⋆ = 0. Run Newton’s method with fixed step size t = 1, starting at x(0) = 1 and at x(0) = 1.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.11</div><p style="font-size:.8rem;line-height:1.6;">9.11 Gradient and Newton methods for composition functions. Suppose φ : R → R is increasing</p><p style="font-size:.75rem;color:#92400e;">and convex, and f : Rn → R is convex, so g(x) = φ(f (x)) is convex. (We assume that f and g are twice differentiable.) The problems of minimizing f and minimizing g are clearly equivalent. Compare the gradient method and</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.12</div><p style="font-size:.8rem;line-height:1.6;">9.12 Trust region Newton method. If ∇2 f (x) is singular (or very ill-conditioned), the Newton</p><p style="font-size:.75rem;color:#92400e;">step ∆xnt = −∇2 f (x)−1 ∇f (x) is not well defined. Instead we can define a search direction ∆xtr as the solution of minimize      (1/2)v T Hv + g T v subject to kvk2 ≤ γ, where H = ∇2 f (x), g = ∇f (x), and γ is a posit</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.13</div><p style="font-size:.8rem;line-height:1.6;">9.13 Self-concordance and the inverse barrier.</p><p style="font-size:.75rem;color:#92400e;">(a) Show that f (x) = 1/x with domain (0, 8/9) is self-concordant. (b) Show that the function m X          1 f (x) = α bi − aTi x i=1</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.14</div><p style="font-size:.8rem;line-height:1.6;">9.14 Composition with logarithm. Let g : R → R be a convex function with dom g = R++ ,</p><p style="font-size:.75rem;color:#92400e;">and g ′′ (x) |g ′′′ (x)| ≤ 3 x for all x. Prove that f (x) = − log(−g(x)) − log x is self-concordant on {x | x > 0, g(x) < 0}. Hint. Use the inequality 3 2         3</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.15</div><p style="font-size:.8rem;line-height:1.6;">9.15 Prove that the following functions are self-concordant. In your proof, restrict the function</p><p style="font-size:.75rem;color:#92400e;">to a line, and apply the composition with logarithm rule. (a) f (x, y) = − log(y 2 − xT x) on {(x, y) | kxk2 < y}. (b) f (x, y) = −2 log y − log(y 2/p − x2 ), with p ≥ 1, on {(x, y) ∈ R2 | |x|p < y}. (c) f (x, y) = − log</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.16</div><p style="font-size:.8rem;line-height:1.6;">9.16 Let f : R → R be a self-concordant function.</p><p style="font-size:.75rem;color:#92400e;">(a) Suppose f ′′ (x) 6= 0. Show that the self-concordance condition (9.41) can be ex- pressed as d               f ′′ (x)−1/2 ≤ 1. dx Find the ‘extreme’ self-concordant functions of one variable, i.e., the functions f a</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.17</div><p style="font-size:.8rem;line-height:1.6;">9.17 Upper and lower bounds on the Hessian of a self-concordant function.</p><p style="font-size:.75rem;color:#92400e;">(a) Let f : R2 → R be a self-concordant function. Show that  2          3/2 ∂ 3 f (x)             ∂ f (x) ≤   2                         ,    i = 1, 2, ∂ 3 xi                ∂x2i  2           1/2 ∂ 3 f (x)           ∂</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.18</div><p style="font-size:.8rem;line-height:1.6;">9.18 Quadratic convergence. Let f : Rn → R be a strictly convex self-concordant function.</p><p style="font-size:.75rem;color:#92400e;">Suppose λ(x) < 1, and define x+ = x − ∇2 f (x)−1 ∇f (x). Prove that λ(x+ ) ≤ λ(x)2 /(1 − λ(x))2 . Hint. Use the inequalities in exercise 9.17, part (c).</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.19</div><p style="font-size:.8rem;line-height:1.6;">9.19 Bound on the distance from the optimum. Let f : Rn → R be a strictly convex self-</p><p style="font-size:.75rem;color:#92400e;">concordant function. (a) Suppose λ(x̄) < 1 and the sublevel set {x | f (x) ≤ f (x̄)} is closed. Show that the minimum of f is attained and 1/2         λ(x̄) (x̄ − x⋆ )T ∇2 f (x̄)(x̄ − x⋆ )          ≤             . 1 − λ</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.20</div><p style="font-size:.8rem;line-height:1.6;">9.20 Conjugate of a self-concordant function. Suppose f : Rn → R is closed, strictly convex,</p><p style="font-size:.75rem;color:#92400e;">and self-concordant. We show that its conjugate (or Legendre transform) f ∗ is self- concordant. (a) Show that for each y ∈ dom f ∗ , there is a unique x ∈ dom f that satisfies y = ∇f (x). Hint. Refer to the result of ex</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.21</div><p style="font-size:.8rem;line-height:1.6;">9.21 Optimal line search parameters. Consider the upper bound (9.56) on the number of</p><p style="font-size:.75rem;color:#92400e;">Newton iterations required to minimize a strictly convex self-concordant functions. What is the minimum value of the upper bound, if we minimize over α and β?</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.22</div><p style="font-size:.8rem;line-height:1.6;">9.22 Suppose that f is strictly convex and satisfies (9.42). Give a bound on the number of</p><p style="font-size:.75rem;color:#92400e;">Newton steps required to compute p⋆ within ǫ, starting at x(0) . 518                                                                              9       Unconstrained minimization Implementation</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.23</div><p style="font-size:.8rem;line-height:1.6;">9.23 Pre-computation for line searches. For each of the following functions, explain how the</p><p style="font-size:.75rem;color:#92400e;">computational cost of a line search can be reduced by a pre-computation. Give the cost of the pre-computation, and the cost of evaluating g(t) = f (x + t∆x) and g ′ (t) with and without the pre-computation. Pm (a) f (x) </p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.24</div><p style="font-size:.8rem;line-height:1.6;">9.24 Exploiting block diagonal structure in the Newton system. Suppose the Hessian ∇2 f (x) of</p><p style="font-size:.75rem;color:#92400e;">a convex function f is block diagonal. How do we exploit this structure when computing the Newton step? What does it mean about f ?</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.25</div><p style="font-size:.8rem;line-height:1.6;">9.25 Smoothed fit to given data. Consider the problem</p><p style="font-size:.75rem;color:#92400e;">Pn                           Pn−1 minimize        f (x) =     i=1 ψ(xi − yi ) + λ          i=1 (xi+1 − xi )2 where λ > 0 is smoothing parameter, ψ is a convex penalty function, and x ∈ Rn is the variable. We can interpre</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.26</div><p style="font-size:.8rem;line-height:1.6;">9.26 Newton equations with linear structure. Consider the problem of minimizing a function</p><p style="font-size:.75rem;color:#92400e;">of the form N X f (x) =            ψi (Ai x + bi )                                          (9.63) i=1 where Ai ∈ Rmi ×n , bi ∈ Rmi , and the functions ψi : Rmi → R are twice differentiable</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.27</div><p style="font-size:.8rem;line-height:1.6;">9.27 Analytic center of linear inequalities with variable bounds. Give the most efficient method</p><p style="font-size:.75rem;color:#92400e;">for computing the Newton step of the function n X                        n X                        m X f (x) = −             log(xi + 1) −           log(1 − xi ) −            log(bi − aTi x), i=1                     i=1</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.28</div><p style="font-size:.8rem;line-height:1.6;">9.28 Analytic center of quadratic inequalities. Describe an efficient method for computing the</p><p style="font-size:.75rem;color:#92400e;">Newton step of the function m X f (x) = −          log(−xT Ai x − bTi x − ci ), i=1 T</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.29</div><p style="font-size:.8rem;line-height:1.6;">9.29 Exploiting structure in two-stage optimization. This exercise continues exercise 4.64, which</p><p style="font-size:.75rem;color:#92400e;">describes optimization with recourse, or two-stage optimization. Using the notation and assumptions in exercise 4.64, we assume in addition that the cost function f is a twice differentiable function of (x, z), for each </p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.30</div><p style="font-size:.8rem;line-height:1.6;">9.30 Gradient and Newton methods. Consider the unconstrained problem</p><p style="font-size:.75rem;color:#92400e;">Pm                          Pn minimize          f (x) = −     i=1 log(1 − aTi x) −     i=1 log(1 − x2i ), with variable x ∈ Rn , and dom f = {x | aTi x < 1, i = 1, . . . , m, |xi | < 1, i = 1, . . . , n}. This is the pr</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.31</div><p style="font-size:.8rem;line-height:1.6;">9.31 Some approximate Newton methods. The cost of Newton’s method is dominated by the</p><p style="font-size:.75rem;color:#92400e;">cost of evaluating the Hessian ∇2 f (x) and the cost of solving the Newton system. For large problems, it is sometimes useful to replace the Hessian by a positive definite approximation that makes it easier to form and s</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">9.32</div><p style="font-size:.8rem;line-height:1.6;">9.32 Gauss-Newton method for convex nonlinear least-squares problems. We consider a (non-</p><p style="font-size:.75rem;color:#92400e;">linear) least-squares problem, in which we minimize a function of the form m 1X f (x) =      fi (x)2 , 2 i=1</p></div>
+</div>
+
+<section id="applications">
+<h2 id="applications_title">💡 本章知识的应用与前景</h2>
+
+<h3>你学到了什么</h3>
+<p>本章覆盖了无约束优化的核心算法族：梯度下降、最速下降（基于不同范数）、Newton 法和拟 Newton 法（BFGS、L-BFGS）。你理解了收敛速度（线性/二次/超线性）、线搜索和信赖域策略——这是所有优化器设计的母版。</p>
+
+<h3>未来能做什么</h3>
+<ul>
+<li><strong>LLM 训练优化器设计</strong>：AdamW 本质上是带动量 + 自适应对角缩放的梯度下降。LION（Evoformed Sign Descent）、Sophia（对角 Hessian + 梯度裁剪）都是在本章基础上对二阶信息的近似利用</li>
+<li><strong>LLM 推理反向传播</strong>：推测解码中的 prompt lookup / n-gram 匹配可以视为在离散空间中的「梯度」估计，其收敛行为可以用本章理论分析</li>
+<li><strong>机器人全身运动规划</strong>：Trajectory Optimization（DIRCON、ALTRO）用 BFGS/L-BFGS 求解大规模无约束 NLP——因为 Hessian 不可显式存储但可高效乘以向量</li>
+<li><strong>HPC 自动调优</strong>：TVM AutoTVM / Ansor 用梯度-free 方法（类似线搜索）在算子配置空间中搜索最优实现参数（tile size、unroll factor）</li>
+<li><strong>DL 模型微调</strong>：LoRA 的低秩更新本质上是在 Stiefel 流形上的梯度下降，其收敛分析依赖本章的理论</li>
+</ul>
+
+<h3>具体实践方向</h3>
+<table>
+<tr><th>领域</th><th>问题</th><th>优化方法</th></tr>
+<tr><td>LLM 训练</td><td>优化器改进（Sophia 等）</td><td>对角 Hessian 近似（Newton 型）</td></tr>
+<tr><td>机器人</td><td>全身轨迹优化</td><td>L-BFGS（有限内存拟 Newton）</td></tr>
+<tr><td>HPC 编译</td><td>算子自动调优</td><td>梯度-free 线搜索</td></tr>
+<tr><td>DL 微调</td><td>LoRA 流形优化</td><td>约束梯度下降</td></tr>
+</table>
+</section>
+</main>
+<script>let _=(id)=>document.getElementById(id);let _cx=(id)=>{let c=_(id);return c?c.getContext("2d"):null;};function toggleDark(){document.body.classList.toggle("dark");_("dark-toggle").textContent=document.body.classList.contains("dark")?"☀️":"🌙";}function _sz(c){return c.parentElement.clientWidth||700;}let _ls=document.querySelectorAll("#sidebar nav a");window.addEventListener("scroll",()=>{let cur="";document.querySelectorAll("h2[id]").forEach(el=>{if(el.getBoundingClientRect().top<=120)cur=el.id;});_ls.forEach(a=>a.classList.remove("active"));if(cur){let l=document.querySelector("#sidebar nav a[href=\x23"+cur+"]");if(l)l.classList.add("active");}});</script>
+
+<script>
+let _=id=>document.getElementById(id);let _cx=id=>{let c=_(id);return c?c.getContext("2d"):null;};
+function draw93(){let c=_("cv93"),ctx=_cx("cv93");if(!ctx||!c)return;let W=c.width=c.parentElement.clientWidth||500,H=c.height;ctx.clearRect(0,0,W,H);let pad=35,cx=W/2,cy=H-50,sx=(W-2*pad)/4,sy=(H-2*pad)/10;function px(x){return cx+x*sx;}function py(y){return cy-y*sy;}ctx.strokeStyle="#2563eb";ctx.lineWidth=2;ctx.beginPath();let f=true;for(let ix=pad;ix<=W-pad;ix+=2){let x=(ix-cx)/sx,y=0.5*x*x,iy=py(y);if(iy>pad&&iy<H-pad){if(f){ctx.moveTo(ix,iy);f=false;}else ctx.lineTo(ix,iy);}}ctx.stroke();let x0=parseInt(_("x093").value)/100;_("x0v93").textContent=x0.toFixed(2);let m=_("m93").value,x=x0,pts=[{x:x,y:0.5*x*x}];if(m==="gd"){for(let i=0;i<12;i++){x=x-0.22*x;pts.push({x:x,y:0.5*x*x});if(Math.abs(x)<0.015)break;}}else{pts.push({x:0,y:0});}for(let i=0;i<pts.length-1;i++){let p1=pts[i],p2=pts[i+1];ctx.strokeStyle=i===0?"#ef4444":"#eab308";ctx.lineWidth=i===0?2:1;ctx.beginPath();ctx.moveTo(px(p1.x),py(p1.y));ctx.lineTo(px(p2.x),py(p2.y));ctx.stroke();ctx.fillStyle=i===0?"#ef4444":"#eab308";ctx.beginPath();ctx.arc(px(p1.x),py(p1.y),4,0,Math.PI*2);ctx.fill();}let lst=pts[pts.length-1];ctx.fillStyle="#22c55e";ctx.beginPath();ctx.arc(px(lst.x),py(lst.y),6,0,Math.PI*2);ctx.fill();ctx.fillStyle="#15803d";ctx.font="11px sans-serif";ctx.fillText(m==="gd"?"GD: many steps to valley":"Newton: 1 step!",W*0.25,H*0.1);}
+let a93=null;function anim93(){if(a93){clearInterval(a93);a93=null;return;}a93=setInterval(()=>{let v=parseInt(_("x093").value)+3;if(v>100)v=-100;_("x093").value=v;draw93();},60);}
+setTimeout(draw93,300);
+</script>
+</body></html>

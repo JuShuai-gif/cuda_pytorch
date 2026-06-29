@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>第四章 凸优化问题 | 交互式凸优化笔记</title>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<script>MathJax={tex:{inlineMath:[["$","$"],["\(","\)"]],displayMath:[["$$","$$"],["\[","\]"]]}};</script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<style>
+:root{--bg:#fdfbf7;--text:#2c2c2c;--sb-bg:#1a1a2e;--sb-text:#e0e0e0;--sb-hov:#16213e;--accent:#8b5cf6;--ac-lit:#ede9fe;--card-bg:#fff;--card-sh:0 2px 12px rgba(0,0,0,.06);--brd:#e8e8e8;--code-bg:#f5f5f5;--h1:#1a1a2e;--h2:#2d2d44;--h3:#4a4a6a;--def-bg:#f0f9ff;--intu-bg:#fefce8;--ex-bg:#f0fdf4;--ctr-bg:#fef2f2;--sum-bg:#f5f3ff}
+.dark{--bg:#0f0f1a;--text:#d4d4d8;--sb-bg:#050510;--sb-text:#b0b0c0;--card-bg:#1a1a2e;--card-sh:0 2px 12px rgba(0,0,0,.3);--brd:#2a2a3e;--code-bg:#1e1e2e;--h1:#e0e0f0;--h2:#c8c8da;--h3:#a8a8be;--def-bg:#0c1a2a;--intu-bg:#1a1a0a;--ex-bg:#0a1a10;--ctr-bg:#1a0a0a;--sum-bg:#120a1a}
+*{box-sizing:border-box;margin:0;padding:0}html{scroll-behavior:smooth}
+body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;transition:background .3s,color .3s}
+#sidebar{width:280px;min-width:280px;background:var(--sb-bg);color:var(--sb-text);position:fixed;top:0;left:0;height:100vh;overflow-y:auto;z-index:100;padding:24px 0}
+#sidebar h2{font-size:1rem;padding:0 20px 16px;color:#8b5cf6;font-weight:700}
+#sidebar nav a{display:block;padding:6px 20px;font-size:.82rem;color:var(--sb-text);text-decoration:none;border-left:3px solid transparent}
+#sidebar nav a:hover,#sidebar nav a.active{background:var(--sb-hov);color:#fff;border-left-color:#8b5cf6}
+#sidebar nav a.sub{font-size:.76rem;padding-left:36px}
+#dark-toggle{position:fixed;top:16px;right:24px;z-index:200;width:40px;height:40px;border-radius:50%;border:2px solid var(--brd);background:var(--card-bg);cursor:pointer;font-size:1.2rem;display:flex;align-items:center;justify-content:center;box-shadow:var(--card-sh)}
+#dark-toggle:hover{transform:scale(1.1)}
+#main{margin-left:280px;padding:40px 48px;max-width:1100px;width:100%}
+#main h1{font-size:2.2rem;color:var(--h1);margin-bottom:8px;font-weight:800}
+#main h2{font-size:1.5rem;color:var(--h2);margin:48px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--accent);font-weight:700}
+#main h3{font-size:1.15rem;color:var(--h3);margin:32px 0 12px;font-weight:600}
+#main h3::before{content:"§ ";color:var(--accent);font-size:.85rem}
+.chapter-desc{font-size:1rem;color:var(--h3);margin-bottom:32px;line-height:1.7}
+.sec-card{background:var(--card-bg);border:1px solid var(--brd);border-radius:10px;padding:24px 28px;margin:20px 0;box-shadow:var(--card-sh)}
+.def{background:var(--def-bg);border-left:4px solid #3b82f6;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.def .label,.intuition .label,.example-box .label,.counter .label,.summary .label{font-weight:700;font-size:.85rem;margin-bottom:6px}
+.def .label{color:#3b82f6}
+.intuition{background:var(--intu-bg);border-left:4px solid #eab308;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.intuition .label{color:#ca8a04}
+.example-box{background:var(--ex-bg);border-left:4px solid #22c55e;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.example-box .label{color:#16a34a}
+.counter{background:var(--ctr-bg);border-left:4px solid #ef4444;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.counter .label{color:#dc2626}
+.summary{background:var(--sum-bg);border-left:4px solid #8b5cf6;padding:16px 20px;margin:12px 0;border-radius:0 8px 8px 0}
+.summary .label{color:#7c3aed}
+.viz{position:relative;margin:20px 0;border:1px solid var(--brd);border-radius:10px;overflow:hidden;background:var(--card-bg);box-shadow:var(--card-sh)}
+.viz canvas{display:block;width:100%}
+.viz .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 16px;background:var(--code-bg);border-top:1px solid var(--brd)}
+.viz .controls label{font-size:.8rem;color:var(--h3);font-weight:500;white-space:nowrap}
+.viz .controls input[type=range]{flex:1;min-width:80px;accent-color:var(--accent)}
+.viz .controls .val{font-size:.78rem;font-weight:600;color:var(--accent);min-width:36px;text-align:center}
+.viz .controls button{font-size:.78rem;padding:4px 12px;border:1px solid var(--brd);border-radius:6px;background:var(--card-bg);color:var(--text);cursor:pointer}
+.viz .controls button:hover{background:var(--ac-lit);border-color:var(--accent)}
+.formula-block{overflow-x:auto;padding:8px 0}
+@media(max-width:768px){#sidebar{transform:translateX(-280px)}#sidebar.open{transform:translateX(0)}#main{margin-left:0;padding:20px 16px}}
+</style></head><body>
+<button id="dark-toggle" onclick="toggleDark()">🌙</button>
+<aside id="sidebar"><h2>📐 凸优化 · 第四章</h2><nav>
+<a href="#s4">4. 凸优化问题</a>
+<a href="#s4_1" class="sub">4.1 优化问题</a>
+<a href="#s4_2" class="sub">4.2 凸优化</a>
+<a href="#s4_3" class="sub">4.3 线性规划 LP</a>
+<a href="#s4_4" class="sub">4.4 二次优化 QP/SOCP</a>
+<a href="#s4_5" class="sub">4.5 几何规划 GP</a>
+<a href="#s4_6" class="sub">4.6 广义不等式约束</a>
+<a href="#s4_7" class="sub">4.7 向量优化</a>
+</nav></aside>
+<main id="main">
+<h1 id="s4">第四章 凸优化问题</h1>
+<div class="chapter-desc">本章将凸集和凸函数的理论应用于优化问题本身。我们将学习优化问题的标准形式、凸优化问题的定义、最优性条件，以及最重要的凸优化问题家族：线性规划(LP)、二次规划(QP)、二阶锥规划(SOCP)、半正定规划(SDP)、几何规划(GP)。</div>
+
+
+<h2 id="s4_1">4.1 优化问题</h2>
+<div class="sec-card">
+<div class="def"><div class="label">📋 标准形式</div>
+<p>优化问题的<b>标准形式</b>：</p>
+$$\begin{aligned} \text{minimize} \quad & f_0(x) \\ \text{subject to} \quad & f_i(x) \le 0,\; i=1,\ldots,m \\ & h_i(x) = 0,\; i=1,\ldots,p \end{aligned}$$
+<p>其中 $x \in \mathbb{R}^n$ 是优化变量，$f_0$ 是目标函数，$f_i$ 是不等式约束，$h_i$ 是等式约束。问题的<b>可行集</b>为满足所有约束的 $x$ 的集合。</p>
+<p><b>最优值</b> $p^* = \inf\{f_0(x) \mid f_i(x)\le0, h_i(x)=0\}$。<b>最优解</b> $x^*$ 满足 $f_0(x^*) = p^*$。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>优化问题就是在"允许的区域"（可行域）中寻找使目标函数值最小的点。形象地说：在一片带有围栏（约束）的地形（目标函数）中寻找最低的点。</p>
+</div>
+<div class="example-box"><div class="label">✅ 关键概念</div>
+<ul style="margin-left:20px;line-height:1.8">
+<li><b>上镜图形式(epigraph form)：</b> $\min_{x,t} t \;\text{s.t.}\; f_0(x) \le t, f_i(x) \le 0, h_i(x)=0$。这直接将原问题转化为在 $(x,t)$ 空间中在约束集上最小化 $t$。</li>
+<li><b>无约束问题：</b> $m=p=0$，即为 $\min_x f_0(x)$。</li>
+<li><b>可行问题(feasibility problem)：</b> $f_0(x)=0$（常数），只关心是否存在可行点。</li>
+</ul></div>
+
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例4.1 无约束优化 (Boyd)</div>
+<p>$\min f_0(x)$ 其中 $x \in \mathbb{R}^n$（$m=p=0$）。凸函数的无约束优化问题也称凸优化。最优性条件简化为 $\nabla f_0(x^*)=0$。</p>
+<p>例如 $\min \|Ax-b\|_2^2$（最小二乘）是典型的无约束凸优化问题。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例4.2 箱约束 (Boyd)</div>
+<p>$\min f_0(x)$ s.t. $l_i \le x_i \le u_i$（$x$ 每个分量有上下界）。箱约束是线性不等式（$x_i - u_i \le 0, l_i - x_i \le 0$），$2n$ 个约束。若 $f_0$ 凸，这是凸优化问题。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例4.3 最小范数问题 (Boyd)</div>
+<p>$\min \|x\|_2$ s.t. $Ax = b$（等式约束下找最小范数解）。等价于 $\min \frac{1}{2}\|x\|_2^2$ s.t. $Ax=b$（凸问题），有解析解 $x^* = A^T(AA^T)^{-1}b$。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例4.1 无约束优化示例 (Boyd)</div><p>$x \in \mathbb{R}, \text{dom} f_0 = \mathbb{R}_{++}$:<br>• $f_0(x)=1/x$: $p^*=0$，无穷小但不可达。<br>• $f_0(x)=-\log x$: $p^*=-\infty$（无下界）。<br>• $f_0(x)=x\log x$: $p^*=-1/e$，在 $x^*=1/e$ 处唯一取得。</p></div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例4.2 箱约束的标准形式 (Boyd)</div><p>$\min f_0(x)$ s.t. $l_i \le x_i \le u_i$。转换为标准形式：$l_i - x_i \le 0$（$n$ 个约束）和 $x_i - u_i \le 0$（$n$ 个约束），共 $2n$ 个不等式约束。</p></div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>优化问题 = 目标函数 + 不等式约束 + 等式约束。这是数学优化的通用语言。</strong></p></div>
+</div>
+
+
+<div class="example-box"><div class="label">💻 CVXPY实战：凸优化建模完整流程：从问题到求解</div>
+<pre>import cvxpy as cp, numpy as np
+# 例子：投资组合优化 (QP)
+n = 10  # 资产数
+mu = np.random.randn(n) * 0.1  # 期望收益
+Sigma = np.random.randn(n, n); Sigma = Sigma.T @ Sigma / n  # 协方差
+w = cp.Variable(n)
+risk = cp.quad_form(w, Sigma)  # w^T Sigma w (凸二次)
+ret = mu @ w                   # 期望收益 (线性)
+constraints = [cp.sum(w) == 1, w >= 0, ret >= 0.05]
+prob = cp.Problem(cp.Minimize(risk), constraints)
+prob.solve(solver=cp.OSQP)  # 自动识别为QP
+print(f"Optimal weights: {w.value}")
+print(f"Risk: {prob.value:.4f}, Return: {ret.value:.4f}")
+# CVXPY自动做: DCP验证→问题类型识别→选择求解器→求解→结果解析</pre><p style="font-size:.78rem;color:#374151;margin-top:4px;">完整凸优化工作流：1)定义变量,2)构造目标和约束(CVXPY自动验证DCP凸性),3)选择求解器,4)获取结果。CVXPY在幕后做问题类型检测(LP/QP/SOCP/SDP)→选择最优求解器。</p></div>
+
+<div style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:22px 26px;margin:16px 0;"><div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📖 多层公式解读 —— 凸优化最优性条件 ∇f₀(x*)ᵀ(y-x*) ≥ 0</div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第1层：逐字翻译</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">∇f₀(x*)是在x*处的梯度(指向目标增大最快的方向)。(y-x*)是从x*到任意可行点y的方向向量。∇f₀(x*)ᵀ(y-x*)是方向导数——沿这个方向走一步，目标的一阶变化量。条件要求：沿<b>任何可行方向</b>走一步，目标都<b>不会下降</b>。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第2层：几何意义</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">在最优处，可行集X和目标函数f₀的负梯度-∇f₀(x*)形成"支撑"关系：-∇f₀(x*)是可行集在x*处的支撑超平面的法向量。如果你在碗底，碗壁在最低点处是平的——往任何方向走海拔都上升。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第3层：工程使用</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">在MPC中：每步QP求解后用这个条件验证解的最优性。如果存在某个可行方向使∇f₀ᵀ(y-x*)<0→求解器出错→检查数值缩放或换求解器。在IK中：梯度=0→关节角达到最优。无约束时退化为∇f₀(x*)=0。</p></div></div>
+<h2 id="s4_2">4.2 凸优化</h2>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>一个优化问题是<strong>凸优化问题(convex optimization problem)</strong>，如果它满足：</p>
+<ul style="margin-left:20px;line-height:1.8">
+<li>目标函数 $f_0$ 是凸的</li>
+<li>不等式约束函数 $f_1,\ldots,f_m$ 是凸的</li>
+<li>等式约束函数 $h_i(x) = a_i^T x - b_i$ 是仿射的</li>
+</ul>
+<p>标准凸形式：</p>
+$$\begin{aligned} \text{minimize} \quad & f_0(x) \\ \text{subject to} \quad & f_i(x) \le 0,\; i=1,\ldots,m \\ & Ax = b \end{aligned}$$
+<p>其中各 $f_i$（包括 $f_0$）是凸函数。<strong>可行集是凸集</strong>（因为它是凸函数的下水平集与超平面之交）。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>凸优化问题就是在<b>凸的碗里找最低点</b>。因为碗是凸的，局部最低点就是全局最低点（没有"假谷底"）。这是凸优化在实际中最强大的性质——梯度下降等局部方法可以保证全局最优。</p>
+<p><b>关键性质：局部最优 ⇒ 全局最优。</b></p>
+</div>
+<div class="example-box"><div class="label">📘 最优性条件 (Boyd §4.2.2-4.2.3)</div>
+<p>对于可微的凸优化问题（无等式约束），$x^*$ 是最优解 <b>当且仅当</b>：</p>
+$$\nabla f_0(x^*)^T (y - x^*) \ge 0, \quad \forall y \in X$$
+<p>其中 $X$ 是可行集。几何解释：$-\nabla f_0(x^*)$ 是 $X$ 在 $x^*$ 处的支撑超平面的法向量。</p>
+<p>对于无约束问题（$m=p=0$），最优性条件简化为：$\nabla f_0(x^*) = 0$。</p>
+</div>
+<div class="counter"><div class="label">❌ 常见错误</div>
+<p>将非凸优化问题当作凸优化来求解。例如：$\min x_1 x_2$ 受限于 $x_1,x_2 \ge 0$——目标函数不是凸的（Hessian 不定），但可行集是凸的。使用梯度下降可能得到局部最优而非全局最优。</p></div>
+
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例4.5 无约束二次优化 (Boyd)</div>
+<p>$\min \frac{1}{2}x^T P x + q^T x + r$（$P \succ 0$）。最优性条件 $\nabla f_0 = Px^* + q = 0 \implies x^* = -P^{-1}q$。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例4.6 解析中心 (Boyd)</div>
+<p>$\min -\sum_{i=1}^m \log(b_i - a_i^T x)$（无约束，定义在 $\{x \mid a_i^T x < b_i\}$ 上）。目标函数是凸的（$-\log$ 复合仿射）。解称为多面体 $\{x \mid Ax \prec b\}$ 的<b>解析中心(analytic center)</b>，它是该多面体内部的"最中心"点。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例4.4 部分变量受约束的二次最小化 (Boyd)</div><p>考虑 $\min \frac{1}{2}x^T P x + q^T x + r$ s.t. $x_i \ge 0, i=1,\ldots,k$。对不受约束的变量，最优性条件 $\nabla_i f_0(x^*)=0$；对受约束变量，$\nabla_i f_0(x^*) \ge 0$ 且 $x_i^* \nabla_i f_0(x^*) = 0$（互补松弛）。</p></div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>凸优化 = 凸目标 + 凸不等式约束 + 仿射等式约束。局部最优 = 全局最优。</strong></p></div>
+</div>
+
+
+<div class="eng-box"><div class="label">🔧 四大工程系统映射</div>
+<div class="system-grid">
+<div class="sys-card"><span class="sys-label sys-robot">🤖 机器人</span>机器人MPC:每步QP求解min(轨迹误差+控制力),s.t.动力学+关节限位→LP/QP。AGV调度:最小化总行驶距离→LP。时间最优轨迹:二分搜索T+LP可行性。</div>
+<div class="sys-card"><span class="sys-label sys-dl">🧠 深度学习</span>VLA模型量化:离散权重→整数规划→LP松弛。知识蒸馏:学生网络输出匹配教师→min||student-teacher||_2^2→QP。BatchNorm融合:将BN参数折叠进卷积权重的LP。</div>
+<div class="sys-card"><span class="sys-label sys-hpc">⚡ HPC</span>GPU资源分配:最小化通信量分配数据到GPU→LP。稀疏矩阵分块:最小化总计算量均衡负载→QP。NUMA感知内存分配:最小化跨节点访问→LP。</div>
+<div class="sys-card"><span class="sys-label sys-arch">🏗 体系结构</span>寄存器分配:最小化spill/fill→图着色→整数规划→LP松弛。指令调度:最小化总执行周期→LP(无资源冲突时)。缓存分区:分配way给不同core→LP。</div>
+</div></div>
+<h2 id="s4_3">4.3 线性规划 (Linear Programming, LP)</h2>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>线性规划的标准形式：</p>
+$$\begin{aligned} \text{minimize} \quad & c^T x + d \\ \text{subject to} \quad & Gx \preceq h \\ & Ax = b \end{aligned}$$
+<p>目标函数和所有约束函数都是仿射的（线性的）。可行集是多面体，因此是凸的。</p>
+<p><b>LP 是最简单的凸优化问题</b>——所有仿射函数既是凸的也是凹的。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>LP 是在一个多面体（由线性不等式削出的凸多面体）上最小化一个线性函数。最优解总是出现在可行集的<b>顶点</b>上（因为线性函数的等值线是平行超平面，推到可行集边缘就是顶点）。</p>
+<p>这是单纯形法(simplex method)工作的原理——在多面体的顶点之间移动。</p>
+</div>
+<div class="example-box"><div class="label">✅ 经典 LP 例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li><b>食谱问题(diet problem)：</b>选择食物组合以最小化成本，同时满足营养要求。$\min c^T x$ s.t. $Ax \succeq b, x \succeq 0$。</li>
+<li><b>Chebyshev 逼近：</b> $\min \max_{i} |a_i^T x - b_i|$ 可以转化为 LP。</li>
+<li><b>线性分式规划(Linear-fractional programming)：</b> $\min f_0(x)/(c^T x+d)$ 可以转化为 LP。</li>
+</ol></div>
+<div class="formula-block">$$\text{minimize } c^T x \quad \text{s.t. } Gx \preceq h,\; Ax = b$$</div>
+
+<div style="background:#f0f9ff;border:1px solid #93c5fd;border-radius:10px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#2563eb;font-size:.9rem;margin-bottom:10px;">📖 公式解读 — $\min c^T x$ s.t. $Gx \preceq h, Ax=b$ 为什么最优解一定在顶点？</div>
+<ul style="line-height:2.0;margin-left:16px;">
+<li><b>$c^T x$ 的含义：</b> $c$ 是一个方向向量，$c^T x$ 是该方向上的投影。固定 $c^T x = k$ 是一族平行超平面。最小化 $c^T x$ 就是把这族超平面沿 $-c$ 方向推，直到碰到可行集边缘。</li>
+<li><b>为什么在顶点：</b> 线性函数没有"弯曲"——它的等值线是平的。你在多面体上把一个平面往一个方向推，它最后碰到的一定是某个角（顶点），而不是边上的某处。</li>
+<li><b>通俗类比：</b> 你把一个相框（等值平面）从房间的西南角往东北方向推。相框首先碰到房间里哪个家具的角？答案一定是一个"尖角"（顶点），而不是光滑的曲面。</li>
+<li><b>数值例子：</b> $\min -x_1-2x_2$ s.t. $x_1+x_2\le3, x_1\ge0, x_2\ge0$。三个顶点：$(0,0),(3,0),(0,3)$。代入目标：$0,-3,-6$。最优在 $(0,3)$——恰好是一个顶点。</li>
+</ul>
+</div>
+
+
+<div style="background:#f0f9ff;border:1px solid #93c5fd;border-radius:10px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#2563eb;font-size:.9rem;margin-bottom:10px;">📖 公式解读 — $\nabla f_0(x^*)^T(y-x^*)\ge0,\;\forall y\in X$ 到底在说什么？</div>
+<ul style="line-height:2.0;margin-left:16px;">
+<li><b>拆解符号：</b> $\nabla f_0(x^*)$ 是目标函数在 $x^*$ 处的梯度（指向函数增大最快的方向）。$(y-x^*)$ 是从 $x^*$ 指向任意可行点 $y$ 的方向。</li>
+<li><b>通俗类比：</b> 你站在碗底 $x^*$。往<b>任何可行方向</b>迈一步，海拔都只会上升（或不变）。如果你在某处可以往某个方向走一步让海拔下降，那你就还没到碗底。</li>
+<li><b>几何翻译：</b> 梯度 $-\nabla f_0(x^*)$ 是可行集 $X$ 在 $x^*$ 处的<b>支撑超平面法向量</b>。如果你站在碗的最低处，碗壁在最低点处是平的支持的。</li>
+<li><b>无约束的特例：</b> 若没有约束，条件退化为 $\nabla f_0(x^*)=0$——梯度为零。这就是一维时导数=0的推广。</li>
+<li><b>为什么重要：</b> 这条不等式可以检验任意候选解是否真的是最优——是凸优化的"试金石"。对于非凸问题，梯度为零只是必要而非充分条件。</li>
+</ul>
+</div>
+
+
+<div style="background:#f0f9ff;border:1px solid #93c5fd;border-radius:10px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#2563eb;font-size:.9rem;margin-bottom:10px;">📖 公式解读 — 优化问题标准形式每部分代表什么？</div>
+<ul style="line-height:2.0;margin-left:16px;">
+<li><b>$\min f_0(x)$：</b> "我要最小化什么"——目标函数。$f_0$ 是你想让它尽量小的量，如成本、误差、能耗。</li>
+<li><b>$f_i(x) \le 0$：</b> "我不能超过的界限"——不等式约束。$f_i(x)\le0$ 定义了可行域的"围墙"。例如 $x_1-5\le0$ 意味着 $x_1\le5$。</li>
+<li><b>$h_i(x)=0$：</b> "必须恰好满足的条件"——等式约束。例如功率守恒 $P_{in}=P_{out}$、质量守恒等。注意：等式约束必须是仿射的才能保证凸性。</li>
+<li><b>$p^* = \inf\{f_0(x)\mid\text{满足约束}\}$：</b> 最优值。如果没有人能达到精确的最优值但可以无限接近，用 $\inf$。</li>
+<li><b>通俗类比：</b> 你在一个围栏（不等式约束）里找最低点，同时必须站在指定的地砖上（等式约束）。围栏内的最低的那块地砖就是最优解。</li>
+<li><b>上镜图形式技巧：</b> $\min_{x,t} t$ s.t. $f_0(x)\le t$ + 原约束。这引入了一个辅助变量 $t$，把目标函数"拉平"为线性函数——方便后续对偶推导。</li>
+</ul>
+</div>
+
+<div class="viz"><canvas id="cv43" height="320"></canvas>
+<div class="controls"><label>约束数量</label><input type="range" id="n43" min="3" max="8" value="5" oninput="draw43()"><span class="val" id="nv43">5</span><label>c₁ (目标x权重)</label><input type="range" id="c1_43" min="-10" max="10" value="-3" oninput="draw43()"><span class="val" id="c1v43">-3</span><label>c₂ (目标y权重)</label><input type="range" id="c2_43" min="-10" max="10" value="-4" oninput="draw43()"><span class="val" id="c2v43">-4</span></div></div>
+
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例4.7 Von Neumann增长模型 (Boyd)</div>
+<p>考虑有 $n$ 个部门的经济体。$x_i$ 是第 $i$ 部门的产出。最大化增长率 $\alpha$，s.t. $\sum_i a_{ij} x_i \ge \alpha x_j$（部门 $j$ 有足够投入）。这是 LP（或等价的特征值问题）。</p>
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>LP = 线性目标 + 线性约束。最优解在多面体的顶点处取得。计算高效的数学规划基石。</strong></p></div>
+</div>
+
+
+<div class="interview-q"><div class="label" style="color:#dc2626">🎤 面试高频问题 & 工程落地陷阱</div><p style="margin:6px 0;"><b>Q: QP和LP的区别？各自的典型求解器？</b><br><b>A:</b> QP目标含二次项(凸: P>=0), LP全线性。LP最优必在顶点; QP最优可能在面内部。求解器: LP→Gurobi(单纯形+内点), OSQP(ADMM,极快); SOCP→ECOS/MOSEK; SDP→SDPT3/SeDuMi。</p><p style="margin:6px 0;"><b>Q: MPC为什么每步解QP而不是直接求解析解？</b><br><b>A:</b> 因为约束会变化(障碍物位置、目标点更新)。QP没有固定解析解(有不等式约束时)。但求解器(OSQP)在毫秒级处理100状态+10预测步的QP。</p><p style="margin:6px 0;"><b>Q: 工程中如何debug凸优化求解失败？</b><br><b>A:</b> 1)检查DCP规则(CVXPY自动报错); 2)验证Slater条件(严格可行点存在?); 3)检查数值缩放(变量/约束量级差>10^6时需缩放); 4)尝试不同求解器(OSQP vs ECOS vs SCS); 5)加微小正则化(1e-8*I到Hessian)。</p></div>
+
+<div style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:22px 26px;margin:16px 0;"><div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📖 多层公式解读 —— QP目标函数 ½xᵀPx + qᵀx 为什么是凸的？</div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第1层：Hessian判定</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">∇²f(x) = P。若P⪰0(P半正定,所有特征值≥0)→f凸。P≻0(P正定)→f严格凸→有唯一全局最优。如果P不定(有正有负特征值)→f既非凸也非凹→可能有多个局部最优。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第2层：为什么是½</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">½是纯数学惯例——求导后消失:∇f = Px + q。没有½的话∇f = 2Px + q,多一个系数2,不方便。½不改变凸性(凸函数乘以正数仍是凸的)。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第3层：工程场景</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">投资组合: P=Σ(协方差矩阵)⪰0→风险=½wᵀΣw是凸的→唯一最优组合。MPC: P=Q(状态代价)⪰0→目标凸→QP有唯一解。岭回归: P=AᵀA+γI≻0(加γI保证正定)→数值稳定。</p></div></div>
+<h2 id="s4_4">4.4 二次优化 (QP, QCQP, SOCP)</h2>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p><b>二次规划(QP - Quadratic Program)：</b></p>
+$$\begin{aligned} \text{minimize} \quad & \frac{1}{2}x^T P x + q^T x + r \\ \text{subject to} \quad & Gx \preceq h,\; Ax = b \end{aligned}$$
+<p>其中 $P \succeq 0$（$P$ 半正定）。目标函数是凸二次函数。</p>
+<p><b>二次约束二次规划(QCQP)：</b>在 QP 基础上增加二次约束 $\frac{1}{2}x^T P_i x + q_i^T x + r_i \le 0$，其中 $P_i \succeq 0$。</p>
+<p><b>二阶锥规划(SOCP)：</b></p>
+$$\begin{aligned} \text{minimize} \quad & f^T x \\ \text{subject to} \quad & \|A_i x + b_i\|_2 \le c_i^T x + d_i,\; i=1,\ldots,m \\ & Fx = g \end{aligned}$$
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>QP 是在多面体上最小化一个抛物面（凸二次函数）。SOCP 允许二次约束，相当于要求在 $(A_i x + b_i, c_i^T x + d_i)$ 空间中的点落在二阶锥（冰淇淋锥）内。</p>
+<p><b>重要性链：</b>LP ⊂ QP ⊂ QCQP ⊂ SOCP ⊂ SDP。越后面的类越强大，但求解的计算成本也越高。</p>
+</div>
+<div class="example-box"><div class="label">✅ 典型例子</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li><b>最小二乘(Least-squares)：</b> $\min\|Ax-b\|_2^2 = x^T A^T A x - 2b^T A x + b^T b$。这是一个 QP。</li>
+<li><b>投资组合优化：</b> $\min x^T \Sigma x$ s.t. $\mu^T x \ge R, \mathbf{1}^T x = 1, x \succeq 0$。风险最小化，是 QP（$\Sigma \succeq 0$）。</li>
+<li><b>鲁棒最小二乘：</b> $\min \|Ax-b\|_2 + \rho\|x\|_1$ 可以重写为 SOCP。</li>
+</ol></div>
+
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例4.8 带损失风险约束的投资组合 (Boyd)</div>
+<p>$\min - \mu^T x$ s.t. $x^T \Sigma x \le \sigma^2,\; \mathbf{1}^T x = 1,\; x \succeq 0$。线性目标（最大化收益），二次约束（风险预算），是 QCQP。</p>
+<p>或其 SOCP 等价形式：$\min -\mu^T x$ s.t. $\|\Sigma^{1/2}x\|_2 \le \sigma,\; \mathbf{1}^T x = 1,\; x \succeq 0$。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例4.8 带损失风险的投资组合 (Boyd)</div><p>$\min \mu^T x$ s.t. $x^T \Sigma x \le \sigma^2,\; \mathbf{1}^T x = 1,\; x \succeq 0$。这是线性目标 + 二次约束的 QCQP。等价 SOCP 形式：$\min \mu^T x$ s.t. $\|\Sigma^{1/2} x\|_2 \le \sigma$ 加线性约束。</p></div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>QP = 凸二次目标 + 线性约束；SOCP = 二阶锥约束。它们是 LP 的自然推广，广泛用于工程和金融。</strong></p></div>
+</div>
+
+
+<h2 id="s4_5">4.5 几何规划 (Geometric Programming, GP)</h2>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>几何规划处理<b>单项式(monomial)</b>和<b>正项式(posynomial)</b>：</p>
+<ul style="margin-left:20px;line-height:1.8">
+<li><b>单项式：</b> $f(x) = c x_1^{a_1} x_2^{a_2} \cdots x_n^{a_n}$，其中 $c>0, a_i \in \mathbb{R}$，定义在 $\mathbb{R}^n_{++}$ 上。</li>
+<li><b>正项式：</b> 多个单项式之和：$f(x) = \sum_{k=1}^K c_k x_1^{a_{1k}} \cdots x_n^{a_{nk}}$。</li>
+</ul>
+<p>GP 的标准形式：</p>
+$$\begin{aligned} \text{minimize} \quad & f_0(x) \\ \text{subject to} \quad & f_i(x) \le 1,\; i=1,\ldots,m \\ & h_i(x) = 1,\; i=1,\ldots,p \end{aligned}$$
+<p>其中 $f_i$ 是正项式，$h_i$ 是单项式。通过变量变换 $x_i = e^{y_i}$，GP 可以转化为凸优化问题！</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>看似非凸的 GP 问题（正项式通常不是凸的）通过巧妙的对数变换可以变成凸的。这是因为 $\log(e^{y_1}+\cdots+e^{y_n})$ 是 log-sum-exp 函数——我们知道它是凸的。</p>
+<p>这使得 GP 在工程设计中非常强大——许多工程设计问题自然地以 GP 的形式出现（如电路尺寸、机械设计）。</p>
+</div>
+<div class="example-box"><div class="label">✅ 经典 GP 例子 (Boyd §4.5.4)</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li><b>悬臂梁设计：</b>确定分段梁的截面尺寸，最小化体积（材料成本），受限于应力、挠度等约束。所有约束都是正项式。</li>
+<li><b>电路晶体管尺寸：</b>确定晶体管宽度和长度，受限于增益、带宽约束。</li>
+<li><b>最大化椭圆体体积：</b>受限于线性不等式。可以通过 GP 或其对偶来解决。</li>
+</ol></div>
+<div class="formula-block">
+<strong>转化公式：</strong> 令 $y_i = \log x_i$，则单项式变为 $c e^{a^T y}$，正项式变为 $\sum_k c_k e^{a_k^T y}$。
+$$\text{GP} \xrightarrow{x_i = e^{y_i}} \text{凸优化问题}$$
+</div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>GP 看起来非凸，但通过 log 变换可以转化为凸问题。在工程设计中广泛应用。</strong></p></div>
+</div>
+
+
+<div style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:22px 26px;margin:16px 0;"><div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📖 多层公式解读 —— SDP约束 x₁F₁+...+xₙFₙ+G ⪯ 0 (LMI)</div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第1层：符号解读</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">⪯0表示左边的矩阵半负定(所有特征值≤0)。>0表示正定。x_i是标量变量，F_i,G是固定的对称矩阵。整个表达式=关于x的线性矩阵函数=Linear Matrix Inequality(LMI)。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第2层：为什么叫LMI</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">和标量线性不等式aᵀx≤b类比: LMI把"≤"推广到矩阵"⪯"，把aᵀx推广到x₁F₁+...+xₙFₙ。每个LMI是一个SDP约束。多个LMI可以合并为一个块对角LMI。</p></div><div style="background:#fff;border-radius:8px;padding:12px;margin:8px 0;"><div style="font-weight:700;color:#2563eb;font-size:.8rem;">第3层：工程场景</div><p style="font-size:.8rem;line-height:1.9;margin-top:4px;">Lyapunov稳定性: AᵀP+PA⪯0(P≻0)→系统稳定⇔存在P满足LMI。H∞控制: 性能指标<γ⇔存在正定矩阵满足某LMI。量子态层析: 密度矩阵ρ⪰0,tr(ρ)=1→SDP。</p></div></div>
+<h2 id="s4_6">4.6 广义不等式约束</h2>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>将广义不等式应用于优化约束，得到<b>锥规划(conic programming)</b>：</p>
+<p><b>标准锥形式：</b></p>
+$$\begin{aligned} \text{minimize} \quad & c^T x \\ \text{subject to} \quad & Fx + g \preceq_K 0 \\ & Ax = b \end{aligned}$$
+<p>其中 $K$ 是一个正锥。当 $K$ 取不同形式时得到不同问题：</p>
+<ul style="margin-left:20px;line-height:1.8">
+<li>$K = \mathbb{R}^m_+$ → 线性规划 LP</li>
+<li>$K = \{(x,t) \mid \|x\|_2 \le t\}$ → 二阶锥规划 SOCP</li>
+<li>$K = \mathbb{S}^n_+$ → 半正定规划 <b>SDP</b></li>
+</ul>
+<p><b>半正定规划(SDP)：</b></p>
+$$\begin{aligned} \text{minimize} \quad & c^T x \\ \text{subject to} \quad & x_1 F_1 + \cdots + x_n F_n + G \preceq 0 \\ & Ax = b \end{aligned}$$
+<p>其中 $F_i, G \in \mathbb{S}^k$。这是线性矩阵不等式(LMI)约束。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>锥规划统一了 LP、SOCP、SDP。它们都是在特定锥的"切片"上最小化线性函数。SDP 的可行集是一类特殊的凸集——它不是多面体，但仍然是凸的。</p>
+<p>SDP 在控制理论中特别重要（Lyapunov 不等式、$H_\infty$ 控制、LMI 条件）。</p>
+</div>
+<div class="example-box"><div class="label">✅ SDP 应用</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li><b>矩阵范数最小化：</b> $\min \|A(x)\|_2$ 可以写为 SDP。</li>
+<li><b>特征值优化：</b> $\min \lambda_{\max}(A(x))$ 是 SDP。</li>
+<li><b>线性系统的镇定(Stabilization)：</b>寻找反馈增益使闭环系统稳定是 SDP 问题。</li>
+<li><b>图的最大割近似：</b>Goemans-Williamson 算法使用 SDP 松弛。</li>
+</ol></div>
+
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例4.9 最佳线性无偏估计 (Boyd)</div>
+<p>设 $y = Ax + v$，$v$ 为零均值噪声，协方差 $E[vv^T] = I$。寻找矩阵 $B$ 使 $\hat{x} = By$ 是无偏的（$BA = I$）且最小化 $E[\|\hat{x}-x\|_2^2] = \text{tr}(BB^T)$。该问题可写为 SDP。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例4.10 矩阵集合的最小上界 (Boyd)</div>
+<p>给定 $A_i \in \mathbb{S}^n$，$i=1,\ldots,m$，寻找一个"最小"的对称矩阵 $X$ 满足 $X \succeq A_i$（即 $X \succeq A_i$ 对所有 $i$）。$\min \lambda_{\max}(X)$ s.t. $X \succeq A_i,\; \forall i$，可写为 SDP：$\min t$ s.t. $X \preceq t I,\; X \succeq A_i$。</p>
+</div>
+<div class="example-box" style="border-left-color:#7c3aed;background:var(--sum-bg)"><div class="label">📘 例4.10 矩阵集合的最小上界 (Boyd)</div><p>给定 $A_1,\ldots,A_m \in \mathbb{S}^n$，求最小化 $\lambda_{\max}(X)$ 满足 $X \succeq A_i$。SDP 形式：$\min t$ s.t. $X \preceq t I,\; X \succeq A_i,\; i=1,\ldots,m$。这是寻找一组矩阵的"最小公共上界"的凸优化方法。</p></div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>LP ⊂ SOCP ⊂ SDP。锥规划用广义不等式统一考虑不同类型的凸约束。</strong></p></div>
+</div>
+
+<h2 id="s4_7">4.7 向量优化</h2>
+<div class="sec-card">
+<div class="def"><div class="label">📋 中文定义</div>
+<p>向量优化问题中，目标函数 $f_0: \mathbb{R}^n \to \mathbb{R}^q$ 是向量值的：</p>
+$$\begin{aligned} \text{minimize (w.r.t. } K) \quad & f_0(x) \\ \text{subject to} \quad & f_i(x) \le 0,\; i=1,\ldots,m \\ & h_i(x) = 0,\; i=1,\ldots,p \end{aligned}$$
+<p>用正锥 $K$ 定义"最小"（即 $\preceq_K$ 意义下的最小）。</p>
+<p><b>Pareto 最优</b>：$x^*$ 是 Pareto 最优（极小元），如果不存在可行点 $x$ 使 $f_0(x) \preceq_K f_0(x^*)$ 且 $f_0(x) \neq f_0(x^*)$——即无法在不损害其他目标的情况下改善某个目标。</p>
+<p><b>标量化方法：</b>取 $\lambda \succ_{K^*} 0$（在 $K^*$ 内部），求解 $\min \lambda^T f_0(x)$ 得到向量优化问题的 Pareto 最优解。</p>
+</div>
+<div class="intuition"><div class="label">🔮 几何直觉</div>
+<p>向量优化对应多目标优化——如同时最小化成本和最大化性能。Pareto 最优的意思是：在现有方案中没有"全面更优"的选择。</p>
+<p>标量化的几何解释：取一个正的价格向量 $\lambda$，将所有目标加权求和，最小化这个加权和，得到的点在 Pareto 前沿上。通过改变权重 $\lambda$，可以扫描 Pareto 前沿。</p>
+</div>
+<div class="example-box"><div class="label">✅ 应用</div>
+<ol style="margin-left:20px;line-height:1.8;">
+<li><b>多目标投资组合：</b>最大化期望收益同时最小化风险。</li>
+<li><b>工程设计：</b>最小化成本、最大化的强度，同时满足约束。</li>
+<li><b>正则化回归：</b>$\min \|Ax-b\|_2^2$ 和 $\|x\|_1$ 之间的权衡（LASSO 路径）。</li>
+</ol></div>
+<div class="summary"><div class="label">🧠 一句话总结</div><p><strong>向量优化 = 多目标优化。通过标量化（加权求和）将多目标转化为单目标凸优化。</strong></p></div>
+</div>
+
+
+
+<!-- SUPPLEMENT START -->
+<div data-sup="ch4-1" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">🏭 工程用法 — 线性规划 LP：供应链调度</div>
+<p>问题：两座工厂 $x_1,x_2$（吨/天），单位利润 $40,30$ 元，最大化 $40x_1+30x_2$。约束：原料 $x_1+x_2\le100$，人工 $2x_1+x_2\le150$，$x_1,x_2\ge0$。</p>
+<p>标准型 $\min c^Tx,\ Ax\preceq b,\ x\succeq0$，其中 $c=(-40,-30)$。顶点解：$(50,50)$ → 利润 $40\cdot50+30\cdot50=3500$。LP 最优永远在多面体顶点取得，可用单纯形或内点法在毫秒级求解上百万变量。</p>
+</div>
+<div data-sup="ch4-2" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">🏭 工程用法 — 二次规划 QP：Markowitz 组合 (3 资产)</div>
+<p>$\min_w\ w^T\Sigma w$ s.t. $\mu^Tw\ge r_0,\ \mathbf{1}^Tw=1,\ w\succeq0$。三资产期望收益 $\mu=(0.10,0.07,0.03)$，协方差 $\Sigma=\operatorname{diag}(0.04,0.02,0.005)$（独立近似）。</p>
+<p>目标 $w^T\Sigma w=0.04w_1^2+0.02w_2^2+0.005w_3^2$ 是组合方差(风险)。要求年化收益 $\ge6\%$ 时，求解给出类似 $w\approx(0.3,0.3,0.4)$ 的低风险配置。$\Sigma\succeq0$ 保证目标凸，全局最优唯一。</p>
+</div>
+<div data-sup="ch4-3" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">🏭 工程用法 — 二阶锥规划 SOCP：天线波束成形</div>
+<p>SOCP 约束形如 $\|A_ix+b_i\|_2\le c_i^Tx+d_i$。波束成形：设计权重 $w$ 使目标方向增益 $=1$（$a_\theta^Tw=1$），最小化其它方向的旁瓣能量 $\|Bw\|_2$。</p>
+<p>$\min t$ s.t. $\|Bw\|_2\le t,\ a_\theta^Tw=1$。这天然是 SOCP。鲁棒 LP（系数在椭球内不确定）也化为 SOCP：$\min c^Tx$ s.t. $a_i^Tx+\|P_i^Tx\|_2\le b_i$。SOCP 涵盖 LP/QP，求解效率接近 LP。</p>
+</div>
+<div data-sup="ch4-4" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">🏭 工程用法 — 半定规划 SDP：矩阵填充</div>
+<p>SDP 变量是对称矩阵，约束含 $X\succeq0$。矩阵填充（如推荐系统的评分矩阵 $M$，仅观测到部分项 $M_{ij},(i,j)\in\Omega$）：</p>
+<p>$\min\ \operatorname{tr}(X)$ s.t. $X_{ij}=M_{ij}\ \forall(i,j)\in\Omega,\ X\succeq0$。迹是核范数的凸代理，鼓励低秩。$X\succeq0$ 约束把组合性的"低秩"问题松弛为可解的凸 SDP，是 Netflix 类问题的理论基础。</p>
+</div>
+<div data-sup="miss-4-1" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:2px solid #93c5fd;border-radius:12px;padding:20px 24px;margin:16px 0;">
+<div style="font-weight:700;color:#1d4ed8;font-size:.92rem;margin-bottom:10px;">📕 补充 (4.2.5) — 拟凸优化 (Quasiconvex Optimization)</div>
+<p>拟凸函数：所有下水平集 $\{x\mid f(x)\le\alpha\}$ 都是凸集（但函数本身不必凸）。例：$f(x)=\dfrac{a^Tx+b}{c^Tx+d}$（线性分式）。</p>
+<p>求解技巧——二分法：固定阈值 $t$，求解凸可行性问题"$\phi_t(x)\le0$ 是否有解？"（$\phi_t$ 是 $f(x)\le t$ 的凸表示）。若可行则降低 $t$，否则升高，二分逼近最优值 $p^\*$。每步一个凸可行问题，$\log_2(1/\epsilon)$ 步即达精度 $\epsilon$。</p>
+</div>
+<!-- SUPPLEMENT END -->
+
+<h2 id="exercises">练习题 (完整版，选自Boyd课本)</h2>
+<div class="sec-card">
+<div class="def"><div class="label">📝 说明</div><p>以下全部习题选自Boyd & Vandenberghe <em>Convex Optimization</em> 课本对应章节。建议结合正文和例题独立完成。</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.1</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">minimize          f0 (x1 , x2 ) subject to        2x1 + x2 ≥ 1 x1 + 3x2 ≥ 1 x1 ≥ 0, x2 ≥ 0. Make a sketch of the feasible set. For each of the following objective functions, give the optimal set and t...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.2</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">Pm minimize    f0 (x) = −        i=1 log(bi − aTi x) with domain dom f0 = {x | Ax ≺ b}, where A ∈ Rm×n (with rows aTi ). We assume that dom f0 is nonempty. Prove the following facts (which include the...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.3</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">minimize        (1/2)xT P x + q T x + r subject to      −1 ≤ xi ≤ 1, i = 1, 2, 3, where                     "                    #              "           # 13     12   −2                      −22.0 ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.4</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">group, i.e., closed under products and inverse. We say that the function f : Rn → R is G- invariant, or symmetric with respect to G, if f (Qi x) = f (x) holds for all x and i = 1, . . . , k. Pk We def...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.5</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">lent. Carefully explain how the solution of each problem is obtained from the solution of the other problems. The problem data are the matrix A ∈ Rm×n (with rows aTi ), the vector b ∈ Rm , and the con...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.6</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">equality constraint functions. In some special cases, however, it is possible to handle convex equality constraint functions, i.e., constraints of the form h(x) = 0, where h is convex. We explore this...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.7</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">minimize       f0 (x)/(cT x + d) subject to     fi (x) ≤ 0, i = 1, . . . , m Ax = b where f0 , f1 , . . . , fm are convex, and the domain of the objective function is defined as {x ∈ dom f0 | cT x + d...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.8</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">(a) Minimizing a linear function over an affine set. minimize       cT x subject to     Ax = b. (b) Minimizing a linear function over a halfspace. minimize      cT x subject to    aT x ≤ b, where a 6=...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.9</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">minimize          cT x subject to        Ax  b with A square and nonsingular. Show that the optimal value is given by  cT A−1 b       A−T c  0 p⋆ = −∞             otherwise.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.10</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">Explain in detail the relation between the feasible sets, the optimal solutions, and the optimal values of the standard form LP and the original LP.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.11</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">in detail the relation between the optimal solution of each problem and the solution of its equivalent LP. (a) Minimize kAx − bk∞ (ℓ∞ -norm approximation). (b) Minimize kAx − bk1 (ℓ1 -norm approximati...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.12</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">pair of nodes. The variables in the problem are the flows on each link: xij will denote the flow from node i to node j. The cost of the flow along the link from node i to node j is given by cij xij , ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.13</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">minimize       cT x subject to     Ax  b for all A ∈ A, where A ⊆ Rm×n is the set A = {A ∈ Rm×n | Āij − Vij ≤ Aij ≤ Āij + Vij , i = 1, . . . , m, j = 1, . . . , n}. (The matrices Ā and V are given...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.14</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">Rm×n , denoted kAk∞ , is given by X          n kAxk∞ kAk∞ = sup         = max        |aij |. x6=0 kxk∞  i=1,...,m j=1 This norm is sometimes called the max-row-sum norm, for obvious reasons (see §A.1....</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.15</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">have components equal to zero or one: minimize      cT x subject to    Ax  b                                         (4.67) xi ∈ {0, 1},       i = 1, . . . , n. In general, such problems are very dif...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.16</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">Rn , t = 0, . . . , N , and actuator or input signal u(t) ∈ R, for t = 0, . . . , N − 1. The dynamics of the system is given by the linear recurrence x(t + 1) = Ax(t) + bu(t),         t = 0, . . . , N...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.17</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">x1 , . . . , xn . These activities consume m resources, which are limited. Activity j consumes Aij xj of resource i, where Aij are given. P     The total resource consumption is additive, so n the tot...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.18</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">{v 1 , v 2 , . . . , v K } and {w1 , w2 , . . . , wL }. Formulate the following two problems as LP fea- sibility problems. (a) Determine a hyperplane that separates the two sets, i.e., find a ∈ Rn and...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.19</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">minimize       kAx − bk1 /(cT x + d) subject to     kxk∞ ≤ 1, where A ∈ Rm×n , b ∈ Rm , c ∈ Rn , and d ∈ R. We assume that d > kck1 , which implies that cT x + d > 0 for all feasible x. (a) Show that ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.20</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">powers p1 , . . . , pn ≥ 0, transmitting to n receivers. These powers are the optimization variables in the problem. We let G ∈ Rn×n denote the matrix of path gains from the transmitters to the receiv...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.21</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">(a) Minimizing a linear function over an ellipsoid centered at the origin. minimize        cT x subject to      xT Ax ≤ 1, where A ∈ Sn++ and c 6= 0. What is the solution if the problem is not convex ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.22</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">minimize         (1/2)xT P x + q T x + r subject to       xT x ≤ 1, with P ∈ Sn                  ⋆ ++ . Show that x = −(P + λI) −1 q where λ = max{0, λ̄} and λ̄ is the largest solution of the nonlinea...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.23</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">Pm minimize     kAx − bk4 = (           i=1 (aTi x − bi )4 )1/4 as a QCQP. The matrix A ∈ Rm×n (with rows aTi ) and the vector b ∈ Rm are given.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.24</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">minimize       kAx − bkp , where A ∈ Cm×n , b ∈ Cm , and the variable is x ∈ Cn . The complex ℓp -norm is defined by m !1/p X              p kykp =             |yi | i=1 for p ≥ 1, and kyk∞ = maxi=1,....</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.25</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">Ei = {Pi u + qi | kuk2 ≤ 1},             i = 1, . . . , K + L, n where Pi ∈ S . We are interested in finding a hyperplane that strictly separates E1 , . . . , EK from EK+1 , . . . , EK+L , i.e., we wa...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.26</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">xT x ≤ yz,         y ≥ 0,              z≥0 if and only if                     2x ≤ y + z,            y ≥ 0,         z ≥ 0. y−z 2 Use this observation to cast the following problems as SOCPs. 198    ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.27</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">minimize       (Ax + b)T (I + B diag(x)B T )−1 (Ax + b) subject to     x  0, with A ∈ Rm×n , b ∈ Rm , B ∈ Rm×n . The variable is x ∈ Rn . Hint. First show that the problem is equivalent to minimize  ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.28</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">application of second-order cone programming. In this problem we consider a similar robust variation of the (convex) quadratic program minimize      (1/2)xT P x + q T x + r subject to    Ax  b. For s...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.29</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">normally distributed with mean c̄ and covariance matrix R. Consider the problem maximize        prob(cT x ≥ α) subject to      F x  g, Ax = b. Assuming there exists a feasible point x̃ for which c̄T ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.30</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">with fixed length and circular cross section with radius r. A layer of insulation, with thickness w ≪ r, surrounds the pipe to reduce heat loss through the pipe walls. The design variables in this pro...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.31</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">alent to the GP PN minimize               wh i=1 i i subject to      wi /wmax ≤ 1, wmin /wi ≤ 1, i = 1, . . . , N hi /hmax ≤ 1, hmin /hi ≤ 1, i = 1, . . . , N hi /(wi Smax ) ≤ 1, Smin wi /hi ≤ 1, i = ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.32</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">entiable at a point x0 ≻ 0, with f (x0 ) > 0. How would you find a monomial function fˆ : Rn → R such that f (x0 ) = fˆ(x0 ) and for x near x0 , fˆ(x) is very near f (x)?</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.33</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">(a) Minimize max{p(x), q(x)}, where p and q are posynomials. (b) Minimize exp(p(x)) + exp(q(x)), where p and q are posynomials. (c) Minimize p(x)/(r(x) − q(x)), subject to r(x) > q(x), where p, q are ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.34</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">matrix, i.e., Aij > 0. (The results of this problem hold for irreducible nonnegative matrices as well.) Let λpf (A) denotes its Perron-Frobenius eigenvalue, i.e., its eigenvalue of largest magnitude. ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.35</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">some positive variables x1 , . . . , xn . Signomials are more general than posynomials, which are signomials with all positive coefficients. A signomial program is an optimization problem of the form ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.36</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">(in the objective and constraints) has at most two monomial terms. Hint. Express each sum (of monomials) as a sum of sums, each with two terms.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.37</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">and suppose the functions fi : Rn → R, i = 1, . . . , k, are posynomials of x1 , . . . , xn . If φ : Rk → R is a polynomial with nonnegative coefficients, then the composition h(x) = φ(f1 (x), . . . ,...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.38</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">where A, B ∈ Sn , are defined as the roots of the polynomial det(λB − A) (see §A.5.3). Suppose B is nonsingular, and that A and B can be simultaneously diagonalized by a congruence, i.e., there exists...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.39</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">minimize         cT x subject to       x1 F1 + x2 F2 + · · · + xn Fn + G  0, with Fi , G ∈ Sk , c ∈ Rn . (a) Suppose R ∈ Rk×k is nonsingular. Show that the SDP is equivalent to the SDP minimize      ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.40</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">(a) The LP (4.27). (b) The QP (4.34), the QCQP (4.35) and the SOCP (4.36). Hint. Suppose A ∈ Sr++ , C ∈ Ss , and B ∈ Rr×s . Then              A    B  0 ⇐⇒ C − B T A−1 B  0. BT   C For a more compl...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.41</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">if xT Ax ≥ 0 for all x  0 (see exercise 2.35). A matrix A ∈ Rn×n is said to be a P0 - matrix if maxi=1,...,n xi (Ax)i ≥ 0 for all x. Checking whether a matrix is copositive or a P0 -matrix is very di...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.42</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">x1 F 1 + · · · + xn F n + G  0 where F1 , . . . , Fn , G are complex n × n Hermitian matrices, i.e., FiH = Fi , GH = G, and x ∈ Rn is a real variable. A complex SDP is the problem of minimizing a (re...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.43</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">A(x) = A0 + x1 A1 + · · · + xn An m where Ai ∈ S . Let λ1 (x) ≥ λ2 (x) ≥ · · · ≥ λm (x) denote the eigenvalues of A(x). Show how to pose the following problems as SDPs. (a) Minimize the maximum eigenv...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.44</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">mial p : R → R, p(t) = x1 + x2 t + · · · + x2k+1 t2k , that satisfies given bounds li ≤ p(ti ) ≤ ui , at m specified points ti , and, of all the polynomials that satisfy these bounds, has the greatest...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.45</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">R of degree 2k. The polynomial is said to be positive semidefinite (PSD) if p(x) ≥ 0 for all x ∈ Rn . Except for special cases (e.g., n = 1 or k = 1), it is extremely difficult to determine whether or...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.46</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">µij = E ti1 tj2 , where i, j are nonnegative integers. In this problem we derive necessary conditions for a set of numbers µij , 0 ≤ i, j ≤ 2k, i + j ≤ 2k, to be the moments of a distribution on R2 . ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.47</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">A ∈ Sn , with some entries specified, and the others not specified. The positive semidefinite matrix completion problem is to determine values of the unspecified entries of the matrix so that A  0 (o...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.48</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">largest generalized eigenvalue of a pair of matrices (A, B) ∈ Sk × Sk++ is given by uT Au λmax (A, B) = sup    T = max{λ | det(λB − A) = 0}. u6=0 u Bu As we have seen, this function is quasiconvex (if...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.49</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">function f0 : Rn → Rm , defined by f0 (x) = inf{t | Cx + d K t(F x + g)},          dom f0 = {x | F x + g ≻K 0}, with C, F ∈ Rm×n , d, g ∈ Rm , is quasiconvex. A quasiconvex optimization problem with ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.50</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">achievable values for the bi-criterion optimization problem minimize (w.r.t. R2+ )     (kAx − bk2 , kxk22 ), for some A ∈ R100×10 , b ∈ R100 . Answer the following questions using information from the...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.51</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">mization problem (4.56). Suppose we form a new vector optimization problem by replacing the objective f0 with φ ◦ f0 , where φ : Rq → Rq satisfies u K v, u 6= v =⇒ φ(u) K φ(v), φ(u) 6= φ(v). Show th...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.52</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">optimization problem with cone K. Let P denote the set of Pareto optimal values, and let O denote the set of achievable objective values. Show that P ⊆ O ∩ bd O, i.e., every Pareto optimal value is an...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.53</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">A = O + K = {t ∈ Rq | f0 (x) K t for some feasible x}, is convex. Also show that the minimal elements of A are the same as the minimal points of O.</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.54</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">problem has an optimal point x⋆ . Show that x⋆ is a solution of the associated scalarized problem for any choice of λ ≻K ∗ 0. Also show the converse: If a point x is a solution of the scalarized probl...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.55</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">optimal solutions of a vector optimization problem by replacing the vector objective f0 : Rn → Rq with the scalar objective λT f0 , where λ ≻K ∗ 0. Let ψ : Rq → R be a K-increasing function, i.e., sat...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.56</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">Sqfunction over the convex hull of the union of some convex sets, conv      C . These sets are i=1 i described via convex inequalities, Ci = {x | fij (x) ≤ 0, j = 1, . . . , ki }, where fij : Rn → R a...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.57</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">X(t) ∈ {1, . . . , n}, and output Y (t) ∈ {1, . . . , m}, for t = 1, 2, . . . (in seconds, say). The relation between the input and the output is given statistically: pij = prob(Y (t) = i|X(t) = j),  ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.58</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">an initial amount of money (or other asset) k0 over time. The variables are c0 , . . . , cT , where ct ≥ 0 denotes the consumption in period t. The utility derived from a consumption level c is given ...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.59</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">in the objective and constraint functions, due to parameters or factors that are either beyond our control or unknown. We can model this situation by making the objective and constraint functions f0 ,...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.60</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">N periods. At the beginning of each period, we re-invest our total wealth, redistributing it over the n assets using a fixed, constant, allocation strategy x ∈ Rn , where x  0, 1T x = 1. In other wor...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.61</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">exp(aT x + b) prob(X = 1) = p =                           , 1 + exp(aT x + b) where x ∈ Rn is a vector of variables that affect the probability, and a and b are known parameters. We can think of X = 1...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.62</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">communication system in which a central node transmits messages to n receivers. (‘Gaus- sian’ refers to the type of noise that corrupts the transmissions.) Each receiver channel is characterized by it...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.63</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">nal parameters in a manufacturing process. The yield of the process, i.e., the fraction of manufactured goods that is acceptable, is given by Y (x). We assume that Y is log-concave (which is often the...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.64</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">stage optimization, the cost function and constraints depend not only on our choice of variables, but also on a discrete random variable s ∈ {1, . . . , S}, which is interpreted as specifying which of...</p></div>
+<div class="example-box" style="border-left-color:#eab308;background:var(--intu-bg);margin:6px 0;padding:10px 16px;"><div class="label" style="font-size:.75rem;">📝 4.65</div><p style="font-size:.8rem;line-height:1.6;margin:4px 0;">a motor/generator connected to a storage battery, and a conventional (friction) brake. In this exercise we consider a (highly simplified) model of a parallel hybrid vehicle, in which both the motor/ge...</p></div>
+</div>
+
+<h2 id="practice">🔧 工程实践</h2>
+<div class="sec-card">
+<div class="def"><div class="label">凸优化问题的建模流程</div>
+<ol style="margin-left:20px;line-height:2.0">
+<li><b>识别变量和参数：</b> 哪些是可优化的（x），哪些是固定的（A,b,λ等）。</li>
+<li><b>写出目标：</b> 最小化成本/误差/风险 → min f₀(x)。确保f₀是凸的。</li>
+<li><b>写出约束：</b> 物理限制 → fᵢ(x)≤0（凸的）+ 线性等式Ax=b。</li>
+<li><b>识别问题类型：</b> LP/QP/SOCP/SDP/GP → 选择对应求解器。</li>
+<li><b>验证与求解：</b> CVXPY自动检查DCP规则 → 调用MOSEK/ECOS/SCS求解。</li>
+</ol>
+</div>
+<div class="example-box"><div class="label">🔧 实例：投资组合优化 (Python + CVXPY)</div>
+<pre style="background:var(--code-bg);padding:12px;border-radius:6px;overflow-x:auto;font-size:.78rem;line-height:1.5">
+import cvxpy as cp
+n = 10  # 资产数量
+mu = cp.Parameter(n)       # 期望收益
+Sigma = cp.Parameter((n,n)) # 协方差矩阵
+w = cp.Variable(n)          # 权重
+risk = cp.quad_form(w, Sigma)  # w^T Σ w (凸二次)
+ret = mu @ w                   # 期望收益 (线性)
+constraints = [cp.sum(w) == 1, w >= 0, ret >= 0.05]
+problem = cp.Problem(cp.Minimize(risk), constraints)
+problem.solve()  # 自动选择 SOCP 求解器
+</pre>
+<p>输出：$w^*$ 是给定最低收益0.05下的最小风险投资组合。</p>
+</div>
+</div>
+
+<section id="applications">
+<h2 id="applications_title">💡 本章知识的应用与前景</h2>
+
+<h3>你学到了什么</h3>
+<p>你掌握了将实际问题「翻译」为标准凸优化形式的能力——这是整个领域的核心技能。LP、QP、SOCP、SDP、GP 构成了从简到繁的层次结构，每提升一个层次，你能建模的问题就更丰富，但求解代价也更大。</p>
+
+<h3>未来能做什么</h3>
+<ul>
+<li><strong>机器人 MPC</strong>：将轨迹跟踪问题建模为 QP——目标是最小化跟踪误差 + 控制量，约束是动力学方程和关节限位。这是波士顿动力 Atlas 控制器的核心范式</li>
+<li><strong>HPC 任务调度</strong>：将 DAG 任务图调度建模为 LP/MILP，最小化总完成时间，约束包括依赖关系、内存带宽、GPU 显存</li>
+<li><strong>LLM 推理批处理</strong>：动态 batching 的 batch 组合问题本质上是整数优化 → SOCP 松弛 + 舍入</li>
+<li><strong>深度学习架构搜索（NAS）</strong>：将网络剪枝建模为 SOCP——在精度损失约束下最小化计算量</li>
+<li><strong>5G 波束赋形</strong>：将天线阵列波束设计建模为 SDP，最大化目标方向增益同时抑制干扰</li>
+</ul>
+
+<h3>具体实践方向</h3>
+<table>
+<tr><th>领域</th><th>问题</th><th>优化问题类型</th></tr>
+<tr><td>机器人</td><td>四足机器人全身 MPC</td><td>QP（500Hz 实时求解）</td></tr>
+<tr><td>HPC</td><td>GPU 集群任务调度</td><td>MILP → LP 松弛</td></tr>
+<tr><td>LLM 推理</td><td>动态 batching 组合</td><td>SOCP 近似</td></tr>
+<tr><td>无线通信</td><td>Massive MIMO 波束赋形</td><td>SDP</td></tr>
+</table>
+</section>
+</main>
+<script>
+let _=(id)=>document.getElementById(id);
+let _cx=(id)=>{let c=_(id);return c?c.getContext('2d'):null;};
+function toggleDark(){document.body.classList.toggle('dark');_('dark-toggle').textContent=document.body.classList.contains('dark')?'☀️':'🌙';}
+function _sz(c){return c.parentElement.clientWidth||700;}
+
+let _ls=document.querySelectorAll('#sidebar nav a');
+window.addEventListener('scroll',()=>{
+  let cur='';document.querySelectorAll('h2[id],h3[id]').forEach(el=>{if(el.getBoundingClientRect().top<=120)cur=el.id;});
+  _ls.forEach(a=>a.classList.remove('active'));
+  if(cur){let l=document.querySelector('#sidebar nav a[href="#'+cur+'"]');if(l)l.classList.add('active');}
+});
+
+// ===== 4.3 LP Visualization =====
+function draw43(){
+  let c=_('cv43'),ctx=_cx('cv43');if(!ctx)return;
+  let W=c.width=_sz(c),H=c.height;ctx.clearRect(0,0,W,H);
+  let pad=50,cx=W/2,cy=H/2;
+  let n=parseInt(_('n43').value);_('nv43').textContent=n;
+  let c1=parseInt(_('c1_43').value),c2=parseInt(_('c2_43').value);
+  _('c1v43').textContent=c1;_('c2v43').textContent=c2;
+  // Generate random halfplanes that make a bounded feasible region
+  let halfplanes=[];
+  for(let i=0;i<n;i++){
+    let ang=i*Math.PI*2/n+Math.random()*0.3;
+    halfplanes.push({a:Math.cos(ang),b:Math.sin(ang),c:0.6});
+  }
+  // Shade feasible region
+  ctx.fillStyle='rgba(139,92,246,0.12)';
+  // Use intersection sampling
+  for(let py=0;py<H;py+=3){
+    for(let px=0;px<W;px+=3){
+      let x=(px-cx)/80,y=(cy-py)/80;
+      let ok=true;
+      for(let hp of halfplanes){if(hp.a*x+hp.b*y>hp.c){ok=false;break;}}
+      if(ok)ctx.fillRect(px,py,3,3);
+    }
+  }
+  // Draw halfplane boundaries
+  ctx.strokeStyle='#8b5cf6';ctx.lineWidth=1.5;
+  for(let hp of halfplanes){
+    // Line: a*x+b*y=c => y=(c-a*x)/b
+    ctx.beginPath();let first=true;
+    for(let px=pad;px<=W-pad;px+=2){
+      if(Math.abs(hp.b)>0.01){
+        let x=(px-cx)/80;
+        let y=(hp.c-hp.a*x)/hp.b;
+        let py=cy-y*80;
+        if(py>=pad&&py<=H-pad){if(first){ctx.moveTo(px,py);first=false;}else ctx.lineTo(px,py);}
+      }
+    }
+    ctx.stroke();
+  }
+  // Objective gradient line (level sets)
+  let ng=Math.sqrt(c1*c1+c2*c2)||1;
+  ctx.strokeStyle='rgba(239,68,68,0.4)';ctx.lineWidth=1;ctx.setLineDash([4,3]);
+  for(let level=-3;level<=3;level+=1){
+    ctx.beginPath();let first=true;
+    for(let px=pad;px<=W-pad;px+=2){
+      let x=(px-cx)/80;
+      let y=(level-c1*x)/c2;
+      let py=cy-y*80;
+      if(Math.abs(c2)>0.01&&py>=pad&&py<=H-pad){
+        if(first){ctx.moveTo(px,py);first=false;}else ctx.lineTo(px,py);}
+    }
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  // Gradient direction
+  ctx.strokeStyle='#ef4444';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+c1/ng*40,cy-c2/ng*40);ctx.stroke();
+  ctx.fillStyle='#ef4444';ctx.beginPath();ctx.arc(cx+c1/ng*40,cy-c2/ng*40,5,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#991b1b';ctx.font='bold 12px';ctx.fillText('c',cx+c1/ng*40+5,cy-c2/ng*40-5);
+  ctx.fillStyle='#1e40af';ctx.font='12px';ctx.fillText('可行域 (多面体) '+n+'个约束',W*0.15,H*0.1);
+  ctx.fillStyle='#ef4444';ctx.font='12px';ctx.fillText('目标: min cᵀx, 最优在顶点',W*0.55,H*0.85);
+}
+_('n43')?.addEventListener('input',draw43);_('c1_43')?.addEventListener('input',draw43);_('c2_43')?.addEventListener('input',draw43);
+setTimeout(draw43,300);
+
+setTimeout(()=>{document.querySelector('h1')?.scrollIntoView();},150);
+</script>
+</body></html>
