@@ -107,32 +107,66 @@ dynamic_shapes = ShapesCollection(
 
 ---
 
-## 四、导出流程（内部实现）
+## 四、导出流程源码深度分析
 
-### `_trace.py` — `_export_to_torch_ir`:
+`_export_to_torch_ir` 是核心入口，位于 `torch/export/_trace.py:884`。
+
+### 4.1 函数签名
+
+```python
+# _trace.py:884
+def _export_to_torch_ir(
+    f: Callable,                              # nn.Module.forward 或任意 callable
+    args: tuple[Any, ...],                    # 位置参数
+    kwargs: dict[str, Any] | None = None,      # 关键字参数
+    dynamic_shapes: _DynamicShapesInput = None, # Dim 或 ShapesSpec
+    *,
+    preserve_module_call_signature: tuple[str, ...] = (),
+    disable_constraint_solver: bool = False,
+    ...
+) -> torch.fx.GraphModule:
+```
+
+### 4.2 内部执行流程 (:884-983)
 
 ```
-1. trace: 用 Dynamo + FakeTensor 捕获计算图
-         ↓
-2. decompose: 将复合 op 分解为 core ATen op
-         ↓
-3. functionalize: 将 in-place op 转为 functional op
-         ↓
-4. unlift: 将 parameter/buffer 提升为图输入
-         ↓
-5. graph signature: 记录输入输出的名称/类型/位置
-         ↓
-6. range constraints: 提取符号维度约束
-         ↓
-7. ExportedProgram: 打包所有信息
+Step 1: [参数处理 :915-937]
+  args, kwargs = tree_map_only(int, _IntWrapper, (args, kwargs))
+  → 将普通 int 包装为 _IntWrapper，以便后续标记为 dynamic/static
+  → dynamic_shapes 中的 Dim 约束被收集到 constraints 列表
+
+Step 2: [Dynamo trace :956-965]
+  with torch._dynamo.config.patch(dynamo_cfg):
+      with _wrap_submodules(f, ...):
+          dynamo_graph_capture = dynamo_graph_capture_for_export(f)
+          → 用 Dynamo 捕获计算图（走 AOT export 路径, 不同于 torch.compile）
+
+Step 3: [decompose + functionalize] 在 Dynamo 之后自动进行:
+  - decompose: composite op → core ATen op (如 F.gelu → aten::gelu)
+  - functionalize: in-place op → functional op (add_ → add)
+
+Step 4: [unlift] 将 parameter/buffer 提升为图输入:
+  - 原图: param 和 buffer 作为 constant 嵌入图中
+  - 提升后: param 和 buffer 变成 placeholder 节点 → graph signature 记录
+
+Step 5: [包装为 ExportedProgram :exported_program.py:1062]
+  GraphModule + graph_signature + state_dict + range_constraints
+    → ExportedProgram
 ```
 
-### 与 torch.compile 的关系:
+### 4.3 Dynamic shapes 解析 (:1459 及后续)
 
+```python
+# _trace.py:1459
+def _process_export_inputs(args, kwargs, dynamic_shapes):
+    # 支持三种格式:
+    # {name: {dim: Dim(...)}}        — 旧版 dict
+    # ShapesCollection(x=(Dim, 8))   — 新版 API
+    # ShapesSpec(...)                — ParamsSpec 格式
+    ...
 ```
-torch.compile → Dynamo → Inductor → Triton kernels  (JIT 编译)
-torch.export  → Dynamo → Decompose → Functionalize → ExportedProgram (AOT 导出)
-```
+
+`Dim` 实例会被转换为符号变量 (`sympy.Symbol`)，约束 (`min`, `max`) 转为 `ValueRangeAnalysis`，维度间关系 (`Constraint`) 转为等式。
 
 ---
 

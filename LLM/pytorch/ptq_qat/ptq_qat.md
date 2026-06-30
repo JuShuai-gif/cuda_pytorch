@@ -1,10 +1,10 @@
 # PTQ & QAT 量化部署实践源码分析
 
 > 源码路径: `torch/ao/quantization/` — PTQ/QAT eager mode 和 FX graph mode
-> PTQ 入口: `quantize.py` — `prepare()` / `convert()` / `quantize()`
-> QAT 入口: `quantize.py` — `prepare_qat()` / `convert()`
-> FX mode: `quantize_fx.py` — `prepare_fx()` / `convert_fx()`
-> 融合: `fuse_modules.py` — `fuse_modules()` / `fuse_modules_qat()`
+> Observer: `observer.py:150,440,587` — MinMaxObserver / MovingAverageMinMaxObserver
+> FakeQuantize: `fake_quantize.py:128,228` — QAT 核心
+> 融合: `fuse_modules.py:129` — `fuse_modules()`
+> convert: `quantize.py` — `convert()` / 模块替换
 
 ## 0. 一句话总览
 
@@ -12,234 +12,184 @@
 
 ---
 
-## 一、PTQ (Post-Training Quantization) 三步走
+## 一、Observer 源码分析 (`observer.py`)
 
-### Step 1: 准备 — `prepare()`
+### 1.1 继承链
 
-```python
-# quantize.py 核心逻辑
-model.qconfig = torch.ao.quantization.get_default_qconfig("x86")
-# qconfig = QConfig(
-#     activation=HistogramObserver.with_args(...),
-#     weight=MinMaxObserver.with_args(dtype=torch.qint8, ...)
-# )
-
-model_prepared = torch.ao.quantization.prepare(model)
+```
+ObserverBase (:150)                    ← ABC, 定义 forward/observer_enabled
+  └─ UniformQuantizationObserverBase   ← 添加 _calculate_qparams (:349)
+       └─ MinMaxObserver (:440)        ← running min/max
+            └─ MovingAverageMinMaxObserver (:587) ← EMA
 ```
 
-`prepare()` 做三件事:
-1. **传播 qconfig**: `propagate_qconfig_()` → 每个子模块继承父模块的 qconfig
-2. **插入 Observer**: 在需要量化的 op 前后插入 Observer 模块
-3. **融合 Module**: 如果之前调用了 `fuse_modules()`，替换为量化友好的融合模块
-
-### Step 2: 校准 — `observer` 收集统计量
+### 1.2 `ObserverBase.forward` — 数据不中断的关键设计 (:172)
 
 ```python
-# 用代表性数据跑 inference
-for data in calibration_data:
-    model_prepared(data)
-
-# Observer 在每次 forward 时更新 min/max 统计量
-# Observer 内部: running_min = min(running_min, x.min())
-#               running_max = max(running_max, x.max())
+# observer.py:172
+def forward(self, x):
+    if self.observer_enabled[0] == 1:
+        self.activation_post_process(x.detach())  # 只统计，不返回统计值
+    return x  # 原样返回输入！
 ```
 
-`observer.py` 中常见的 Observer:
-- `MinMaxObserver` — 记录全局 min/max
-- `MovingAverageMinMaxObserver` — EMA 更新 min/max
-- `HistogramObserver` — 直方图分布估计（更精确）
-- `PerChannelMinMaxObserver` — 逐通道统计
+**关键**: `forward` 做统计后用 `detach()` 切断梯度，然后**原样返回**。这是 Observer 模式的核心 — 数据流完全不中断，只是旁路记录统计量。
 
-### Step 3: 转换 — `convert()`
+### 1.3 `MinMaxObserver.forward` (:558) — 实际统计逻辑
 
 ```python
-model_quantized = torch.ao.quantization.convert(model_prepared)
+# observer.py:558
+def forward(self, x_orig):
+    x = x_orig.detach()  # 不追踪梯度
+    min_val, max_val = torch.aminmax(x)
+    self.min_val = torch.min(self.min_val, min_val)  # 与历史值合并
+    self.max_val = torch.max(self.max_val, max_val)
+    return x_orig
 ```
 
-`convert()` 做:
-1. **计算 scale + zero_point**: `scale = (max - min) / (qmax - qmin)`, `zero_point = qmin - round(min / scale)`
-2. **量化权重**: 将 `nn.Conv2d` 的浮点 weight 转为 `torch.qint8`
-3. **替换 Module**: `nn.Conv2d` → `nn.quantized.Conv2d`, `nn.Linear` → `nn.quantized.Linear`
-4. **插入 Quantize/DeQuantize**: 在量化模块前后插入 `Quantize` / `DeQuantize` stub
+`min_val`/`max_val` 是 `register_buffer` — 存在 `_buffers` 中，会参与 `state_dict()` 序列化，但不参与 `parameters()` 遍历。
+
+### 1.4 `MovingAverageMinMaxObserver.forward` (:668) — EMA 更新
+
+```python
+# observer.py:668
+def forward(self, x_orig):
+    x = x_orig.detach()
+    min_val, max_val = torch.aminmax(x)
+    # 指数移动平均：self.min_val = a * min_val + (1-a) * self.min_val
+    averaging_constant = self.averaging_constant  # 默认 0.01
+    self.min_val = self.min_val + averaging_constant * (min_val - self.min_val)
+    self.max_val = self.max_val + averaging_constant * (max_val - self.max_val)
+    return x_orig
+```
+
+EMA 的优势: 对异常 batch（如全零输入）有缓冲，不会使 scale 剧烈变化。
+
+### 1.5 `_calculate_qparams` — scale/zero_point 计算 (:349)
+
+```python
+# observer.py:349
+def _calculate_qparams(self, min_val, max_val):
+    # 对称量化
+    if qscheme == torch.per_tensor_symmetric:
+        scale = 2 * max(abs(min_val), abs(max_val)) / (quant_max - quant_min)
+        zero_point = 0 if dtype == torch.qint8 else 128
+
+    # 非对称量化
+    else:  # per_tensor_affine
+        scale = (max_val - min_val) / (quant_max - quant_min)
+        zero_point = int(quant_min - round(min_val / scale))
+
+    return scale, int(zero_point)
+```
 
 ---
 
-## 二、QAT (Quantization-Aware Training)
+## 二、FakeQuantize 源码分析 (`fake_quantize.py`)
 
-与 PTQ 的区别在于 **Step 1** 用 `prepare_qat()` 而不是 `prepare()`:
-
-```python
-model_prepared = torch.ao.quantization.prepare_qat(model)
-```
-
-`prepare_qat()` 插入的是 `FakeQuantize` 而不是 `Observer`。
-
-### FakeQuantize 原理 (`fake_quantize.py`):
+### 2.1 核心类 `FakeQuantize` (:128)
 
 ```python
-class FakeQuantize(nn.Module):
-    def forward(self, x):
-        # 1. Update running min/max (training mode)
-        if self.training:
-            self.activation_post_process(x.detach())
+# fake_quantize.py:128
+class FakeQuantize(FakeQuantizeBase):
+    # :167 __init__
+    def __init__(self, observer=MovingAverageMinMaxObserver, **kwargs):
+        self.activation_post_process = observer(**kwargs)  # Observer 实例
+        # :207 注册 scale/zero_point 为 buffer (persistent=True)
+        self.register_buffer("scale", torch.tensor([1.0], dtype=torch.float))
+        self.register_buffer("zero_point", torch.tensor([0], dtype=torch.int))
 
-        # 2. Fake quantize: quantize + dequantize (simulates quantization error)
-        x = torch.fake_quantize_per_tensor_affine(
-            x, self.scale, self.zero_point,
-            self.quant_min, self.quant_max
-        )
-        return x
+    # :228 forward
+    def forward(self, X):
+        if self.observer_enabled[0] == 1:
+            # T1: 更新统计量 (训练模式下持续更新 scale/zp)
+            self.activation_post_process(X.detach())
+            # 从 observer 计算结果中获取 scale/zero_point
+            _scale, _zero_point = self.activation_post_process.calculate_qparams()
+            _scale, _zero_point = _scale.to(self.scale.device), ...
+            self.scale.resize_(_scale.shape).copy_(_scale)
+            self.zero_point.resize_(_zero_point.shape).copy_(_zero_point)
+
+        if self.fake_quant_enabled[0] == 1:
+            # T2: fake quantize (保持 float 精度, 模拟 int 误差)
+            X = torch.fake_quantize_per_channel_affine(
+                X, self.scale, self.zero_point,
+                self.axis, self.quant_min, self.quant_max
+            )
+        return X
 ```
 
-**关键**: `fake_quantize` 在 forward 中模拟量化误差（float → int → float），但保持 float 精度以支持梯度回传。`scale` 和 `zero_point` 在训练中持续更新。
+### 2.2 fake_quantize 的 C++ 实现
 
-### QAT 流程:
+`torch.fake_quantize_per_tensor_affine` 在 C++ 端实现 (`aten/src/ATen/native/quantized/fake_quant_affine.cpp`):
 
+```cpp
+// 伪代码:
+float fake_quantize(float x, float scale, int64_t zero_point, int64_t qmin, int64_t qmax):
+    // 1. 映射到整数域
+    int64_t xq = round(x / scale) + zero_point
+    xq = clamp(xq, qmin, qmax)
+    // 2. 映射回浮点域 (保持 float 精度)
+    return (xq - zero_point) * scale
 ```
-prepare_qat() → 训练 (带 FakeQuantize) → convert() → int8 模型
-```
 
-QAT 比 PTQ 精度更高，因为模型在训练中**学会了补偿量化误差**。
+**backward 用 STE (Straight-Through Estimator)**: `∂output/∂input = 1` (梯度直接穿过, 不衰减)。
 
 ---
 
-## 三、Module Fusion — 量化前的关键步骤
+## 三、`convert()` 的模块替换机制
 
-`fuse_modules.py:129`:
+`convert()` 遍历模型的所有子模块，将 `nn.Conv2d` + `FakeQuantize`/`Observer` 替换为 `nn.quantized.Conv2d`:
 
-```python
-torch.ao.quantization.fuse_modules(
-    model,
-    modules_to_fuse=[
-        ["conv1", "bn1", "relu1"],
-        ["conv2", "bn2"],
-        ["linear1", "relu1"],
-    ],
-)
+```
+Before convert:
+  x → QuantStub → Conv2d → FakeQuantize(activation) → DeQuantStub → output
+                        ↑
+                   Conv2d weight (fp32)
+
+After convert:
+  x → Quantize → nn.quantized.Conv2d → DeQuantize → output
+                        ↑
+                   quantized weight (qint8, scale/zp baked in)
 ```
 
-融合支持的组合 (`fuser_method_mappings.py`):
-- `[Conv2d, BatchNorm2d]` → `ConvBn2d`
-- `[Conv2d, BatchNorm2d, ReLU]` → `ConvBnReLU2d`
-- `[Conv2d, ReLU]` → `ConvReLU2d`
-- `[Linear, ReLU]` → `LinearReLU`
-- `[BatchNorm2d, ReLU]` → `BNReLU2d`
-
-**为什么需要融合**: 量化时每个 op 边界都需要 quantize/dequantize 对。融合后 op 数量减少 → quant/dequant 对减少 → 精度损失减小。
+替换在 `quantize.py` 中通过 `swap_module()` 实现 — 检查模块类型，查表替换。
 
 ---
 
-## 四、FX Graph Mode 量化 (推荐方式)
-
-FX mode 将量化表示为图级别的变换，而非 eager mode 的模块替换:
-
-```python
-# quantize_fx.py
-from torch.ao.quantization.quantize_fx import prepare_fx, convert_fx
-
-model_prepared = prepare_fx(model, qconfig_mapping, example_inputs)
-# calibrate...
-model_quantized = convert_fx(model_prepared)
-```
-
-优势:
-- 图级别优化 (DCE, constant folding) 可以在量化前后应用
-- 支持更多 pattern 的自动识别和融合
-- 统一的 IR 方便后端 codegen
-
----
-
-## 五、关键源码位置速查
+## 四、关键源码位置速查
 
 | 机制 | 文件 | 行号 |
 |------|------|------|
-| `prepare()` | `torch/ao/quantization/quantize.py` | — |
-| `convert()` | `torch/ao/quantization/quantize.py` | — |
-| `prepare_qat()` | `torch/ao/quantization/quantize.py` | — |
-| `FakeQuantize` | `torch/ao/quantization/fake_quantize.py` | — |
-| `Observer` 类 | `torch/ao/quantization/observer.py` | — |
-| `fuse_modules` | `torch/ao/quantization/fuse_modules.py` | 129 |
-| `fuse_modules_qat` | `torch/ao/quantization/fuse_modules.py` | 200 |
-| `QConfig` 定义 | `torch/ao/quantization/qconfig.py` | — |
-| 融合方法映射 | `torch/ao/quantization/fuser_method_mappings.py` | — |
-| `prepare_fx` (FX mode) | `torch/ao/quantization/fx/prepare.py` | — |
-| `convert_fx` (FX mode) | `torch/ao/quantization/fx/convert.py` | — |
-| 后端配置 | `torch/ao/quantization/backend_config/` | — |
-| 旧版兼容 | `torch/quantization/` (→ `torch.ao.quantization`) | — |
+| `ObserverBase` | `observer.py` | 150 |
+| `ObserverBase.forward` | `observer.py` | 172 |
+| `MinMaxObserver` | `observer.py` | 440 |
+| `MinMaxObserver.forward` | `observer.py` | 558 |
+| `MovingAverageMinMaxObserver` | `observer.py` | 587 |
+| `MovingAverageMinMaxObserver.forward` | `observer.py` | 668 |
+| `_calculate_qparams` | `observer.py` | 349 |
+| `FakeQuantize` | `fake_quantize.py` | 128 |
+| `FakeQuantize.forward` | `fake_quantize.py` | 228 |
+| `fuse_modules` | `fuse_modules.py` | 129 |
+| fake_quantize C++ kernel | `aten/src/ATen/native/quantized/fake_quant_affine.cpp` | — |
+| `prepare()` | `quantize.py` | — |
+| `convert()` | `quantize.py` | — |
+| `swap_module` | `quantize.py` | — |
 
 ---
 
-## 六、可借鉴的工程技巧
+## 五、可借鉴的工程技巧
 
-1. **Observer 模式**: `observer.forward(x)` 统计但不修改 x → 无损校准。类比：监控系统在不影响主流程的情况下采集指标。
+1. **Observer 模式**: `forward(x)` 旁路记录统计量, 数据流原样传递 → 无损嵌入。
 
-2. **FakeQuantize 模拟误差**: `fake_quantize` 在浮点精度下模拟整数截断误差 → 保持可微性 → 梯度能正常回传。类比：浮点模拟定点运算。
+2. **FakeQuantize + STE**: 前向模拟截断误差, 反向直接用 identity gradient (STE) → 梯度可回传, 训练中学会补偿量化误差。
 
-3. **融合减少量化边界**: 每个 op 边界需要 quant/dequant 对 → 融合相邻 op 减少量化噪声累积。
+3. **EMA 统计**: 用指数移动平均代替 plain min/max → 对 outlier batch 不敏感, scale 更平滑。
 
-4. **模块替换模式**: `convert()` 用 `quantized.Conv2d` 替换 `nn.Conv2d` → 用户无需改模型代码。类比：策略模式，运行时/部署时切换实现。
-
-5. **配置传播**: `propagate_qconfig_()` 将 qconfig 从父模块传播到子模块 → 一处配置全局生效。类比：CSS 级联。
+4. **模块替换**: `convert()` 用 `swap_module` 做类型替换 → 用户代码无需修改模块定义。
 
 ---
 
-## 七、实战常见坑点
+## 六、实战常见坑点
 
-### 1. 量化后同一输入得到不同输出
-**现象**: 每次 `model_int8(x)` 得到不同结果。
-**原因**: Observer 在 `training=True` 时持续更新 min/max，即使模型标记为 `eval()`。
-**解决**:
-```python
-model_prepared.eval()  # 先设置 eval
-model_prepared.apply(torch.ao.quantization.disable_observer)  # 停掉 observer
-# 或者 convert 之后再推理
-model_int8 = quant.convert(model_prepared)
-```
-
-### 2. BatchNorm 量化后表现异常
-**现象**: 量化模型比浮点模型差很多，排查发现 BN 层是元凶。
-**原因**: BN 的 `running_mean`/`running_var` 被 observer 观测 + 量化 → 数值漂移。
-**最佳实践**:
-```python
-# [1] 先 fuse conv+bn → BN 参数折叠进 conv weight
-fused = quant.fuse_modules(model, ["conv", "bn", "relu"])
-# [2] 再量化 — BN 层已消失，无 observer 误差
-```
-
-### 3. 首层/末层量化精度崩塌
-**现象**: PTQ 后分类准确率暴跌 20%，但中间层误差不大。
-**原因**: 输入层（RGB 图像 → quant）和输出层（logits → 类别）对量化噪声极其敏感。首层只有 3 个 channel → 量化 scale 由少量值决定 → 不稳定。
-**解决**:
-```python
-model.qconfig = None  # 默认不量化
-# 只量化中间层
-model.layer1.qconfig = custom_qconfig
-model.layer2.qconfig = custom_qconfig
-# 首层和末层保持 fp32
-model.conv1.qconfig = None
-model.fc.qconfig = None
-```
-
-### 4. 动态量化用错了场景
-**现象**: 在 CNN 上用 `torch.quantization.quantize_dynamic()` 没有加速。
-**原因**: 动态量化只量化权重（int8），激活仍然是浮点 → 只对内存带宽有收益。CNN 是计算密集型 → 动态量化基本无加速。
-**正确姿势**: 动态量化只适用于 LSTM/Transformer（带宽密集型）；CNN 用静态 PTQ（权重+激活都量化）。
-
-### 5. QAT 训练时 scale 爆炸
-**现象**: QAT 训练到后期 grad 出现 NaN。
-**原因**: FakeQuantize 的 `scale` 在训练初期剧烈变化，"假量化"误差放大，梯度过大。
-**解决**:
-```python
-# 先 PTQ 得到合理的 scale，再作为 QAT 初始值
-model_prepared = quant.prepare(model)
-# calibrate...
-scale_init = model_prepared.activation_post_process.scale
-# 将 scale 初始化给 QAT 模型
-model_qat.activation_post_process.set_scale(scale_init)
-```
-
-### 6. 不同 batch size 下量化模型行为不一致
-**现象**: batch=1 推理正常，batch=32 推理出错/崩溃。
-**原因**: 量化 kernel（qconv2d, qlinear）有不同的内存布局和 padding 要求。fbgemm 后端要求特定对齐。
-**解决**: 确保 batch size 是对齐的（如 fbgemm 要求 >=1 且 channel 对齐到 8）。
-
+*(见历史版本，此处省略以聚焦源码)*

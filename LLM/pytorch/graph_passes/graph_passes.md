@@ -1,210 +1,197 @@
 # FX Graph Passes 图优化技术源码分析
 
-> 源码路径: `torch/fx/graph.py` (Graph + DCE), `torch/fx/passes/` (optimization passes)
-> 核心 Pass: DCE (`graph.py:2677`), CSE (`dialect/common/cse_pass.py`), const_fold (`experimental/const_fold.py`)
-> Pass 基础设施: `passes/infra/pass_manager.py` (新版 PassManager), `passes/infra/pass_base.py` (PassBase)
+> 源码: `torch/fx/graph.py:2677` (DCE), `torch/fx/experimental/const_fold.py` (const fold)
+> Pass 基础设施: `passes/infra/pass_manager.py:154`, `passes/infra/pass_base.py`
+> Pattern 替换: `torch/fx/subgraph_rewriter.py` (replace_pattern)
 
 ## 0. 一句话总览
 
-FXGraph Pass = 对计算图的**迭代变换**：DCE 消除无用的 dead node，CSE 去重公共子表达式，constant folding 预计算常量子图，pattern-based replace 做算子融合。组合这些 pass → 优化后的图 → 更少的内存分配 + 更少的 kernel launch。
+FX Graph Pass = 对计算图的**迭代变换**。DCE 从 output 反向 BFS 消除死节点，const_fold 分离出常量子图并预执行，CSE 基于 `(target, args_hash, kwargs_hash)` 去重公共子表达式。
 
 ---
 
-## 一、Dead Code Elimination (DCE)
-
-`torch/fx/graph.py:2677`:
+## 一、`eliminate_dead_code` 源码分析 (`graph.py:2677`)
 
 ```python
-class Graph:
-    def eliminate_dead_code(self):
-        """
-        从输出节点反向遍历，标记所有被使用的节点。
-        未被标记的节点（无用户且无副作用）被删除。
-        """
-        # 1. 标记 output + placeholder 节点
-        # 2. 从所有 output + effect 节点反向 BFS
-        # 3. 删除未遍历到的节点
+# graph.py:2677
+def eliminate_dead_code(
+    self, is_impure_node: Callable[[Node], bool] | None = None
+) -> bool:
+    self.lint()  # 要求图拓扑有序
+
+    # 决定哪些节点不可消除 (有副作用)
+    def has_side_effect(node: Node) -> bool:
+        if is_impure_node is not None:
+            return is_impure_node(node)    # 自定义判定
+        return node.is_impure(impure_random)  # 默认: 有效果则不可消除
+
+    # ★ 核心: 反向遍历节点
+    removed_nodes = set()
+    for node in reversed(self.nodes):       # :2740 反向迭代
+        if not has_side_effect(node) and len(node.users) == 0:  # :2741
+            self.erase_node(node)           # :2742 删除节点
+            removed_nodes.add(node.name)    # :2743 记录
+
+    return len(removed_nodes) > 0
 ```
 
-**关键**: DCE 以 output 节点和 effect 节点（如 `print`、`torch.save`）为根，反向遍历图。只有被引用到的节点保留，其余删除。
+### 为什么反向遍历?
 
-### 为什么需要 DCE:
-- symbolic_trace 可能捕获了不需使用的常量/计算
-- 融合后的图可能留有不再使用的节点
-- 图变换过程中产生孤儿节点
+正向遍历时: 删除节点 A → A 的 inputs 的 `users` 可能变成 0 → 但已错过这些 inputs。
+反向遍历: 删除节点 A → 它的 inputs 的 `users` 数减少 → 但后续循环会再遇到这些 inputs → 如果此时 `users==0` 就删除。
+
+### `node.is_impure()` 检查什么?
+
+`Node.is_impure()` 检查节点是否有副作用 — 有副作用的节点即使 `users==0` 也不能删除:
+- `output` 节点 — 必须保留
+- `torch.save` / `print` — 有 observable effect
+- 产生随机数的 op — 在 `impure_random=True` 时不可消除
 
 ---
 
-## 二、Common Subexpression Elimination (CSE)
+## 二、Constant Folding 源码分析 (`experimental/const_fold.py`)
 
-`dialect/common/cse_pass.py`:
+核心函数 `split_const_subgraphs(gm)`:
+
+### 2.1 算法流程
+
+```
+1. 遍历图中所有节点, 标记哪些节点只依赖常量
+   - placeholder 节点 (输入) → 不是常量
+   - get_attr 节点 (parameter/buffer) → 不是常量
+   - 如果节点的所有 args 都是常量 → 此节点是常量
+
+2. 将标记为常量的节点分组为互不重叠的子图
+
+3. 对每个常量子图:
+   a. 从原图中分割出来 → 创建单独的 GraphModule (const_gm)
+   b. const_gm() 执行一次 → 得到结果 tensor
+   c. 在原图中创建 get_attr 节点, 指向结果 tensor
+   d. 删除原图中的常量节点
+```
+
+### 2.2 示例
+
+```
+# Before:
+x = placeholder          (不是常量)
+p = get_attr("weight")  (不是常量)
+c1 = torch.tensor([1,2,3])  → 常量
+c2 = c1 * 2                 → 常量 (所有输入都是常量)
+y = x @ p + c2              → 混合
+
+# After const_fold:
+x = placeholder
+p = get_attr("weight")
+c2 = get_attr("_const_folded_0")  # c2 = [2,4,6] 预计算
+y = x @ p + c2
+```
+
+---
+
+## 三、CSE (Common Subexpression Elimination)
+
+`torch/fx/passes/dialect/common/cse_pass.py`:
+
+### 3.1 核心数据结构
 
 ```python
 class CSEPass(PassBase):
     def call(self, gm):
-        """对图中所有具有相同输入和 target 的节点去重"""
-        # 哈希 key = (target, args_hash, kwargs_hash)
-        # 相同 key → 删除重复节点 → 将所有 user 重定向到第一个
+        # 对每个节点计算 hash key
+        seen: dict[CSEHash, Node] = {}  # hash → 第一个出现此模式的节点
+
+        for node in gm.graph.nodes:
+            if node.op in ("call_function", "call_method", "call_module"):
+                h = self._hash(node)  # hash = (target, tuple(flatten(args)), ...)
+                if h in seen:
+                    # 已有重复节点 → 删除当前节点, 将所有 user 重定向到 seen[h]
+                    node.replace_all_uses_with(seen[h])
+                    gm.graph.erase_node(node)
+                else:
+                    seen[h] = node
+        return PassResult(gm, modified=...)
 ```
 
-**示例**:
-
-```
-# Before CSE:
-a = x + y       # add node 1
-b = x + y       # add node 2 (identical to 1)
-c = a * b
-
-# After CSE:
-a = x + y
-c = a * a       # b 被替换为 a
-```
-
----
-
-## 三、Constant Folding
-
-`experimental/const_fold.py`:
+### 3.2 Hash 计算
 
 ```python
-def split_const_subgraphs(gm):
-    """将图中只依赖常量的子图分离出来，在第一次调用时执行一次，结果存入常量"""
-```
-
-**原理**:
-```
-# Before:
-x = input
-c = torch.tensor([1,2,3])
-y = c * 2          # 常量计算 — 每次 forward 都重算
-z = x + y
-
-# After constant folding:
-x = input
-y = torch.tensor([2,4,6])  # 预计算
-z = x + y
+def _hash(self, node):
+    target = node.target        # 如 torch.add
+    args = tuple(flatten(node.args))  # 不关心 args 的 node 身份, 只关心实际值
+    kwargs = tuple(sorted(node.kwargs.items()))
+    return hash((target, args, kwargs))
 ```
 
 ---
 
-## 四、Pattern-Based Replacement (subgraph_rewriter)
+## 四、`replace_pattern` (子图模式匹配替换)
 
 `torch/fx/subgraph_rewriter.py`:
+
+### 4.1 核心 API
 
 ```python
 matches = replace_pattern(gm, pattern_gm, replacement_gm)
 ```
 
-**原理**: 在目标图中搜索与 `pattern_gm` 拓扑匹配的子图，替换为 `replacement_gm`。匹配基于**拓扑结构 + 算子类型**，不关心具体数值。
+### 4.2 内部流程
 
-```python
-# 模式: Conv → BN → ReLU
-pattern = ...
-# 替换为: FusedConvBNReLU
-replacement = ...
+```
+1. SubgraphMatcher 在目标图中搜索 pattern_gm 的拓扑匹配
+   - 匹配基于: 算子类型 (target) + 拓扑结构 (连接关系)
+   - 不关心具体数值
 
-replace_pattern(gm, pattern, replacement)
+2. 对每个 match:
+   a. 创建 replacement_gm 的副本
+   b. 将 pattern 的 placeholder 映射到 match 中的实际节点
+   c. 将 replacement 的输出连接到原图中 match 的消费者
+   d. 删除原图中的 match 节点
+
+3. 返回 List[Match]
 ```
 
 ---
 
-## 五、Pass 基础设施
-
-### 5.1 新版 PassManager (`passes/infra/pass_manager.py:154`)
+## 五、Pass 基础设施 (`passes/infra/pass_manager.py:154`)
 
 ```python
-pm = PassManager(
-    passes=[CSEPass(), FusePass()],
-    steps=2,  # 迭代多轮
-    run_checks_after_each_pass=True,
-)
-result = pm(gm)
-# result.graph_module — 优化后的图
-# result.modified — 是否发生变化
-```
+class PassManager:
+    def __init__(self, passes, steps=1, ...):
+        self.passes = self._resolve_constraints(passes)  # 拓扑排序 pass 依赖
+        self.steps = steps  # 多轮迭代
 
-**PassManager 自动调度**:
-- 如果定义了 constraint（如 `this_before_that_pass_constraint`），自动拓扑排序
-- `steps` 控制迭代轮数（多轮 pass 可消除前一轮产生的优化机会）
-
-### 5.2 PassBase 抽象 (`passes/infra/pass_base.py`)
-
-```python
-class PassBase(abc.ABC):
     def __call__(self, gm):
-        self.requires(gm)    # 前置检查
-        res = self.call(gm)  # 核心逻辑（子类实现）
-        self.ensures(gm)     # 后置检查
-        return res
-```
-
-### 5.3 Transformer 模式 (`interpreter.py:518`)
-
-```python
-class Transformer(Interpreter):
-    def call_function(self, target, args, kwargs):
-        if target == torch.add:
-            return torch.mul(*args, **kwargs)  # 替换 add → mul
-        return super().call_function(target, args, kwargs)
-
-gm_transformed = Transformer(gm).transform()
-```
-
-Transformer 是**访问者模式**的图重写器，遍历所有节点，允许按 op 类型定制替换逻辑。
-
----
-
-## 六、常见优化流水线
-
-### Inference optimization (`experimental/optimization.py:329`):
-
-```python
-def optimize_for_inference(gm):
-    # 1. fuse conv+bn → conv_bn
-    # 2. fuse conv+bn+relu → conv_bn_relu
-    # 3. fuse linear+relu → linear_relu
-    # 4. fuse conv+relu → conv_relu
-    # 5. remove dropout
-    # 6. replace with MKL-DNN layout
-    # 7. eliminate dead code
-    return optimized
-```
-
-### 带量化的优化流水线:
-
-```
-trace → DCE → const_fold → fuse conv+bn → CSE → insert quant/dequant → DCE
+        for step in range(self.steps):
+            modified = False
+            for p in self.passes:
+                result = p(gm)           # PassBase.__call__
+                if result.modified:
+                    modified = True
+                    gm = result.graph_module
+            if not modified:
+                break                    # 不再变化 → 提前退出
+        return PassResult(gm, modified)
 ```
 
 ---
 
-## 七、关键源码位置速查
+## 六、关键源码位置速查
 
 | 机制 | 文件 | 行号 |
 |------|------|------|
-| `Graph.eliminate_dead_code` | `torch/fx/graph.py` | 2677 |
+| `eliminate_dead_code` | `torch/fx/graph.py` | 2677 |
+| `erase_node` | `torch/fx/graph.py` | — |
+| `split_const_subgraphs` | `torch/fx/experimental/const_fold.py` | — |
 | `CSEPass` | `torch/fx/passes/dialect/common/cse_pass.py` | — |
-| `PassManager` (新版) | `torch/fx/passes/infra/pass_manager.py` | 154 |
 | `PassBase` | `torch/fx/passes/infra/pass_base.py` | — |
-| `Transformer` | `torch/fx/interpreter.py` | 518 |
+| `PassManager` (新版) | `torch/fx/passes/infra/pass_manager.py` | 154 |
 | `replace_pattern` | `torch/fx/subgraph_rewriter.py` | — |
-| `optimize_for_inference` | `torch/fx/experimental/optimization.py` | 329 |
-| `const_fold` | `torch/fx/experimental/const_fold.py` | — |
-| `ShapeProp` | `torch/fx/passes/shape_prop.py` | — |
-| `reinplace` | `torch/fx/passes/reinplace.py` | — |
-| `split_module` | `torch/fx/passes/split_module.py` | — |
-| `fuse (conv+bn+relu)` | `torch/fx/experimental/optimization.py` | 76 |
+| `SubgraphMatcher` | `torch/fx/passes/utils/matcher_utils.py` | — |
+| `Transformer` | `torch/fx/interpreter.py` | 518 |
 
 ---
 
-## 八、可借鉴的工程技巧
+## 七、实战常见坑点
 
-1. **Pass 管道化**: 每个 pass 独立、可组合。类比：编译器 IR 优化 pass (LLVM pass pipeline)。
-
-2. **DCE 反向遍历**: 从 output 反向 BFS → 只保留 reachable 节点。类比：GC 的 mark-sweep（标记可达对象）。
-
-3. **CSE 哈希关键**: `(target, args_hash, kwargs_hash)` 作为去重 key → O(1) 查找重复项。
-
-4. **Transformer 访问者**: 节点遍历 + 按 type 分发 → 无需修改图结构即可定制替换逻辑。类比：AST visitor。
-
-5. **PassManager 自动排序**: constraint-based 拓扑排序 → 用户只需声明依赖关系，不用手动编排顺序。
+*(见历史版本)*
