@@ -452,3 +452,81 @@ torch.Size([1, 2]) [0]
 - 共享内存优化:worker 内 collate 直接 stack 到 shared memory,减少一次进程间拷贝。
 - 信号处理(SIGCHLD/SIGBUS)、watchdog、超时与 `cancel_join_thread` 等健壮性逻辑。
 ```
+
+## 11. 实战常见坑点
+
+### 1. num_workers>0 时随机卡死
+**现象**: DataLoader 跑着跑着不动了，Ctrl-C 都杀不掉。
+**原因**: 多进程 + CUDA 初始化冲突。子进程 fork 时继承了父进程的 CUDA context → 死锁。
+**解决**:
+```python
+# 方案 A：改用 spawn 启动方式
+torch.multiprocessing.set_start_method("spawn", force=True)
+# 方案 B：num_workers=0 先验证是否是此问题
+# 方案 C：升级 PyTorch >= 2.1（改进了 worker 管理）
+```
+
+### 2. pin_memory 不加速
+**现象**: 加了 `pin_memory=True` 但训练速度没变。
+**原因**: pin_memory 需要 CPU 内存 → GPU 的 DMA 传输。如果数据已经在 GPU 上或 batch_size 太小，收益不明显。
+**排查**:
+```python
+# 验证 pin_memory 是否生效
+tensor = next(iter(dataloader))[0]
+print(tensor.is_pinned())  # 应为 True
+```
+**前提**: tensor 在 CPU 上（`Dataset.__getitem__` 返回 CPU tensor），目标设备是 GPU。DataSet 内部 `.cuda()` 之后再 pin 是无效的。
+
+### 3. 多 worker 下随机数不随机
+**现象**: 每个 epoch 的 shuffle 结果完全相同。
+**原因**: 没设 worker_init_fn → 所有 worker 用同一个 seed → 每个 worker 看到的数据 pattern 一样。
+**解决**:
+```python
+def worker_init_fn(worker_id):
+    # 每个 worker 用不同 seed
+    worker_seed = torch.initial_seed() % 2**32 + worker_id
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
+dl = DataLoader(ds, num_workers=4, worker_init_fn=worker_init_fn)
+```
+
+### 4. collate_fn 报 shape mismatch
+**现象**: `RuntimeError: stack expects each tensor to be equal size`。
+**原因**: 同一个 batch 中的样本 shape 不同（如 variable-length sequences, 不同分辨率图片）。
+**排查**:
+```python
+# 自定义 collate_fn 打印每个样本的 shape
+def debug_collate(batch):
+    for i, item in enumerate(batch):
+        if hasattr(item, 'shape'):
+            print(f"sample {i}: shape={item.shape}")
+    raise RuntimeError("stop here to inspect")
+dl = DataLoader(ds, collate_fn=debug_collate)
+```
+**解决**: 在 Dataset 中做 padding/resize，或用 `collate_fn` 中 `pad_sequence`。
+
+### 5. persistent_workers 导致显存泄漏
+**现象**: 训练几个 epoch 后 OOM，但 batch size 没变。
+**原因**: `persistent_workers=True` 时 worker 进程跨 epoch 不重启。如果 worker 中有累积状态（缓存、RNG state tensor 等），显存会增长。
+**解决**: 定期重启 workers 或设置 `persistent_workers=False`；或在 `worker_init_fn` 中显式清理缓存。
+
+### 6. IterableDataset + 多 worker 数据重复
+**现象**: 每个 worker 返回了相同的数据。
+**原因**: IterableDataset 不分片，每个 worker 独立遍历整个数据集 → 重复。
+**解决**:
+```python
+class MyIterableDataset(torch.utils.data.IterableDataset):
+    def __iter__(self):
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is None:
+            iter_start = 0
+            iter_step = 1
+        else:
+            # 每个 worker 取不同的起始位置和步长
+            iter_start = worker_info.id
+            iter_step = worker_info.num_workers
+        for i in range(iter_start, len(self.data), iter_step):
+            yield self.data[i]
+```
+

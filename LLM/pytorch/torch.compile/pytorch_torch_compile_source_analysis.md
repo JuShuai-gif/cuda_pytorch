@@ -407,3 +407,66 @@ torch.compile(model)                                   torch/__init__.py:2551
 | 捕获的 FX 图        | `TORCH_LOGS=graph_code`                                             |
 | 禁用编译对比        | `torch.compiler.disable` / 环境变量 `TORCHDYNAMO_DISABLE=1`           |
 | 强制不许 graph break| `torch.compile(fn, fullgraph=True)`                                 |
+
+---
+
+## 十一、实战常见坑点
+
+### 1. graph break 静默降级
+**现象**: 代码里加了 `torch.compile`，跑起来不报错但没加速。
+**原因**: Dynamo 遇到不支持的操作时会 graph break —— 图切成多段，每段之间回退到 eager 执行。大量 graph break → compile 实际上只编译了少数 op。
+**排查**:
+```bash
+TORCH_LOGS=graph_breaks python your_script.py
+```
+**解决**: 用 `torch.compile(fullgraph=True)` 强制要求零 graph break → 报错直接告诉你哪行不兼容。
+
+### 2. recompile 风暴
+**现象**: 训练每个 batch 都触发重编译，显存和速度都崩。
+**原因**: 没开 `dynamic=True`，但每次 forward 的输入 shape 不同（如 padding 后 bucket 对齐）。
+```bash
+TORCH_LOGS=recompiles python your_script.py  # 看到 guard failure 原因
+```
+**解决**: `torch.compile(model, dynamic=True)` — shape 变为符号变量，一份 kernel 适配多个 size。
+
+### 3. 编译后反向传播 NaN
+**现象**: eager 模式下梯度正常，compile 后出现 NaN。
+**原因**: Inductor 对浮点运算做重排（reassociation），改变了累加顺序 → 精度变化。常见于 bf16 + 大 reduction。
+**解决**:
+```python
+# 方案 A：关闭重排 (torch >= 2.4)
+torch._inductor.config.reorder_for_compute_comm_overlap = False
+# 方案 B：对敏感 op 不做融合
+torch._dynamo.config.cache_size_limit = 128  # 保守
+```
+
+### 4. CUDA Graph 与 DataLoader 多 worker 冲突
+**现象**: compile + num_workers>0 时随机死锁。
+**原因**: multiprocessing + CUDA context 初始化顺序问题。PyTorch 2.0-2.2 早期版本的已知问题。
+**解决**:
+```python
+# 升级到 torch >= 2.3 或：
+torch.multiprocessing.set_start_method("spawn")
+# 或者 DataLoader 用 num_workers=0 先验证是否是此问题
+```
+
+### 5. 内存不降反升
+**现象**: compile 后期望显存下降，实际 peak memory 更高。
+**原因**: 编译后的 kernel 可能需要更多寄存器/spilling；融合后的临时 buffer 在 liveness 分析不精确时可能过早分配。
+**排查**:
+```python
+# 看 compilation 的显存开销
+torch._dynamo.config.accumulated_cache_size_limit = 64
+TORCH_LOGS=+dynamo python your_script.py
+```
+
+### 6. 分布式 + compile 的调用顺序
+**现象**: `DistributedDataParallel` + `torch.compile` 组合不 work。
+**正确顺序**:
+```python
+model = MyModel().cuda()
+model = torch.compile(model)  # compile 在 DDP 外面
+model = DDP(model)
+# 而不是 DDP(compile(model)) 或 compile(DDP(model))
+```
+DDP 需要 visibility 到未编译的梯度 → compile 必须在 DDP 外层。
