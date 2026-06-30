@@ -8,6 +8,7 @@
 - 初步了解量化带来的性能提升(如加速效果)
 - 理解这些量化方法之间的差异与权衡
 """
+
 import copy
 import math
 import random
@@ -29,19 +30,22 @@ from torchvision.transforms import *
 
 from torchprofile import profile_macs
 
-assert torch.cuda.is_available(), \
-"The current runtime does not have CUDA support." \
-"Please go to menu bar (Runtime - Change runtime type) and select GPU"
+assert torch.cuda.is_available(), (
+    "The current runtime does not have CUDA support."
+    "Please go to menu bar (Runtime - Change runtime type) and select GPU"
+)
 
 
 random.seed(0)
 np.random.seed(0)
 torch.manual_seed(0)
 
-def download_url(url, model_dir='.', overwrite=False):
+
+def download_url(url, model_dir=".", overwrite=False):
     import os, sys
     from urllib.request import urlretrieve
-    target_dir = url.split('/')[-1]
+
+    target_dir = url.split("/")[-1]
     model_dir = os.path.expanduser(model_dir)
     try:
         if not os.path.exists(model_dir):
@@ -54,118 +58,119 @@ def download_url(url, model_dir='.', overwrite=False):
         return cached_file
     except Exception as e:
         # remove lock file so download can be executed next time.
-        os.remove(os.path.join(model_dir, 'download.lock'))
-        sys.stderr.write('Failed to download from url %s' % url + '\n' + str(e) + '\n')
+        os.remove(os.path.join(model_dir, "download.lock"))
+        sys.stderr.write("Failed to download from url %s" % url + "\n" + str(e) + "\n")
         return None
-    
+
+
 class VGG(nn.Module):
-  ARCH = [64, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M']
+    ARCH = [64, 128, "M", 256, 256, "M", 512, 512, "M", 512, 512, "M"]
 
-  def __init__(self) -> None:
-    super().__init__()
+    def __init__(self) -> None:
+        super().__init__()
 
-    layers = []
-    counts = defaultdict(int)
+        layers = []
+        counts = defaultdict(int)
 
-    def add(name: str, layer: nn.Module) -> None:
-      layers.append((f"{name}{counts[name]}", layer))
-      counts[name] += 1
+        def add(name: str, layer: nn.Module) -> None:
+            layers.append((f"{name}{counts[name]}", layer))
+            counts[name] += 1
 
-    in_channels = 3
-    for x in self.ARCH:
-      if x != 'M':
-        # conv-bn-relu
-        add("conv", nn.Conv2d(in_channels, x, 3, padding=1, bias=False))
-        add("bn", nn.BatchNorm2d(x))
-        add("relu", nn.ReLU(True))
-        in_channels = x
-      else:
-        # maxpool
-        add("pool", nn.MaxPool2d(2))
-    add("avgpool", nn.AvgPool2d(2))
-    self.backbone = nn.Sequential(OrderedDict(layers))
-    self.classifier = nn.Linear(512, 10)
+        in_channels = 3
+        for x in self.ARCH:
+            if x != "M":
+                # conv-bn-relu
+                add("conv", nn.Conv2d(in_channels, x, 3, padding=1, bias=False))
+                add("bn", nn.BatchNorm2d(x))
+                add("relu", nn.ReLU(True))
+                in_channels = x
+            else:
+                # maxpool
+                add("pool", nn.MaxPool2d(2))
+        add("avgpool", nn.AvgPool2d(2))
+        self.backbone = nn.Sequential(OrderedDict(layers))
+        self.classifier = nn.Linear(512, 10)
 
-  def forward(self, x: torch.Tensor) -> torch.Tensor:
-    # backbone: [N, 3, 32, 32] => [N, 512, 2, 2]
-    x = self.backbone(x)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # backbone: [N, 3, 32, 32] => [N, 512, 2, 2]
+        x = self.backbone(x)
 
-    # avgpool: [N, 512, 2, 2] => [N, 512]
-    # x = x.mean([2, 3])
-    x = x.view(x.shape[0], -1)
+        # avgpool: [N, 512, 2, 2] => [N, 512]
+        # x = x.mean([2, 3])
+        x = x.view(x.shape[0], -1)
 
-    # classifier: [N, 512] => [N, 10]
-    x = self.classifier(x)
-    return x
-  
+        # classifier: [N, 512] => [N, 10]
+        x = self.classifier(x)
+        return x
+
+
 def train(
-  model: nn.Module,
-  dataloader: DataLoader,
-  criterion: nn.Module,
-  optimizer: Optimizer,
-  scheduler: LambdaLR,
-  callbacks = None
+    model: nn.Module,
+    dataloader: DataLoader,
+    criterion: nn.Module,
+    optimizer: Optimizer,
+    scheduler: LambdaLR,
+    callbacks=None,
 ) -> None:
-  model.train()
+    model.train()
 
-  for inputs, targets in tqdm(dataloader, desc='train', leave=False):
-    # Move the data from CPU to GPU
-    inputs = inputs.cuda()
-    targets = targets.cuda()
+    for inputs, targets in tqdm(dataloader, desc="train", leave=False):
+        # Move the data from CPU to GPU
+        inputs = inputs.cuda()
+        targets = targets.cuda()
 
-    # Reset the gradients (from the last iteration)
-    optimizer.zero_grad()
+        # Reset the gradients (from the last iteration)
+        optimizer.zero_grad()
 
-    # Forward inference
-    outputs = model(inputs)
-    loss = criterion(outputs, targets)
+        # Forward inference
+        outputs = model(inputs)
+        loss = criterion(outputs, targets)
 
-    # Backward propagation
-    loss.backward()
+        # Backward propagation
+        loss.backward()
 
-    # Update optimizer and LR scheduler
-    optimizer.step()
-    scheduler.step()
+        # Update optimizer and LR scheduler
+        optimizer.step()
+        scheduler.step()
 
-    if callbacks is not None:
-        for callback in callbacks:
-            callback()
+        if callbacks is not None:
+            for callback in callbacks:
+                callback()
+
 
 @torch.inference_mode()
-def evaluate(
-  model: nn.Module,
-  dataloader: DataLoader,
-  extra_preprocess = None
-) -> float:
-  model.eval()
+def evaluate(model: nn.Module, dataloader: DataLoader, extra_preprocess=None) -> float:
+    model.eval()
 
-  num_samples = 0
-  num_correct = 0
+    num_samples = 0
+    num_correct = 0
 
-  for inputs, targets in tqdm(dataloader, desc="eval", leave=False):
-    # Move the data from CPU to GPU
-    inputs = inputs.cuda()
-    if extra_preprocess is not None:
-        for preprocess in extra_preprocess:
-            inputs = preprocess(inputs)
+    for inputs, targets in tqdm(dataloader, desc="eval", leave=False):
+        # Move the data from CPU to GPU
+        inputs = inputs.cuda()
+        if extra_preprocess is not None:
+            for preprocess in extra_preprocess:
+                inputs = preprocess(inputs)
 
-    targets = targets.cuda()
+        targets = targets.cuda()
 
-    # Inference
-    outputs = model(inputs)
+        # Inference
+        outputs = model(inputs)
 
-    # Convert logits to class indices
-    outputs = outputs.argmax(dim=1)
+        # Convert logits to class indices
+        outputs = outputs.argmax(dim=1)
 
-    # Update metrics
-    num_samples += targets.size(0)
-    num_correct += (outputs == targets).sum()
+        # Update metrics
+        num_samples += targets.size(0)
+        num_correct += (outputs == targets).sum()
 
-  return (num_correct / num_samples * 100).item()
+    return (num_correct / num_samples * 100).item()
+
 
 def get_model_flops(model, inputs):
     num_macs = profile_macs(model, inputs)
     return num_macs
+
 
 def get_model_size(model: nn.Module, data_width=32):
     """
@@ -177,6 +182,7 @@ def get_model_size(model: nn.Module, data_width=32):
         num_elements += param.numel()
     return num_elements * data_width
 
+
 Byte = 8
 KiB = 1024 * Byte
 MiB = 1024 * KiB
@@ -184,58 +190,89 @@ GiB = 1024 * MiB
 
 
 def test_k_means_quantize(
-    test_tensor=torch.tensor([
-        [-0.3747,  0.0874,  0.3200, -0.4868,  0.4404],
-        [-0.0402,  0.2322, -0.2024, -0.4986,  0.1814],
-        [ 0.3102, -0.3942, -0.2030,  0.0883, -0.4741],
-        [-0.1592, -0.0777, -0.3946, -0.2128,  0.2675],
-        [ 0.0611, -0.1933, -0.4350,  0.2928, -0.1087]]),
-    bitwidth=2):
-    def plot_matrix(tensor, ax, title, cmap=ListedColormap(['white'])):
+    test_tensor=torch.tensor(
+        [
+            [-0.3747, 0.0874, 0.3200, -0.4868, 0.4404],
+            [-0.0402, 0.2322, -0.2024, -0.4986, 0.1814],
+            [0.3102, -0.3942, -0.2030, 0.0883, -0.4741],
+            [-0.1592, -0.0777, -0.3946, -0.2128, 0.2675],
+            [0.0611, -0.1933, -0.4350, 0.2928, -0.1087],
+        ]
+    ),
+    bitwidth=2,
+):
+    def plot_matrix(tensor, ax, title, cmap=ListedColormap(["white"])):
         ax.imshow(tensor.cpu().numpy(), vmin=-0.5, vmax=0.5, cmap=cmap)
         ax.set_title(title)
         ax.set_yticklabels([])
         ax.set_xticklabels([])
         for i in range(tensor.shape[1]):
             for j in range(tensor.shape[0]):
-                text = ax.text(j, i, f'{tensor[i, j].item():.2f}',
-                                ha="center", va="center", color="k")
+                text = ax.text(
+                    j,
+                    i,
+                    f"{tensor[i, j].item():.2f}",
+                    ha="center",
+                    va="center",
+                    color="k",
+                )
 
-    fig, axes = plt.subplots(1,2, figsize=(8, 12))
+    fig, axes = plt.subplots(1, 2, figsize=(8, 12))
     ax_left, ax_right = axes.ravel()
 
     print(test_tensor)
-    plot_matrix(test_tensor, ax_left, 'original tensor')
+    plot_matrix(test_tensor, ax_left, "original tensor")
 
     num_unique_values_before_quantization = test_tensor.unique().numel()
     k_means_quantize(test_tensor, bitwidth=bitwidth)
     num_unique_values_after_quantization = test_tensor.unique().numel()
-    print('* Test k_means_quantize()')
-    print(f'    target bitwidth: {bitwidth} bits')
-    print(f'        num unique values before k-means quantization: {num_unique_values_before_quantization}')
-    print(f'        num unique values after  k-means quantization: {num_unique_values_after_quantization}')
-    assert num_unique_values_after_quantization == min((1 << bitwidth), num_unique_values_before_quantization)
-    print('* Test passed.')
+    print("* Test k_means_quantize()")
+    print(f"    target bitwidth: {bitwidth} bits")
+    print(
+        f"        num unique values before k-means quantization: {num_unique_values_before_quantization}"
+    )
+    print(
+        f"        num unique values after  k-means quantization: {num_unique_values_after_quantization}"
+    )
+    assert num_unique_values_after_quantization == min(
+        (1 << bitwidth), num_unique_values_before_quantization
+    )
+    print("* Test passed.")
 
-    plot_matrix(test_tensor, ax_right, f'{bitwidth}-bit k-means quantized tensor', cmap='tab20c')
+    plot_matrix(
+        test_tensor, ax_right, f"{bitwidth}-bit k-means quantized tensor", cmap="tab20c"
+    )
     fig.tight_layout()
     plt.show()
+
 
 def test_linear_quantize(
-    test_tensor=torch.tensor([
-        [ 0.0523,  0.6364, -0.0968, -0.0020,  0.1940],
-        [ 0.7500,  0.5507,  0.6188, -0.1734,  0.4677],
-        [-0.0669,  0.3836,  0.4297,  0.6267, -0.0695],
-        [ 0.1536, -0.0038,  0.6075,  0.6817,  0.0601],
-        [ 0.6446, -0.2500,  0.5376, -0.2226,  0.2333]]),
-    quantized_test_tensor=torch.tensor([
-        [-1,  1, -1, -1,  0],
-        [ 1,  1,  1, -2,  0],
-        [-1,  0,  0,  1, -1],
-        [-1, -1,  1,  1, -1],
-        [ 1, -2,  1, -2,  0]], dtype=torch.int8),
-    real_min=-0.25, real_max=0.75, bitwidth=2, scale=1/3, zero_point=-1):
-    def plot_matrix(tensor, ax, title, vmin=0, vmax=1, cmap=ListedColormap(['white'])):
+    test_tensor=torch.tensor(
+        [
+            [0.0523, 0.6364, -0.0968, -0.0020, 0.1940],
+            [0.7500, 0.5507, 0.6188, -0.1734, 0.4677],
+            [-0.0669, 0.3836, 0.4297, 0.6267, -0.0695],
+            [0.1536, -0.0038, 0.6075, 0.6817, 0.0601],
+            [0.6446, -0.2500, 0.5376, -0.2226, 0.2333],
+        ]
+    ),
+    quantized_test_tensor=torch.tensor(
+        [
+            [-1, 1, -1, -1, 0],
+            [1, 1, 1, -2, 0],
+            [-1, 0, 0, 1, -1],
+            [-1, -1, 1, 1, -1],
+            [1, -2, 1, -2, 0],
+        ],
+        dtype=torch.int8,
+    ),
+    real_min=-0.25,
+    real_max=0.75,
+    bitwidth=2,
+    scale=1 / 3,
+    zero_point=-1,
+):
+    def plot_matrix(tensor, ax, title, vmin=0, vmax=1, cmap=ListedColormap(["white"])):
         ax.imshow(tensor.cpu().numpy(), vmin=vmin, vmax=vmax, cmap=cmap)
         ax.set_title(title)
         ax.set_yticklabels([])
@@ -244,63 +281,162 @@ def test_linear_quantize(
             for j in range(tensor.shape[1]):
                 datum = tensor[i, j].item()
                 if isinstance(datum, float):
-                    text = ax.text(j, i, f'{datum:.2f}',
-                                    ha="center", va="center", color="k")
+                    text = ax.text(
+                        j, i, f"{datum:.2f}", ha="center", va="center", color="k"
+                    )
                 else:
-                    text = ax.text(j, i, f'{datum}',
-                                    ha="center", va="center", color="k")
+                    text = ax.text(
+                        j, i, f"{datum}", ha="center", va="center", color="k"
+                    )
+
     quantized_min, quantized_max = get_quantized_range(bitwidth)
-    fig, axes = plt.subplots(1,3, figsize=(10, 32))
-    plot_matrix(test_tensor, axes[0], 'original tensor', vmin=real_min, vmax=real_max)
+    fig, axes = plt.subplots(1, 3, figsize=(10, 32))
+    plot_matrix(test_tensor, axes[0], "original tensor", vmin=real_min, vmax=real_max)
     _quantized_test_tensor = linear_quantize(
-        test_tensor, bitwidth=bitwidth, scale=scale, zero_point=zero_point)
+        test_tensor, bitwidth=bitwidth, scale=scale, zero_point=zero_point
+    )
     _reconstructed_test_tensor = scale * (_quantized_test_tensor.float() - zero_point)
-    print('* Test linear_quantize()')
-    print(f'    target bitwidth: {bitwidth} bits')
-    print(f'        scale: {scale}')
-    print(f'        zero point: {zero_point}')
+    print("* Test linear_quantize()")
+    print(f"    target bitwidth: {bitwidth} bits")
+    print(f"        scale: {scale}")
+    print(f"        zero point: {zero_point}")
     assert _quantized_test_tensor.equal(quantized_test_tensor)
-    print('* Test passed.')
-    plot_matrix(_quantized_test_tensor, axes[1], f'2-bit linear quantized tensor',
-                vmin=quantized_min, vmax=quantized_max, cmap='tab20c')
-    plot_matrix(_reconstructed_test_tensor, axes[2], f'reconstructed tensor',
-                vmin=real_min, vmax=real_max, cmap='tab20c')
+    print("* Test passed.")
+    plot_matrix(
+        _quantized_test_tensor,
+        axes[1],
+        f"2-bit linear quantized tensor",
+        vmin=quantized_min,
+        vmax=quantized_max,
+        cmap="tab20c",
+    )
+    plot_matrix(
+        _reconstructed_test_tensor,
+        axes[2],
+        f"reconstructed tensor",
+        vmin=real_min,
+        vmax=real_max,
+        cmap="tab20c",
+    )
     fig.tight_layout()
     plt.show()
 
+
 def test_quantized_fc(
-    input=torch.tensor([
-        [0.6118, 0.7288, 0.8511, 0.2849, 0.8427, 0.7435, 0.4014, 0.2794],
-        [0.3676, 0.2426, 0.1612, 0.7684, 0.6038, 0.0400, 0.2240, 0.4237],
-        [0.6565, 0.6878, 0.4670, 0.3470, 0.2281, 0.8074, 0.0178, 0.3999],
-        [0.1863, 0.3567, 0.6104, 0.0497, 0.0577, 0.2990, 0.6687, 0.8626]]),
-    weight=torch.tensor([
-        [ 1.2626e-01, -1.4752e-01,  8.1910e-02,  2.4982e-01, -1.0495e-01,
-         -1.9227e-01, -1.8550e-01, -1.5700e-01],
-        [ 2.7624e-01, -4.3835e-01,  5.1010e-02, -1.2020e-01, -2.0344e-01,
-          1.0202e-01, -2.0799e-01,  2.4112e-01],
-        [-3.8216e-01, -2.8047e-01,  8.5238e-02, -4.2504e-01, -2.0952e-01,
-          3.2018e-01, -3.3619e-01,  2.0219e-01],
-        [ 8.9233e-02, -1.0124e-01,  1.1467e-01,  2.0091e-01,  1.1438e-01,
-         -4.2427e-01,  1.0178e-01, -3.0941e-04],
-        [-1.8837e-02, -2.1256e-01, -4.5285e-01,  2.0949e-01, -3.8684e-01,
-         -1.7100e-01, -4.5331e-01, -2.0433e-01],
-        [-2.0038e-01, -5.3757e-02,  1.8997e-01, -3.6866e-01,  5.5484e-02,
-          1.5643e-01, -2.3538e-01,  2.1103e-01],
-        [-2.6875e-01,  2.4984e-01, -2.3514e-01,  2.5527e-01,  2.0322e-01,
-          3.7675e-01,  6.1563e-02,  1.7201e-01],
-        [ 3.3541e-01, -3.3555e-01, -4.3349e-01,  4.3043e-01, -2.0498e-01,
-         -1.8366e-01, -9.1553e-02, -4.1168e-01]]),
-    bias=torch.tensor([ 0.1954, -0.2756,  0.3113,  0.1149,  0.4274,  0.2429, -0.1721, -0.2502]),
-    quantized_bias=torch.tensor([ 3, -2,  3,  1,  3,  2, -2, -2], dtype=torch.int32),
-    shifted_quantized_bias=torch.tensor([-1,  0, -3, -1, -3,  0,  2, -4], dtype=torch.int32),
-    calc_quantized_output=torch.tensor([
-        [ 0, -1,  0, -1, -1,  0,  1, -2],
-        [ 0,  0, -1,  0,  0,  0,  0, -1],
-        [ 0,  0,  0, -1,  0,  0,  0, -1],
-        [ 0,  0,  0,  0,  0,  1, -1, -2]], dtype=torch.int8),
-    bitwidth=2, batch_size=4, in_channels=8, out_channels=8):
-    def plot_matrix(tensor, ax, title, vmin=0, vmax=1, cmap=ListedColormap(['white'])):
+    input=torch.tensor(
+        [
+            [0.6118, 0.7288, 0.8511, 0.2849, 0.8427, 0.7435, 0.4014, 0.2794],
+            [0.3676, 0.2426, 0.1612, 0.7684, 0.6038, 0.0400, 0.2240, 0.4237],
+            [0.6565, 0.6878, 0.4670, 0.3470, 0.2281, 0.8074, 0.0178, 0.3999],
+            [0.1863, 0.3567, 0.6104, 0.0497, 0.0577, 0.2990, 0.6687, 0.8626],
+        ]
+    ),
+    weight=torch.tensor(
+        [
+            [
+                1.2626e-01,
+                -1.4752e-01,
+                8.1910e-02,
+                2.4982e-01,
+                -1.0495e-01,
+                -1.9227e-01,
+                -1.8550e-01,
+                -1.5700e-01,
+            ],
+            [
+                2.7624e-01,
+                -4.3835e-01,
+                5.1010e-02,
+                -1.2020e-01,
+                -2.0344e-01,
+                1.0202e-01,
+                -2.0799e-01,
+                2.4112e-01,
+            ],
+            [
+                -3.8216e-01,
+                -2.8047e-01,
+                8.5238e-02,
+                -4.2504e-01,
+                -2.0952e-01,
+                3.2018e-01,
+                -3.3619e-01,
+                2.0219e-01,
+            ],
+            [
+                8.9233e-02,
+                -1.0124e-01,
+                1.1467e-01,
+                2.0091e-01,
+                1.1438e-01,
+                -4.2427e-01,
+                1.0178e-01,
+                -3.0941e-04,
+            ],
+            [
+                -1.8837e-02,
+                -2.1256e-01,
+                -4.5285e-01,
+                2.0949e-01,
+                -3.8684e-01,
+                -1.7100e-01,
+                -4.5331e-01,
+                -2.0433e-01,
+            ],
+            [
+                -2.0038e-01,
+                -5.3757e-02,
+                1.8997e-01,
+                -3.6866e-01,
+                5.5484e-02,
+                1.5643e-01,
+                -2.3538e-01,
+                2.1103e-01,
+            ],
+            [
+                -2.6875e-01,
+                2.4984e-01,
+                -2.3514e-01,
+                2.5527e-01,
+                2.0322e-01,
+                3.7675e-01,
+                6.1563e-02,
+                1.7201e-01,
+            ],
+            [
+                3.3541e-01,
+                -3.3555e-01,
+                -4.3349e-01,
+                4.3043e-01,
+                -2.0498e-01,
+                -1.8366e-01,
+                -9.1553e-02,
+                -4.1168e-01,
+            ],
+        ]
+    ),
+    bias=torch.tensor(
+        [0.1954, -0.2756, 0.3113, 0.1149, 0.4274, 0.2429, -0.1721, -0.2502]
+    ),
+    quantized_bias=torch.tensor([3, -2, 3, 1, 3, 2, -2, -2], dtype=torch.int32),
+    shifted_quantized_bias=torch.tensor(
+        [-1, 0, -3, -1, -3, 0, 2, -4], dtype=torch.int32
+    ),
+    calc_quantized_output=torch.tensor(
+        [
+            [0, -1, 0, -1, -1, 0, 1, -2],
+            [0, 0, -1, 0, 0, 0, 0, -1],
+            [0, 0, 0, -1, 0, 0, 0, -1],
+            [0, 0, 0, 0, 0, 1, -1, -2],
+        ],
+        dtype=torch.int8,
+    ),
+    bitwidth=2,
+    batch_size=4,
+    in_channels=8,
+    out_channels=8,
+):
+    def plot_matrix(tensor, ax, title, vmin=0, vmax=1, cmap=ListedColormap(["white"])):
         ax.imshow(tensor.cpu().numpy(), vmin=vmin, vmax=vmax, cmap=cmap)
         ax.set_title(title)
         ax.set_yticklabels([])
@@ -309,105 +445,160 @@ def test_quantized_fc(
             for j in range(tensor.shape[1]):
                 datum = tensor[i, j].item()
                 if isinstance(datum, float):
-                    text = ax.text(j, i, f'{datum:.2f}',
-                                    ha="center", va="center", color="k")
+                    text = ax.text(
+                        j, i, f"{datum:.2f}", ha="center", va="center", color="k"
+                    )
                 else:
-                    text = ax.text(j, i, f'{datum}',
-                                    ha="center", va="center", color="k")
+                    text = ax.text(
+                        j, i, f"{datum}", ha="center", va="center", color="k"
+                    )
 
     output = torch.nn.functional.linear(input, weight, bias)
 
-    quantized_weight, weight_scale, weight_zero_point = \
+    quantized_weight, weight_scale, weight_zero_point = (
         linear_quantize_weight_per_channel(weight, bitwidth)
-    quantized_input, input_scale, input_zero_point = \
-        linear_quantize_feature(input, bitwidth)
-    _quantized_bias, bias_scale, bias_zero_point = \
+    )
+    quantized_input, input_scale, input_zero_point = linear_quantize_feature(
+        input, bitwidth
+    )
+    _quantized_bias, bias_scale, bias_zero_point = (
         linear_quantize_bias_per_output_channel(bias, weight_scale, input_scale)
+    )
     assert _quantized_bias.equal(_quantized_bias)
-    _shifted_quantized_bias = \
-        shift_quantized_linear_bias(quantized_bias, quantized_weight, input_zero_point)
+    _shifted_quantized_bias = shift_quantized_linear_bias(
+        quantized_bias, quantized_weight, input_zero_point
+    )
     assert _shifted_quantized_bias.equal(shifted_quantized_bias)
-    quantized_output, output_scale, output_zero_point = \
-        linear_quantize_feature(output, bitwidth)
+    quantized_output, output_scale, output_zero_point = linear_quantize_feature(
+        output, bitwidth
+    )
 
     _calc_quantized_output = quantized_linear(
-        quantized_input, quantized_weight, shifted_quantized_bias,
-        bitwidth, bitwidth,
-        input_zero_point, output_zero_point,
-        input_scale, weight_scale, output_scale)
+        quantized_input,
+        quantized_weight,
+        shifted_quantized_bias,
+        bitwidth,
+        bitwidth,
+        input_zero_point,
+        output_zero_point,
+        input_scale,
+        weight_scale,
+        output_scale,
+    )
     assert _calc_quantized_output.equal(calc_quantized_output)
 
     reconstructed_weight = weight_scale * (quantized_weight.float() - weight_zero_point)
     reconstructed_input = input_scale * (quantized_input.float() - input_zero_point)
     reconstructed_bias = bias_scale * (quantized_bias.float() - bias_zero_point)
-    reconstructed_calc_output = output_scale * (calc_quantized_output.float() - output_zero_point)
+    reconstructed_calc_output = output_scale * (
+        calc_quantized_output.float() - output_zero_point
+    )
 
-    fig, axes = plt.subplots(3,3, figsize=(15, 12))
+    fig, axes = plt.subplots(3, 3, figsize=(15, 12))
     quantized_min, quantized_max = get_quantized_range(bitwidth)
-    plot_matrix(weight, axes[0, 0], 'original weight', vmin=-0.5, vmax=0.5)
-    plot_matrix(input.t(), axes[1, 0], 'original input', vmin=0, vmax=1)
-    plot_matrix(output.t(), axes[2, 0], 'original output', vmin=-1.5, vmax=1.5)
-    plot_matrix(quantized_weight, axes[0, 1], f'{bitwidth}-bit linear quantized weight',
-                vmin=quantized_min, vmax=quantized_max, cmap='tab20c')
-    plot_matrix(quantized_input.t(), axes[1, 1], f'{bitwidth}-bit linear quantized input',
-                vmin=quantized_min, vmax=quantized_max, cmap='tab20c')
-    plot_matrix(calc_quantized_output.t(), axes[2, 1], f'quantized output from quantized_linear()',
-                vmin=quantized_min, vmax=quantized_max, cmap='tab20c')
-    plot_matrix(reconstructed_weight, axes[0, 2], f'reconstructed weight',
-                vmin=-0.5, vmax=0.5, cmap='tab20c')
-    plot_matrix(reconstructed_input.t(), axes[1, 2], f'reconstructed input',
-                vmin=0, vmax=1, cmap='tab20c')
-    plot_matrix(reconstructed_calc_output.t(), axes[2, 2], f'reconstructed output',
-                vmin=-1.5, vmax=1.5, cmap='tab20c')
+    plot_matrix(weight, axes[0, 0], "original weight", vmin=-0.5, vmax=0.5)
+    plot_matrix(input.t(), axes[1, 0], "original input", vmin=0, vmax=1)
+    plot_matrix(output.t(), axes[2, 0], "original output", vmin=-1.5, vmax=1.5)
+    plot_matrix(
+        quantized_weight,
+        axes[0, 1],
+        f"{bitwidth}-bit linear quantized weight",
+        vmin=quantized_min,
+        vmax=quantized_max,
+        cmap="tab20c",
+    )
+    plot_matrix(
+        quantized_input.t(),
+        axes[1, 1],
+        f"{bitwidth}-bit linear quantized input",
+        vmin=quantized_min,
+        vmax=quantized_max,
+        cmap="tab20c",
+    )
+    plot_matrix(
+        calc_quantized_output.t(),
+        axes[2, 1],
+        f"quantized output from quantized_linear()",
+        vmin=quantized_min,
+        vmax=quantized_max,
+        cmap="tab20c",
+    )
+    plot_matrix(
+        reconstructed_weight,
+        axes[0, 2],
+        f"reconstructed weight",
+        vmin=-0.5,
+        vmax=0.5,
+        cmap="tab20c",
+    )
+    plot_matrix(
+        reconstructed_input.t(),
+        axes[1, 2],
+        f"reconstructed input",
+        vmin=0,
+        vmax=1,
+        cmap="tab20c",
+    )
+    plot_matrix(
+        reconstructed_calc_output.t(),
+        axes[2, 2],
+        f"reconstructed output",
+        vmin=-1.5,
+        vmax=1.5,
+        cmap="tab20c",
+    )
 
-    print('* Test quantized_fc()')
-    print(f'    target bitwidth: {bitwidth} bits')
-    print(f'      batch size: {batch_size}')
-    print(f'      input channels: {in_channels}')
-    print(f'      output channels: {out_channels}')
-    print('* Test passed.')
+    print("* Test quantized_fc()")
+    print(f"    target bitwidth: {bitwidth} bits")
+    print(f"      batch size: {batch_size}")
+    print(f"      input channels: {in_channels}")
+    print(f"      output channels: {out_channels}")
+    print("* Test passed.")
     fig.tight_layout()
     plt.show()
 
-checkpoint_url = "https://hanlab18.mit.edu/files/course/labs/vgg.cifar.pretrained.pth"
-checkpoint = torch.load(download_url(checkpoint_url), map_location="cpu")
+
+checkpoint_path = "/home/ghr/ghr_code/data/vgg.cifar.pretrained.pth"
+checkpoint = torch.load(checkpoint_path, map_location="cpu")
 model = VGG().cuda()
-print(f"=> loading checkpoint '{checkpoint_url}'")
-model.load_state_dict(checkpoint['state_dict'])
-recover_model = lambda : model.load_state_dict(checkpoint['state_dict'])
+print(f"=> loading checkpoint '{checkpoint_path}'")
+model.load_state_dict(checkpoint["state_dict"])
+recover_model = lambda: model.load_state_dict(checkpoint["state_dict"])
 
 image_size = 32
 transforms = {
-    "train": Compose([
-        RandomCrop(image_size, padding=4),
-        RandomHorizontalFlip(),
-        ToTensor(),
-    ]),
+    "train": Compose(
+        [
+            RandomCrop(image_size, padding=4),
+            RandomHorizontalFlip(),
+            ToTensor(),
+        ]
+    ),
     "test": ToTensor(),
 }
 dataset = {}
 for split in ["train", "test"]:
-  dataset[split] = CIFAR10(
-    root="data/cifar10",
-    train=(split == "train"),
-    download=True,
-    transform=transforms[split],
-  )
+    dataset[split] = CIFAR10(
+        root="data/cifar10",
+        train=(split == "train"),
+        download=True,
+        transform=transforms[split],
+    )
 dataloader = {}
-for split in ['train', 'test']:
-  dataloader[split] = DataLoader(
-    dataset[split],
-    batch_size=512,
-    shuffle=(split == 'train'),
-    num_workers=0,
-    pin_memory=True,
-  )
+for split in ["train", "test"]:
+    dataloader[split] = DataLoader(
+        dataset[split],
+        batch_size=512,
+        shuffle=(split == "train"),
+        num_workers=0,
+        pin_memory=True,
+    )
 
 # 首先评估 FP32 模型的准确率和模型大小
-fp32_model_accuracy = evaluate(model,dataloader=['test'])
+fp32_model_accuracy = evaluate(model, dataloader=["test"])
 fp32_model_size = get_model_size(model)
 print(f"fp32 model has accuracy={fp32_model_accuracy:.2f}%")
-print(f"fp32 model has size={fp32_model_size/MiB:.2f} MiB")
+print(f"fp32 model has size={fp32_model_size / MiB:.2f} MiB")
 
 """
 https://arxiv.org/pdf/1510.00149
@@ -427,10 +618,11 @@ quantized_weight = codebook.centroids[codebook.labels].view_as(weight)
 """
 from collections import namedtuple
 
-Codebook = namedtuple('Codebook', ['centroids', 'labels'])
+Codebook = namedtuple("Codebook", ["centroids", "labels"])
 
 # 问题 1: 实现 k-means 量化
 from fast_pytorch_kmeans import KMeans
+
 
 def k_means_quantize(fp32_tensor: torch.Tensor, bitwidth=4, codebook=None):
     """
@@ -450,7 +642,7 @@ def k_means_quantize(fp32_tensor: torch.Tensor, bitwidth=4, codebook=None):
         n_clusters = 0
         ############### YOUR CODE ENDS HERE #################
         # use k-means to get the quantization centroids
-        kmeans = KMeans(n_clusters=n_clusters, mode='euclidean', verbose=0)
+        kmeans = KMeans(n_clusters=n_clusters, mode="euclidean", verbose=0)
         labels = kmeans.fit_predict(fp32_tensor.view(-1, 1)).to(torch.long)
         centroids = kmeans.centroids.to(torch.float).view(-1)
         codebook = Codebook(centroids, labels)
@@ -461,6 +653,7 @@ def k_means_quantize(fp32_tensor: torch.Tensor, bitwidth=4, codebook=None):
     ############### YOUR CODE ENDS HERE #################
     fp32_tensor.set_(quantized_tensor.view_as(fp32_tensor))
     return codebook
+
 
 # 通过对一个虚拟张量应用 k-means 量化来测试 k-means 量化函数
 test_k_means_quantize()
@@ -495,8 +688,10 @@ test_k_means_quantize()
 以便在模型权重变化时能够应用或更新码本
 """
 from torch.nn import parameter
+
+
 class KMeansQuantizer:
-    def __init__(self, model : nn.Module, bitwidth=4):
+    def __init__(self, model: nn.Module, bitwidth=4):
         self.codebook = KMeansQuantizer.quantize(model, bitwidth)
 
     @torch.no_grad()
@@ -506,7 +701,8 @@ class KMeansQuantizer:
                 if update_centroids:
                     update_codebook(param, codebook=self.codebook[name])
                 self.codebook[name] = k_means_quantize(
-                    param, codebook=self.codebook[name])
+                    param, codebook=self.codebook[name]
+                )
 
     @staticmethod
     @torch.no_grad()
@@ -522,17 +718,22 @@ class KMeansQuantizer:
                     codebook[name] = k_means_quantize(param, bitwidth=bitwidth)
         return codebook
 
+
 # 使用 K-Means量化将模型量化为 8 比特、4比特和 2 比特。注意，在计算模型大小是，我们忽略码本的存储开销
-print('Note that the storage for codebooks is ignored when calculating the model size.')
+print("Note that the storage for codebooks is ignored when calculating the model size.")
 quantizers = dict()
 for bitwidth in [8, 4, 2]:
     recover_model()
-    print(f'k-means quantizing model into {bitwidth} bits')
+    print(f"k-means quantizing model into {bitwidth} bits")
     quantizer = KMeansQuantizer(model, bitwidth)
     quantized_model_size = get_model_size(model, bitwidth)
-    print(f"    {bitwidth}-bit k-means quantized model has size={quantized_model_size/MiB:.2f} MiB")
-    quantized_model_accuracy = evaluate(model, dataloader['test'])
-    print(f"    {bitwidth}-bit k-means quantized model has accuracy={quantized_model_accuracy:.2f}%")
+    print(
+        f"    {bitwidth}-bit k-means quantized model has size={quantized_model_size / MiB:.2f} MiB"
+    )
+    quantized_model_accuracy = evaluate(model, dataloader["test"])
+    print(
+        f"    {bitwidth}-bit k-means quantized model has accuracy={quantized_model_accuracy:.2f}%"
+    )
     quantizers[bitwidth] = quantizer
 
 # 训练 K-Means 量化模型
@@ -543,6 +744,7 @@ for bitwidth in [8, 4, 2]:
 在 k-means量化感知训练过程中，聚类中心也会被更新。
 这一方法在：https://arxiv.org/pdf/1510.00149
 """
+
 
 # 问题 3
 # 上述更新聚类中心的方程本质上是对同一聚类中的权重取均值作为更新后的聚类中心值
@@ -555,10 +757,11 @@ def update_codebook(fp32_tensor: torch.Tensor, codebook: Codebook):
     n_clusters = codebook.centroids.numel()
     fp32_tensor = fp32_tensor.view(-1)
     for k in range(n_clusters):
-    ############### YOUR CODE STARTS HERE ###############
+        ############### YOUR CODE STARTS HERE ###############
         # hint: one line of code
         codebook.centroids[k] = 0
     ############### YOUR CODE ENDS HERE #################
+
 
 # 现在运行以下代码单元来微调 k-means量化后的模型以恢复准确率。
 # 如果准确率下降小于 0.5，我们将停止微调
@@ -569,32 +772,50 @@ quantizers_after_finetune = quantizers
 for bitwidth in [8, 4, 2]:
     recover_model()
     quantizer = quantizers[bitwidth]
-    print(f'k-means quantizing model into {bitwidth} bits')
+    print(f"k-means quantizing model into {bitwidth} bits")
     quantizer.apply(model, update_centroids=False)
     quantized_model_size = get_model_size(model, bitwidth)
-    print(f"    {bitwidth}-bit k-means quantized model has size={quantized_model_size/MiB:.2f} MiB")
-    quantized_model_accuracy = evaluate(model, dataloader['test'])
-    print(f"    {bitwidth}-bit k-means quantized model has accuracy={quantized_model_accuracy:.2f}% before quantization-aware training ")
+    print(
+        f"    {bitwidth}-bit k-means quantized model has size={quantized_model_size / MiB:.2f} MiB"
+    )
+    quantized_model_accuracy = evaluate(model, dataloader["test"])
+    print(
+        f"    {bitwidth}-bit k-means quantized model has accuracy={quantized_model_accuracy:.2f}% before quantization-aware training "
+    )
     accuracy_drop = fp32_model_accuracy - quantized_model_accuracy
     if accuracy_drop > accuracy_drop_threshold:
-        print(f"        Quantization-aware training due to accuracy drop={accuracy_drop:.2f}% is larger than threshold={accuracy_drop_threshold:.2f}%")
+        print(
+            f"        Quantization-aware training due to accuracy drop={accuracy_drop:.2f}% is larger than threshold={accuracy_drop_threshold:.2f}%"
+        )
         num_finetune_epochs = 5
         optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_finetune_epochs)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, num_finetune_epochs
+        )
         criterion = nn.CrossEntropyLoss()
         best_accuracy = 0
         epoch = num_finetune_epochs
         while accuracy_drop > accuracy_drop_threshold and epoch > 0:
-            train(model, dataloader['train'], criterion, optimizer, scheduler,
-                  callbacks=[lambda: quantizer.apply(model, update_centroids=True)])
-            model_accuracy = evaluate(model, dataloader['test'])
+            train(
+                model,
+                dataloader["train"],
+                criterion,
+                optimizer,
+                scheduler,
+                callbacks=[lambda: quantizer.apply(model, update_centroids=True)],
+            )
+            model_accuracy = evaluate(model, dataloader["test"])
             is_best = model_accuracy > best_accuracy
             best_accuracy = max(model_accuracy, best_accuracy)
-            print(f'        Epoch {num_finetune_epochs-epoch} Accuracy {model_accuracy:.2f}% / Best Accuracy: {best_accuracy:.2f}%')
+            print(
+                f"        Epoch {num_finetune_epochs - epoch} Accuracy {model_accuracy:.2f}% / Best Accuracy: {best_accuracy:.2f}%"
+            )
             accuracy_drop = fp32_model_accuracy - best_accuracy
             epoch -= 1
     else:
-        print(f"        No need for quantization-aware training since accuracy drop={accuracy_drop:.2f}% is smaller than threshold={accuracy_drop_threshold:.2f}%")
+        print(
+            f"        No need for quantization-aware training since accuracy drop={accuracy_drop:.2f}% is smaller than threshold={accuracy_drop_threshold:.2f}%"
+        )
 
 
 # 线性量化
@@ -621,6 +842,8 @@ n 比特整数
 
 例如一个 8 比特有符号整数的范围为 [-128, 127]，一个 4 比特有符号整数的范围为 [-8, 7]。
 """
+
+
 def get_quantized_range(bitwidth):
     quantized_max = (1 << (bitwidth - 1)) - 1
     quantized_min = -(1 << (bitwidth - 1))
@@ -639,7 +862,11 @@ def get_quantized_range(bitwidth):
 - 要将 torch.FloatTensor 转换为 torch.IntTensor,我们可以使用 torch.round()、torch.Tensor.round()、torch.Tensor.round_()
   先将所有值转换为浮点数，然后使用 torch.Tensor.to(torch.int8) 将数据类型从 torch.float 转换为 torch.int8
 """
-def linear_quantize(fp_tensor, bitwidth, scale, zero_point, dtype=torch.int8) -> torch.Tensor:
+
+
+def linear_quantize(
+    fp_tensor, bitwidth, scale, zero_point, dtype=torch.int8
+) -> torch.Tensor:
     """
     linear quantization for single fp_tensor
       from
@@ -653,11 +880,13 @@ def linear_quantize(fp_tensor, bitwidth, scale, zero_point, dtype=torch.int8) ->
     :return:
         [torch.(cuda.)FloatTensor] quantized tensor whose values are integers
     """
-    assert(fp_tensor.dtype == torch.float)
-    assert(isinstance(scale, float) or
-           (scale.dtype == torch.float and scale.dim() == fp_tensor.dim()))
-    assert(isinstance(zero_point, int) or
-           (zero_point.dtype == dtype and zero_point.dim() == fp_tensor.dim()))
+    assert fp_tensor.dtype == torch.float
+    assert isinstance(scale, float) or (
+        scale.dtype == torch.float and scale.dim() == fp_tensor.dim()
+    )
+    assert isinstance(zero_point, int) or (
+        zero_point.dtype == dtype and zero_point.dim() == fp_tensor.dim()
+    )
 
     ############### YOUR CODE STARTS HERE ###############
     # Step 1: scale the fp_tensor
@@ -677,6 +906,7 @@ def linear_quantize(fp_tensor, bitwidth, scale, zero_point, dtype=torch.int8) ->
     quantized_min, quantized_max = get_quantized_range(bitwidth)
     quantized_tensor = shifted_tensor.clamp_(quantized_min, quantized_max)
     return quantized_tensor
+
 
 # 验证
 test_linear_quantize()
@@ -721,6 +951,8 @@ Z = q_min - r_min / S
 Z = r_min / S - q_min
 
 """
+
+
 # 问题 5.3
 # 完成以下函数，该函数从浮点张量r计算缩放因子 S 和零点Z
 def get_quantization_scale_and_zero_point(fp_tensor, bitwidth):
@@ -748,9 +980,10 @@ def get_quantization_scale_and_zero_point(fp_tensor, bitwidth):
         zero_point = quantized_min
     elif zero_point > quantized_max:
         zero_point = quantized_max
-    else: # convert from float to int using round()
+    else:  # convert from float to int using round()
         zero_point = round(zero_point)
     return scale, int(zero_point)
+
 
 # 将 linear_quantize() 和 get_quantization_scale_and_zero_point() 函数结合起来，完成线性量化的整个过程
 def linear_quantize_feature(fp_tensor, bitwidth):
@@ -767,6 +1000,7 @@ def linear_quantize_feature(fp_tensor, bitwidth):
     quantized_tensor = linear_quantize(fp_tensor, bitwidth, scale, zero_point)
     return quantized_tensor, scale, zero_point
 
+
 # 特殊情况：权重张量的线性量化
 # 先看一下权重值的分布
 def plot_weight_distribution(model, bitwidth=32):
@@ -774,42 +1008,51 @@ def plot_weight_distribution(model, bitwidth=32):
     if bitwidth <= 8:
         qmin, qmax = get_quantized_range(bitwidth)
         bins = np.arange(qmin, qmax + 2)
-        align = 'left'
+        align = "left"
     else:
         bins = 256
-        align = 'mid'
-    fig, axes = plt.subplots(3,3, figsize=(10, 6))
+        align = "mid"
+    fig, axes = plt.subplots(3, 3, figsize=(10, 6))
     axes = axes.ravel()
     plot_index = 0
     for name, param in model.named_parameters():
         if param.dim() > 1:
             ax = axes[plot_index]
-            ax.hist(param.detach().view(-1).cpu(), bins=bins, density=True,
-                    align=align, color = 'blue', alpha = 0.5,
-                    edgecolor='black' if bitwidth <= 4 else None)
+            ax.hist(
+                param.detach().view(-1).cpu(),
+                bins=bins,
+                density=True,
+                align=align,
+                color="blue",
+                alpha=0.5,
+                edgecolor="black" if bitwidth <= 4 else None,
+            )
             if bitwidth <= 4:
                 quantized_min, quantized_max = get_quantized_range(bitwidth)
-                ax.set_xticks(np.arange(start=quantized_min, stop=quantized_max+1))
+                ax.set_xticks(np.arange(start=quantized_min, stop=quantized_max + 1))
             ax.set_xlabel(name)
-            ax.set_ylabel('density')
+            ax.set_ylabel("density")
             plot_index += 1
-    fig.suptitle(f'Histogram of Weights (bitwidth={bitwidth} bits)')
+    fig.suptitle(f"Histogram of Weights (bitwidth={bitwidth} bits)")
     fig.tight_layout()
     fig.subplots_adjust(top=0.925)
     plt.show()
+
 
 recover_model()
 plot_weight_distribution(model)
 
 # 从上面的直方图可以看出，权重值的分布关于 0 几乎是对称的(本例中分类器除外)。
 # 因此，在对权重进行量化时，我们通常令零点 Z = 0
-"""
+r"""
 由 r = S(q - Z) 可得 r_max = S \cdot q_max
 
 进而 S = r_max / q_max
 
 我们直接使用权重的最大绝对值作为 r_max
 """
+
+
 def get_quantization_scale_for_weight(weight, bitwidth):
     """
     get quantization scale for single tensor of weight
@@ -833,6 +1076,8 @@ def get_quantization_scale_for_weight(weight, bitwidth):
 大量实验表明，对不同输出通道使用不同的缩放因子S 和 零点 Z 效果更好。因此，
 我们需要独立地为每个输出通道计算缩放因子 S 和 零点 Z，并对每个输出通道的权重进行量化。
 """
+
+
 def linear_quantize_weight_per_channel(tensor, bitwidth):
     """
     linear quantization for weight tensor
@@ -857,21 +1102,26 @@ def linear_quantize_weight_per_channel(tensor, bitwidth):
     quantized_tensor = linear_quantize(tensor, bitwidth, scale, zero_point=0)
     return quantized_tensor, scale, 0
 
+
 """
 权重线性量化速览
 
 看一下 以不同比特位宽对权重进行线性量化时的权重分布和模型大小
 """
+
+
 @torch.no_grad()
 def peek_linear_quantization():
     for bitwidth in [4, 2]:
         for name, param in model.named_parameters():
             if param.dim() > 1:
-                quantized_param, scale, zero_point = \
-                    linear_quantize_weight_per_channel(param, bitwidth)
+                quantized_param, scale, zero_point = linear_quantize_weight_per_channel(
+                    param, bitwidth
+                )
                 param.copy_(quantized_param)
         plot_weight_distribution(model, bitwidth)
         recover_model()
+
 
 peek_linear_quantization()
 
@@ -887,6 +1137,8 @@ peek_linear_quantization()
 Z_bias = 0
 S_bias = S_input * S_weight
 """
+
+
 def linear_quantize_bias_per_output_channel(bias, weight_scale, input_scale):
     """
     linear quantization for single bias tensor
@@ -897,22 +1149,24 @@ def linear_quantize_bias_per_output_channel(bias, weight_scale, input_scale):
     :return:
         [torch.IntTensor] quantized bias tensor
     """
-    assert(bias.dim() == 1)
-    assert(bias.dtype == torch.float)
-    assert(isinstance(input_scale, float))
+    assert bias.dim() == 1
+    assert bias.dtype == torch.float
+    assert isinstance(input_scale, float)
     if isinstance(weight_scale, torch.Tensor):
-        assert(weight_scale.dtype == torch.float)
+        assert weight_scale.dtype == torch.float
         weight_scale = weight_scale.view(-1)
-        assert(bias.numel() == weight_scale.numel())
+        assert bias.numel() == weight_scale.numel()
 
     ############### YOUR CODE STARTS HERE ###############
     # hint: one line of code
     bias_scale = 0
     ############### YOUR CODE ENDS HERE #################
 
-    quantized_bias = linear_quantize(bias, 32, bias_scale,
-                                     zero_point=0, dtype=torch.int32)
+    quantized_bias = linear_quantize(
+        bias, 32, bias_scale, zero_point=0, dtype=torch.int32
+    )
     return quantized_bias, bias_scale, 0
+
 
 # 量化全连接层
 # 对于量化全连接层，我们首先预计算 Q_bias
@@ -927,9 +1181,10 @@ def shift_quantized_linear_bias(quantized_bias, quantized_weight, input_zero_poi
     :return:
         [torch.IntTensor] shifted quantized bias tensor
     """
-    assert(quantized_bias.dtype == torch.int32)
-    assert(isinstance(input_zero_point, int))
+    assert quantized_bias.dtype == torch.int32
+    assert isinstance(input_zero_point, int)
     return quantized_bias - quantized_weight.sum(1).to(torch.int32) * input_zero_point
+
 
 # 问题 7
 # 请完成以下量化全连接层推理函数
@@ -939,9 +1194,20 @@ def shift_quantized_linear_bias(quantized_bias, quantized_weight, input_zero_poi
 
 q_output = (Linear[q_input,q_weight] + q_bias) * S_input * S_weight / S_output + Z_output
 """
-def quantized_linear(input, weight, bias, feature_bitwidth, weight_bitwidth,
-                     input_zero_point, output_zero_point,
-                     input_scale, weight_scale, output_scale):
+
+
+def quantized_linear(
+    input,
+    weight,
+    bias,
+    feature_bitwidth,
+    weight_bitwidth,
+    input_zero_point,
+    output_zero_point,
+    input_scale,
+    weight_scale,
+    output_scale,
+):
     """
     quantized fully-connected layer
     :param input: [torch.CharTensor] quantized input (torch.int8)
@@ -957,19 +1223,21 @@ def quantized_linear(input, weight, bias, feature_bitwidth, weight_bitwidth,
     :return:
         [torch.CharIntTensor] quantized output feature (torch.int8)
     """
-    assert(input.dtype == torch.int8)
-    assert(weight.dtype == input.dtype)
-    assert(bias is None or bias.dtype == torch.int32)
-    assert(isinstance(input_zero_point, int))
-    assert(isinstance(output_zero_point, int))
-    assert(isinstance(input_scale, float))
-    assert(isinstance(output_scale, float))
-    assert(weight_scale.dtype == torch.float)
+    assert input.dtype == torch.int8
+    assert weight.dtype == input.dtype
+    assert bias is None or bias.dtype == torch.int32
+    assert isinstance(input_zero_point, int)
+    assert isinstance(output_zero_point, int)
+    assert isinstance(input_scale, float)
+    assert isinstance(output_scale, float)
+    assert weight_scale.dtype == torch.float
 
     # Step 1: integer-based fully-connected (8-bit multiplication with 32-bit accumulation)
-    if 'cpu' in input.device.type:
+    if "cpu" in input.device.type:
         # use 32-b MAC for simplicity
-        output = torch.nn.functional.linear(input.to(torch.int32), weight.to(torch.int32), bias)
+        output = torch.nn.functional.linear(
+            input.to(torch.int32), weight.to(torch.int32), bias
+        )
     else:
         # current version pytorch does not yet support integer-based linear() on GPUs
         output = torch.nn.functional.linear(input.float(), weight.float(), bias.float())
@@ -989,6 +1257,7 @@ def quantized_linear(input, weight, bias, feature_bitwidth, weight_bitwidth,
     output = output.round().clamp(*get_quantized_range(feature_bitwidth)).to(torch.int8)
     return output
 
+
 # 量化卷积
 # 对于量化卷积层，我们首先预计算 Q_bias
 # 回顾 Q_bias = q_bias - Conv[Z_input,q_weight]
@@ -1002,9 +1271,13 @@ def shift_quantized_conv2d_bias(quantized_bias, quantized_weight, input_zero_poi
     :return:
         [torch.IntTensor] shifted quantized bias tensor
     """
-    assert(quantized_bias.dtype == torch.int32)
-    assert(isinstance(input_zero_point, int))
-    return quantized_bias - quantized_weight.sum((1,2,3)).to(torch.int32) * input_zero_point
+    assert quantized_bias.dtype == torch.int32
+    assert isinstance(input_zero_point, int)
+    return (
+        quantized_bias
+        - quantized_weight.sum((1, 2, 3)).to(torch.int32) * input_zero_point
+    )
+
 
 """
 问题 8
@@ -1015,10 +1288,24 @@ def shift_quantized_conv2d_bias(quantized_bias, quantized_weight, input_zero_poi
 
 q_output = (Conv[q_input,q_weight] + q_bias) * S_input * S_weight / S_output + Z_output
 """
-def quantized_conv2d(input, weight, bias, feature_bitwidth, weight_bitwidth,
-                     input_zero_point, output_zero_point,
-                     input_scale, weight_scale, output_scale,
-                     stride, padding, dilation, groups):
+
+
+def quantized_conv2d(
+    input,
+    weight,
+    bias,
+    feature_bitwidth,
+    weight_bitwidth,
+    input_zero_point,
+    output_zero_point,
+    input_scale,
+    weight_scale,
+    output_scale,
+    stride,
+    padding,
+    dilation,
+    groups,
+):
     """
     quantized 2d convolution
     :param input: [torch.CharTensor] quantized input (torch.int8)
@@ -1034,24 +1321,34 @@ def quantized_conv2d(input, weight, bias, feature_bitwidth, weight_bitwidth,
     :return:
         [torch.(cuda.)CharTensor] quantized output feature
     """
-    assert(len(padding) == 4)
-    assert(input.dtype == torch.int8)
-    assert(weight.dtype == input.dtype)
-    assert(bias is None or bias.dtype == torch.int32)
-    assert(isinstance(input_zero_point, int))
-    assert(isinstance(output_zero_point, int))
-    assert(isinstance(input_scale, float))
-    assert(isinstance(output_scale, float))
-    assert(weight_scale.dtype == torch.float)
+    assert len(padding) == 4
+    assert input.dtype == torch.int8
+    assert weight.dtype == input.dtype
+    assert bias is None or bias.dtype == torch.int32
+    assert isinstance(input_zero_point, int)
+    assert isinstance(output_zero_point, int)
+    assert isinstance(input_scale, float)
+    assert isinstance(output_scale, float)
+    assert weight_scale.dtype == torch.float
 
     # Step 1: calculate integer-based 2d convolution (8-bit multiplication with 32-bit accumulation)
-    input = torch.nn.functional.pad(input, padding, 'constant', input_zero_point)
-    if 'cpu' in input.device.type:
+    input = torch.nn.functional.pad(input, padding, "constant", input_zero_point)
+    if "cpu" in input.device.type:
         # use 32-b MAC for simplicity
-        output = torch.nn.functional.conv2d(input.to(torch.int32), weight.to(torch.int32), None, stride, 0, dilation, groups)
+        output = torch.nn.functional.conv2d(
+            input.to(torch.int32),
+            weight.to(torch.int32),
+            None,
+            stride,
+            0,
+            dilation,
+            groups,
+        )
     else:
         # current version pytorch does not yet support integer-based conv2d() on GPUs
-        output = torch.nn.functional.conv2d(input.float(), weight.float(), None, stride, 0, dilation, groups)
+        output = torch.nn.functional.conv2d(
+            input.float(), weight.float(), None, stride, 0, dilation, groups
+        )
         output = output.round().to(torch.int32)
     if bias is not None:
         output = output + bias.view(1, -1, 1, 1)
@@ -1073,6 +1370,7 @@ def quantized_conv2d(input, weight, bias, feature_bitwidth, weight_bitwidth,
     output = output.round().clamp(*get_quantized_range(feature_bitwidth)).to(torch.int8)
     return output
 
+
 """
 问题 9
 
@@ -1083,41 +1381,46 @@ def quantized_conv2d(input, weight, bias, feature_bitwidth, weight_bitwidth,
 
 我们也将验证融合后的模型 model_fused 与原始模型具有相同的准确率(BN 融合是一种不改变网络功能的等价变换)
 """
+
+
 def fuse_conv_bn(conv, bn):
     # modified from https://mmcv.readthedocs.io/en/latest/_modules/mmcv/cnn/utils/fuse_conv_bn.html
     assert conv.bias is None
 
     factor = bn.weight.data / torch.sqrt(bn.running_var.data + bn.eps)
     conv.weight.data = conv.weight.data * factor.reshape(-1, 1, 1, 1)
-    conv.bias = nn.Parameter(- bn.running_mean.data * factor + bn.bias.data)
+    conv.bias = nn.Parameter(-bn.running_mean.data * factor + bn.bias.data)
 
     return conv
 
-print('Before conv-bn fusion: backbone length', len(model.backbone))
+
+print("Before conv-bn fusion: backbone length", len(model.backbone))
 #  fuse the batchnorm into conv layers
 recover_model()
 model_fused = copy.deepcopy(model)
 fused_backbone = []
 ptr = 0
 while ptr < len(model_fused.backbone):
-    if isinstance(model_fused.backbone[ptr], nn.Conv2d) and \
-        isinstance(model_fused.backbone[ptr + 1], nn.BatchNorm2d):
-        fused_backbone.append(fuse_conv_bn(
-            model_fused.backbone[ptr], model_fused.backbone[ptr+ 1]))
+    if isinstance(model_fused.backbone[ptr], nn.Conv2d) and isinstance(
+        model_fused.backbone[ptr + 1], nn.BatchNorm2d
+    ):
+        fused_backbone.append(
+            fuse_conv_bn(model_fused.backbone[ptr], model_fused.backbone[ptr + 1])
+        )
         ptr += 2
     else:
         fused_backbone.append(model_fused.backbone[ptr])
         ptr += 1
 model_fused.backbone = nn.Sequential(*fused_backbone)
 
-print('After conv-bn fusion: backbone length', len(model_fused.backbone))
+print("After conv-bn fusion: backbone length", len(model_fused.backbone))
 # sanity check, no BN anymore
 for m in model_fused.modules():
     assert not isinstance(m, nn.BatchNorm2d)
 
 #  the accuracy will remain the same after fusion
-fused_acc = evaluate(model_fused, dataloader['test'])
-print(f'Accuracy of the fused model={fused_acc:.2f}%')
+fused_acc = evaluate(model_fused, dataloader["test"])
+print(f"Accuracy of the fused model={fused_acc:.2f}%")
 
 """
 2. 我们将用一些样本数据运行模型，以获取每个特征图的范围，从而计算它们对应的缩放因子和零点
@@ -1126,8 +1429,10 @@ print(f'Accuracy of the fused model={fused_acc:.2f}%')
 input_activation = {}
 output_activation = {}
 
+
 def add_range_recoder_hook(model):
     import functools
+
     def _record_range(self, x, y, module_name):
         x = x[0]
         input_activation[module_name] = x.detach()
@@ -1136,12 +1441,16 @@ def add_range_recoder_hook(model):
     all_hooks = []
     for name, m in model.named_modules():
         if isinstance(m, (nn.Conv2d, nn.Linear, nn.ReLU)):
-            all_hooks.append(m.register_forward_hook(
-                functools.partial(_record_range, module_name=name)))
+            all_hooks.append(
+                m.register_forward_hook(
+                    functools.partial(_record_range, module_name=name)
+                )
+            )
     return all_hooks
 
+
 hooks = add_range_recoder_hook(model_fused)
-sample_data = iter(dataloader['train']).__next__()[0]
+sample_data = iter(dataloader["train"]).__next__()[0]
 model_fused(sample_data.cuda())
 
 # remove hooks
@@ -1158,22 +1467,35 @@ nn.Linear -> QuantizedLinear
 nn.MaxPool2d -> QuantizedMaxPool2d
 nn.AvgPool2d -> QuantizedAvgPool2d
 """
+
+
 class QuantizedConv2d(nn.Module):
-    def __init__(self, weight, bias,
-                 input_zero_point, output_zero_point,
-                 input_scale, weight_scale, output_scale,
-                 stride, padding, dilation, groups,
-                 feature_bitwidth=8, weight_bitwidth=8):
+    def __init__(
+        self,
+        weight,
+        bias,
+        input_zero_point,
+        output_zero_point,
+        input_scale,
+        weight_scale,
+        output_scale,
+        stride,
+        padding,
+        dilation,
+        groups,
+        feature_bitwidth=8,
+        weight_bitwidth=8,
+    ):
         super().__init__()
         # current version Pytorch does not support IntTensor as nn.Parameter
-        self.register_buffer('weight', weight)
-        self.register_buffer('bias', bias)
+        self.register_buffer("weight", weight)
+        self.register_buffer("bias", bias)
 
         self.input_zero_point = input_zero_point
         self.output_zero_point = output_zero_point
 
         self.input_scale = input_scale
-        self.register_buffer('weight_scale', weight_scale)
+        self.register_buffer("weight_scale", weight_scale)
         self.output_scale = output_scale
 
         self.stride = stride
@@ -1184,31 +1506,48 @@ class QuantizedConv2d(nn.Module):
         self.feature_bitwidth = feature_bitwidth
         self.weight_bitwidth = weight_bitwidth
 
-
     def forward(self, x):
         return quantized_conv2d(
-            x, self.weight, self.bias,
-            self.feature_bitwidth, self.weight_bitwidth,
-            self.input_zero_point, self.output_zero_point,
-            self.input_scale, self.weight_scale, self.output_scale,
-            self.stride, self.padding, self.dilation, self.groups
-            )
+            x,
+            self.weight,
+            self.bias,
+            self.feature_bitwidth,
+            self.weight_bitwidth,
+            self.input_zero_point,
+            self.output_zero_point,
+            self.input_scale,
+            self.weight_scale,
+            self.output_scale,
+            self.stride,
+            self.padding,
+            self.dilation,
+            self.groups,
+        )
+
 
 class QuantizedLinear(nn.Module):
-    def __init__(self, weight, bias,
-                 input_zero_point, output_zero_point,
-                 input_scale, weight_scale, output_scale,
-                 feature_bitwidth=8, weight_bitwidth=8):
+    def __init__(
+        self,
+        weight,
+        bias,
+        input_zero_point,
+        output_zero_point,
+        input_scale,
+        weight_scale,
+        output_scale,
+        feature_bitwidth=8,
+        weight_bitwidth=8,
+    ):
         super().__init__()
         # current version Pytorch does not support IntTensor as nn.Parameter
-        self.register_buffer('weight', weight)
-        self.register_buffer('bias', bias)
+        self.register_buffer("weight", weight)
+        self.register_buffer("bias", bias)
 
         self.input_zero_point = input_zero_point
         self.output_zero_point = output_zero_point
 
         self.input_scale = input_scale
-        self.register_buffer('weight_scale', weight_scale)
+        self.register_buffer("weight_scale", weight_scale)
         self.output_scale = output_scale
 
         self.feature_bitwidth = feature_bitwidth
@@ -1216,21 +1555,30 @@ class QuantizedLinear(nn.Module):
 
     def forward(self, x):
         return quantized_linear(
-            x, self.weight, self.bias,
-            self.feature_bitwidth, self.weight_bitwidth,
-            self.input_zero_point, self.output_zero_point,
-            self.input_scale, self.weight_scale, self.output_scale
-            )
+            x,
+            self.weight,
+            self.bias,
+            self.feature_bitwidth,
+            self.weight_bitwidth,
+            self.input_zero_point,
+            self.output_zero_point,
+            self.input_scale,
+            self.weight_scale,
+            self.output_scale,
+        )
+
 
 class QuantizedMaxPool2d(nn.MaxPool2d):
     def forward(self, x):
         # current version PyTorch does not support integer-based MaxPool
         return super().forward(x.float()).to(torch.int8)
 
+
 class QuantizedAvgPool2d(nn.AvgPool2d):
     def forward(self, x):
         # current version PyTorch does not support integer-based AvgPool
         return super().forward(x.float()).to(torch.int8)
+
 
 # we use int8 quantization, which is quite popular
 feature_bitwidth = weight_bitwidth = 8
@@ -1238,81 +1586,105 @@ quantized_model = copy.deepcopy(model_fused)
 quantized_backbone = []
 ptr = 0
 while ptr < len(quantized_model.backbone):
-    if isinstance(quantized_model.backbone[ptr], nn.Conv2d) and \
-        isinstance(quantized_model.backbone[ptr + 1], nn.ReLU):
+    if isinstance(quantized_model.backbone[ptr], nn.Conv2d) and isinstance(
+        quantized_model.backbone[ptr + 1], nn.ReLU
+    ):
         conv = quantized_model.backbone[ptr]
-        conv_name = f'backbone.{ptr}'
+        conv_name = f"backbone.{ptr}"
         relu = quantized_model.backbone[ptr + 1]
-        relu_name = f'backbone.{ptr + 1}'
+        relu_name = f"backbone.{ptr + 1}"
 
-        input_scale, input_zero_point = \
-            get_quantization_scale_and_zero_point(
-                input_activation[conv_name], feature_bitwidth)
+        input_scale, input_zero_point = get_quantization_scale_and_zero_point(
+            input_activation[conv_name], feature_bitwidth
+        )
 
-        output_scale, output_zero_point = \
-            get_quantization_scale_and_zero_point(
-                output_activation[relu_name], feature_bitwidth)
+        output_scale, output_zero_point = get_quantization_scale_and_zero_point(
+            output_activation[relu_name], feature_bitwidth
+        )
 
-        quantized_weight, weight_scale, weight_zero_point = \
+        quantized_weight, weight_scale, weight_zero_point = (
             linear_quantize_weight_per_channel(conv.weight.data, weight_bitwidth)
-        quantized_bias, bias_scale, bias_zero_point = \
+        )
+        quantized_bias, bias_scale, bias_zero_point = (
             linear_quantize_bias_per_output_channel(
-                conv.bias.data, weight_scale, input_scale)
-        shifted_quantized_bias = \
-            shift_quantized_conv2d_bias(quantized_bias, quantized_weight,
-                                        input_zero_point)
+                conv.bias.data, weight_scale, input_scale
+            )
+        )
+        shifted_quantized_bias = shift_quantized_conv2d_bias(
+            quantized_bias, quantized_weight, input_zero_point
+        )
 
         quantized_conv = QuantizedConv2d(
-            quantized_weight, shifted_quantized_bias,
-            input_zero_point, output_zero_point,
-            input_scale, weight_scale, output_scale,
-            conv.stride, conv.padding, conv.dilation, conv.groups,
-            feature_bitwidth=feature_bitwidth, weight_bitwidth=weight_bitwidth
+            quantized_weight,
+            shifted_quantized_bias,
+            input_zero_point,
+            output_zero_point,
+            input_scale,
+            weight_scale,
+            output_scale,
+            conv.stride,
+            conv.padding,
+            conv.dilation,
+            conv.groups,
+            feature_bitwidth=feature_bitwidth,
+            weight_bitwidth=weight_bitwidth,
         )
 
         quantized_backbone.append(quantized_conv)
         ptr += 2
     elif isinstance(quantized_model.backbone[ptr], nn.MaxPool2d):
-        quantized_backbone.append(QuantizedMaxPool2d(
-            kernel_size=quantized_model.backbone[ptr].kernel_size,
-            stride=quantized_model.backbone[ptr].stride
-            ))
+        quantized_backbone.append(
+            QuantizedMaxPool2d(
+                kernel_size=quantized_model.backbone[ptr].kernel_size,
+                stride=quantized_model.backbone[ptr].stride,
+            )
+        )
         ptr += 1
     elif isinstance(quantized_model.backbone[ptr], nn.AvgPool2d):
-        quantized_backbone.append(QuantizedAvgPool2d(
-            kernel_size=quantized_model.backbone[ptr].kernel_size,
-            stride=quantized_model.backbone[ptr].stride
-            ))
+        quantized_backbone.append(
+            QuantizedAvgPool2d(
+                kernel_size=quantized_model.backbone[ptr].kernel_size,
+                stride=quantized_model.backbone[ptr].stride,
+            )
+        )
         ptr += 1
     else:
-        raise NotImplementedError(type(quantized_model.backbone[ptr]))  # should not happen
+        raise NotImplementedError(
+            type(quantized_model.backbone[ptr])
+        )  # should not happen
 quantized_model.backbone = nn.Sequential(*quantized_backbone)
 
 # finally, quantized the classifier
-fc_name = 'classifier'
+fc_name = "classifier"
 fc = model.classifier
-input_scale, input_zero_point = \
-    get_quantization_scale_and_zero_point(
-        input_activation[fc_name], feature_bitwidth)
+input_scale, input_zero_point = get_quantization_scale_and_zero_point(
+    input_activation[fc_name], feature_bitwidth
+)
 
-output_scale, output_zero_point = \
-    get_quantization_scale_and_zero_point(
-        output_activation[fc_name], feature_bitwidth)
+output_scale, output_zero_point = get_quantization_scale_and_zero_point(
+    output_activation[fc_name], feature_bitwidth
+)
 
-quantized_weight, weight_scale, weight_zero_point = \
-    linear_quantize_weight_per_channel(fc.weight.data, weight_bitwidth)
-quantized_bias, bias_scale, bias_zero_point = \
-    linear_quantize_bias_per_output_channel(
-        fc.bias.data, weight_scale, input_scale)
-shifted_quantized_bias = \
-    shift_quantized_linear_bias(quantized_bias, quantized_weight,
-                                input_zero_point)
+quantized_weight, weight_scale, weight_zero_point = linear_quantize_weight_per_channel(
+    fc.weight.data, weight_bitwidth
+)
+quantized_bias, bias_scale, bias_zero_point = linear_quantize_bias_per_output_channel(
+    fc.bias.data, weight_scale, input_scale
+)
+shifted_quantized_bias = shift_quantized_linear_bias(
+    quantized_bias, quantized_weight, input_zero_point
+)
 
 quantized_model.classifier = QuantizedLinear(
-    quantized_weight, shifted_quantized_bias,
-    input_zero_point, output_zero_point,
-    input_scale, weight_scale, output_scale,
-    feature_bitwidth=feature_bitwidth, weight_bitwidth=weight_bitwidth
+    quantized_weight,
+    shifted_quantized_bias,
+    input_zero_point,
+    output_zero_point,
+    input_scale,
+    weight_scale,
+    output_scale,
+    feature_bitwidth=feature_bitwidth,
+    weight_bitwidth=weight_bitwidth,
 )
 
 # 量化过程完成！让我们打印并可视化模型架构，同时验证量化模型的准确率
@@ -1326,15 +1698,18 @@ quantized_model.classifier = QuantizedLinear(
 """
 print(quantized_model)
 
+
 def extra_preprocess(x):
     # hint: you need to convert the original fp32 input of range (0, 1)
     #  into int8 format of range (-128, 127)
     ############### YOUR CODE STARTS HERE ###############
-    return 0.clamp(-128, 127).to(torch.int8)
+    return torch.zeros_like(x).clamp(-128, 127).to(torch.int8)
     ############### YOUR CODE ENDS HERE #################
 
-int8_model_accuracy = evaluate(quantized_model, dataloader['test'],
-                               extra_preprocess=[extra_preprocess])
+
+int8_model_accuracy = evaluate(
+    quantized_model, dataloader["test"], extra_preprocess=[extra_preprocess]
+)
 print(f"int8 model has accuracy={int8_model_accuracy:.2f}%")
 
 
@@ -1347,36 +1722,3 @@ print(f"int8 model has accuracy={int8_model_accuracy:.2f}%")
 请比较基于 k-means 的量化与线性量化的优缺点。你可以从准确率、延迟、硬件支持等方面进行讨论
 答案：
 """
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

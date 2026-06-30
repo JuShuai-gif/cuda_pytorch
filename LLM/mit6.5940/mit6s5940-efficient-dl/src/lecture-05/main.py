@@ -29,6 +29,17 @@ import torch
 matplotlib.use("Agg")
 
 # ---------------------------------------------------------------------------
+# Chinese font configuration - fix missing Chinese characters in output images
+# Noto Sans CJK JP covers all CJK characters (including Simplified Chinese)
+# ---------------------------------------------------------------------------
+matplotlib.rcParams["font.sans-serif"] = [
+    "Noto Sans CJK JP",
+    "AR PL UMing CN",
+    "DejaVu Sans",
+]
+matplotlib.rcParams["axes.unicode_minus"] = False  # prevent minus sign rendering issues
+
+# ---------------------------------------------------------------------------
 # 常量定义
 # ---------------------------------------------------------------------------
 
