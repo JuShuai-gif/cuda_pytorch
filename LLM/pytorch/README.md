@@ -111,3 +111,4 @@
 | 43 | [intrusive_ptr](./43_intrusive_ptr/) | c10::intrusive_ptr 侵入式引用计数、vs shared_ptr |
 | 44 | [ivalue_type](./44_ivalue_type/) | IValue tagged union、JIT 类型系统、Type Erasure |
 | 45 | [cudnn_backend](./45_cudnn_backend/) | cuDNN/cuBLAS 算法选择、benchmark、backend 调度 |
+| 46 | [containers](./46_containers/) | Sequential/ModuleList/ModuleDict/ParameterList/ParameterDict — 容器模块 |
