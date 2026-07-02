@@ -639,7 +639,9 @@ def k_means_quantize(fp32_tensor: torch.Tensor, bitwidth=4, codebook=None):
         ############### YOUR CODE STARTS HERE ###############
         # get number of clusters based on the quantization precision
         # hint: one line of code
-        n_clusters = 0
+        # bitwidth 位数能表示多少个不同的值？
+        # 比如 bitwidth = 4 -> 2^4 = 16 个不同的聚类
+        n_clusters = 2**bitwidth
         ############### YOUR CODE ENDS HERE #################
         # use k-means to get the quantization centroids
         kmeans = KMeans(n_clusters=n_clusters, mode="euclidean", verbose=0)
@@ -649,7 +651,7 @@ def k_means_quantize(fp32_tensor: torch.Tensor, bitwidth=4, codebook=None):
     ############### YOUR CODE STARTS HERE ###############
     # decode the codebook into k-means quantized tensor for inference
     # hint: one line of code
-    quantized_tensor = 0
+    quantized_tensor = codebook.centroids[codebook.labels]
     ############### YOUR CODE ENDS HERE #################
     fp32_tensor.set_(quantized_tensor.view_as(fp32_tensor))
     return codebook
@@ -691,15 +693,43 @@ from torch.nn import parameter
 
 
 class KMeansQuantizer:
+    """
+    K-Means 量化器: 用聚类算法将模型权重压缩到 n 比特。
+
+    核心思想:
+      将权重矩阵中的所有浮点值聚成 2^bitwidth 个类,
+      每个元素只存储它所属的类别编号 (n-bit 整数),
+      实际推理时用类别对应的聚类中心 (fp32 centroids) 来重建权重。
+
+    例如 bitwidth=4 → 16 个聚类中心 → 每个元素只需 4 bits 存储, 压缩比 ≈ 8x (vs fp32)
+    """
+
     def __init__(self, model: nn.Module, bitwidth=4):
+        # 初始化时对整个模型做一次 k-means 量化, 生成初始码本
+        # 码本 = {参数名: Codebook(centroids, labels)}
+        #   centroids: 2^bitwidth 个浮点聚类中心
+        #   labels:    每个权重元素属于哪个聚类的整数索引
         self.codebook = KMeansQuantizer.quantize(model, bitwidth)
 
     @torch.no_grad()
     def apply(self, model, update_centroids):
+        """
+        将码本解码回权重, 原地替换模型参数 (param.set_()).
+
+        :param model: 待量化的模型
+        :param update_centroids: 是否在应用前重新聚类。
+               训练/微调后权重分布变了 → 需要重新跑 k-means 更新聚类中心。
+               推理时保持 False → 直接用已有码本解码。
+        """
         for name, param in model.named_parameters():
-            if name in self.codebook:
+            if name in self.codebook:  # 只处理在码本中的参数 (bias / LayerNorm 不在)
                 if update_centroids:
+                    # 权重的值经过训练已经变了, 重新聚类更准确
+                    # update_codebook 会对新权重重新算聚类中心 (取每个聚类内权重的均值)
                     update_codebook(param, codebook=self.codebook[name])
+                # 用(更新后的)码本重建量化权重:
+                #   centroids[labels] → 每个元素用所属聚类的中心值替换
+                #   k_means_quantize 内部调用 param.set_() 原地修改权重存储
                 self.codebook[name] = k_means_quantize(
                     param, codebook=self.codebook[name]
                 )
@@ -707,15 +737,32 @@ class KMeansQuantizer:
     @staticmethod
     @torch.no_grad()
     def quantize(model: nn.Module, bitwidth=4):
+        """
+        对模型的所有 2D+ 权重矩阵做 k-means 量化。
+
+        :param bitwidth: int → 全局统一位宽 (如 4-bit)
+                         dict → 逐层指定 {"fc1.weight": 8, "fc2.weight": 4}
+        :return: {参数名: Codebook(centroids, labels)} 码本字典
+        """
         codebook = dict()
+
         if isinstance(bitwidth, dict):
+            # ── 逐层精度 ──
+            # 不同层对精度的敏感度不同, 允许差异化配置
+            # 例如: 第一层 conv 和最后一层 fc 用 8-bit, 中间层用 4-bit
             for name, param in model.named_parameters():
                 if name in bitwidth:
                     codebook[name] = k_means_quantize(param, bitwidth=bitwidth[name])
+
         else:
+            # ── 统一精度 ──
+            # param.dim() > 1: 只量化权重矩阵 (Conv/Linear 的 weight)
+            # 跳过 dim ≤ 1 的参数 (bias / LayerNorm weight):
+            #   这些参数元素少, 量化的存储收益极低, 且对精度影响大
             for name, param in model.named_parameters():
                 if param.dim() > 1:
                     codebook[name] = k_means_quantize(param, bitwidth=bitwidth)
+
         return codebook
 
 
@@ -746,34 +793,94 @@ for bitwidth in [8, 4, 2]:
 """
 
 
+"""
+为什么这样做:
+  训练/微调过程中, optimizer 会更新模型权重(fp32_tensor)。
+  权重变了 → 原来聚类所用的 centroids 就不再是最优代表值了 → 需要基于新权重重新计算。
+
+为什么取均值:
+  k-means 的优化目标是「最小化聚类内平方误差」:
+    对每个聚类 k: 找一个值 c_k, 使得 Σ(该类元素 - c_k)² 最小
+  这个凸优化问题的闭式解就是: c_k = 该类所有权重的算术平均值。
+  (对误差函数求导 = 0 → c_k = mean(该类元素))
+
+这样做的好处:
+  对比「重新跑完整 k-means」:
+  ┌──────────────────┬────────────────────┬─────────────────────────┐
+  │                  │ update_codebook     │ 重新跑完整 k-means        │
+  ├──────────────────┼────────────────────┼─────────────────────────┤
+  │ 时间复杂度        │ O(N) 一次遍历       │ O(N × K × iter) 多轮迭代 │
+  │ labels 是否变化   │ 不变(保持原聚类边界) │ 会变(可能打乱聚类结构)    │
+  │ 前提假设          │ 权重变化不大时有效   │ 无需假设                 │
+  │ 适合场景          │ QAT 每个 training    │ 初次量化(从零开始)        │
+  │                  │ step(微调时缓慢变化)  │                         │
+  └──────────────────┴────────────────────┴─────────────────────────┘
+  QAT 训练中每个 step 都会调用此函数(见 callbacks 参数),
+  如果每个 step 都重跑完整 k-means, 训练速度会慢几十倍。
+  O(N) 的取均值让 QAT 变得实际可行。
+"""
+
+
 # 问题 3
 # 上述更新聚类中心的方程本质上是对同一聚类中的权重取均值作为更新后的聚类中心值
 def update_codebook(fp32_tensor: torch.Tensor, codebook: Codebook):
     """
     update the centroids in the codebook using updated fp32_tensor
-    :param fp32_tensor: [torch.(cuda.)Tensor]
+    :param fp32_tensor: [torch.(cuda.)Tensor] 经过 optimizer 更新后的权重
     :param codebook: [Codebook] (the cluster centroids, the cluster label tensor)
+    :原理:
+       对每个聚类 k, 找到所有 label == k 的元素(即属于第 k 类的所有权重值),
+       取它们的算术平均作为新的聚类中心。
+       数学依据: 均值是「最小化聚类内平方误差」的最优解(凸优化闭式解)。
     """
     n_clusters = codebook.centroids.numel()
-    fp32_tensor = fp32_tensor.view(-1)
+    fp32_tensor = fp32_tensor.view(-1)  # 展平为一维, 便于按 labels 索引
     for k in range(n_clusters):
         ############### YOUR CODE STARTS HERE ###############
         # hint: one line of code
-        codebook.centroids[k] = 0
+        # 对第 k 个聚类: 找出该类所有元素, 取均值作为新的聚类中心
+        # codebook.labels == k → bool 掩码, 标记哪些元素属于该类
+        # fp32_tensor[mask].mean() → 该类元素均值 = 最优聚类中心(凸优化闭式解)
+        codebook.centroids[k] = fp32_tensor[codebook.labels == k].mean()
     ############### YOUR CODE ENDS HERE #################
 
 
-# 现在运行以下代码单元来微调 k-means量化后的模型以恢复准确率。
-# 如果准确率下降小于 0.5，我们将停止微调
+# ======================================================================
+# QAT (量化感知训练) 微调循环
+# ======================================================================
+# 目标: 通过微调恢复量化后的精度损失。
+#
+# 核心思路:
+#   量化(压缩权重) → 精度下降 → 用训练数据微调 → 模型学会在量化约束下工作
+#
+# 关键设计: 每个 training step 之后都重新量化权重
+#   1. normal forward  → 用 fp32 权重计算(精确)
+#   2. backward + step → optimizer 更新了 fp32 权重
+#   3. callback         → quantizer.apply(model, update_centroids=True)
+#        a. 用新 fp32 权重重新计算聚类中心(取均值)
+#        b. 用新 centroids 重建量化权重 → param.set_() 原地替换
+#     这样下一个 step 的 forward 用的是「更新后的量化权重」,
+#     模型在训练中学会补偿量化误差。
+#
+# 如果准确率下降小于 0.5%，我们将停止微调
 accuracy_drop_threshold = 0.5
 quantizers_before_finetune = copy.deepcopy(quantizers)
 quantizers_after_finetune = quantizers
 
 for bitwidth in [8, 4, 2]:
+    # Step 1: 恢复 fp32 模型权重 (从预训练 checkpoint)
     recover_model()
+
+    # Step 2: 获取该 bitwidth 对应的量化器 (包含之前算好的码本)
     quantizer = quantizers[bitwidth]
     print(f"k-means quantizing model into {bitwidth} bits")
+
+    # Step 3: 应用量化 — 用码本重建权重, 但不更新聚类中心
+    #         (因为权重刚从 checkpoint 恢复, 和初次 quantize 时一样)
+    #         param.set_() → 现在模型权重已被替换为量化后的值
     quantizer.apply(model, update_centroids=False)
+
+    # Step 4: 查看量化后模型大小和准确率
     quantized_model_size = get_model_size(model, bitwidth)
     print(
         f"    {bitwidth}-bit k-means quantized model has size={quantized_model_size / MiB:.2f} MiB"
@@ -782,20 +889,33 @@ for bitwidth in [8, 4, 2]:
     print(
         f"    {bitwidth}-bit k-means quantized model has accuracy={quantized_model_accuracy:.2f}% before quantization-aware training "
     )
+
+    # Step 5: 计算精度下降量 — 决定是否需要 QAT 微调
     accuracy_drop = fp32_model_accuracy - quantized_model_accuracy
+
     if accuracy_drop > accuracy_drop_threshold:
+        # ── 精度下降超过阈值 → 需要 QAT 微调 ──
         print(
             f"        Quantization-aware training due to accuracy drop={accuracy_drop:.2f}% is larger than threshold={accuracy_drop_threshold:.2f}%"
         )
         num_finetune_epochs = 5
         optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, num_finetune_epochs
+            optimizer,
+            num_finetune_epochs,  # 余弦退火: lr 从 0.01 逐渐降到 ~0
         )
         criterion = nn.CrossEntropyLoss()
         best_accuracy = 0
         epoch = num_finetune_epochs
+
+        # 持续微调直到精度恢复(下降 < 阈值) 或 epoch 耗尽
         while accuracy_drop > accuracy_drop_threshold and epoch > 0:
+            # ── 一个 epoch 的训练 ──
+            # callbacks 中的 lambda 在每个 training step 后执行:
+            #   quantizer.apply(model, update_centroids=True)
+            #   → 1. 用当前(被 optimizer 更新过的) fp32 权重重新聚类
+            #   → 2. 用新 centroids 重建量化权重, 原地替换 model 参数
+            #   这样下一轮 forward 就基于更新后的量化权重计算
             train(
                 model,
                 dataloader["train"],
@@ -804,15 +924,21 @@ for bitwidth in [8, 4, 2]:
                 scheduler,
                 callbacks=[lambda: quantizer.apply(model, update_centroids=True)],
             )
+
+            # ── 验证: 用测试集评估当前量化模型的准确率 ──
             model_accuracy = evaluate(model, dataloader["test"])
             is_best = model_accuracy > best_accuracy
-            best_accuracy = max(model_accuracy, best_accuracy)
+            best_accuracy = max(model_accuracy, best_accuracy)  # 追踪最佳精度
             print(
                 f"        Epoch {num_finetune_epochs - epoch} Accuracy {model_accuracy:.2f}% / Best Accuracy: {best_accuracy:.2f}%"
             )
+
+            # 用最佳精度重新计算下降量(避免某个 epoch 波动导致过早停止)
             accuracy_drop = fp32_model_accuracy - best_accuracy
             epoch -= 1
+
     else:
+        # ── 精度损失在可接受范围内 → 跳过微调 ──
         print(
             f"        No need for quantization-aware training since accuracy drop={accuracy_drop:.2f}% is smaller than threshold={accuracy_drop_threshold:.2f}%"
         )
@@ -890,16 +1016,16 @@ def linear_quantize(
 
     ############### YOUR CODE STARTS HERE ###############
     # Step 1: scale the fp_tensor
-    scaled_tensor = 0
+    scaled_tensor = fp_tensor / scale
     # Step 2: round the floating value to integer value
-    rounded_tensor = 0
+    rounded_tensor = torch.round(scaled_tensor)
     ############### YOUR CODE ENDS HERE #################
 
     rounded_tensor = rounded_tensor.to(dtype)
 
     ############### YOUR CODE STARTS HERE ###############
     # Step 3: shift the rounded_tensor to make zero_point 0
-    shifted_tensor = 0
+    shifted_tensor = rounded_tensor + zero_point
     ############### YOUR CODE ENDS HERE #################
 
     # Step 4: clamp the shifted_tensor to lie in bitwidth-bit range
@@ -930,10 +1056,7 @@ r_min = S(q_min - Z)
 问题 5.1 
 请在下一个文本单元中选择正确的答案并删除错误的答案。
 
-S = r_max / q_max
-S = (r_max + r_min) / (q_max + q_min)
 S = (r_max - r_min) / (q_max - q_min)
-S = r_max / q_max - r_min / q_min
 
 确定浮点张量 fp_tensor 的 r_min 和 r_max有不同方法
 - 最常用的方法是直接使用 fp_tensor 的最大值和最小值
@@ -945,10 +1068,8 @@ S = r_max / q_max - r_min / q_min
 
 问题 5.2
 请在下一个文本单元中选择正确的答案并删除错误的答案。
-Z = int(round(r_min / S - q_min))
 Z = int(round(q_min - r_min / S))
-Z = q_min - r_min / S
-Z = r_min / S - q_min
+
 
 """
 
@@ -970,9 +1091,9 @@ def get_quantization_scale_and_zero_point(fp_tensor, bitwidth):
 
     ############### YOUR CODE STARTS HERE ###############
     # hint: one line of code for calculating scale
-    scale = 0
+    scale = (fp_max - fp_min) / (quantized_max - quantized_min)
     # hint: one line of code for calculating zero_point
-    zero_point = 0
+    zero_point = round(quantized_min - fp_min / scale)
     ############### YOUR CODE ENDS HERE #################
 
     # clip the zero_point to fall in [quantized_min, quantized_max]
@@ -1071,6 +1192,34 @@ def get_quantization_scale_for_weight(weight, bitwidth):
 """
 逐通道线性量化
 
+============================================================
+什么是"不同通道"？
+============================================================
+
+以 Conv2d 权重 [out_channels, in_channels, kH, kW] 为例:
+
+  out_ch 0: kernel[0, :, :, :] 对输入卷积 → 输出 feature map channel 0
+  out_ch 1: kernel[1, :, :, :] 对输入卷积 → 输出 feature map channel 1
+  ...
+  out_ch C: kernel[C, :, :, :] 对输入卷积 → 输出 feature map channel C
+
+每个 out_ch 是一个独立的卷积核, 检测不同的特征(边缘/纹理/颜色等),
+因此不同通道的权重值分布差异可能很大:
+  channel 0 的值在 [-0.1, 0.1]
+  channel 3 的值在 [-0.5, 0.5]  ← 范围大 5 倍!
+
+如果所有通道共用一个 scale:
+  小范围通道会被"挤压"到接近 0 的少数几个整数值 → 精度损失巨大。
+
+逐通道量化的做法:
+  每个 out_ch 独立计算自己的 scale (取它自己的 abs_max / q_max),
+  这样每个通道都能充分利用整数范围, 精度更好。
+
+对线性层 Linear [out_features, in_features] 同理:
+  out_ch = out_features, 每个输出神经元有自己的权重向量。
+
+============================================================
+
 回想一下，对于 2D 卷积，权重张量是一个形状为(num_output_channels,num_input_channels,kernel_height,kernel_width)的四维张量。
 
 大量实验表明，对不同输出通道使用不同的缩放因子S 和 零点 Z 效果更好。因此，
@@ -1159,7 +1308,7 @@ def linear_quantize_bias_per_output_channel(bias, weight_scale, input_scale):
 
     ############### YOUR CODE STARTS HERE ###############
     # hint: one line of code
-    bias_scale = 0
+    bias_scale = weight_scale * input_scale
     ############### YOUR CODE ENDS HERE #################
 
     quantized_bias = linear_quantize(
@@ -1246,11 +1395,16 @@ def quantized_linear(
     # Step 2: scale the output
     #         hint: 1. scales are floating numbers, we need to convert output to float as well
     #               2. the shape of weight scale is [oc, 1, 1, 1] while the shape of output is [batch_size, oc]
-    output = 0
+    # Step 2: 缩放 — 将整数域结果映射回浮点域的 output scale
+    # output.float() → 转为浮点才能做乘除
+    # * input_scale * weight_scale → 反量化到 fp32 域
+    # / output_scale → 缩放到输出的 scale
+    output = output.float() * (input_scale * weight_scale / output_scale)
 
     # Step 3: shift output by output_zero_point
+    # Step 3: 加零点 — 补回输出零点偏移
     #         hint: one line of code
-    output = 0
+    output = output + output_zero_point
     ############### YOUR CODE ENDS HERE #################
 
     # Make sure all value lies in the bitwidth-bit range
@@ -1359,11 +1513,11 @@ def quantized_conv2d(
     # Step 2: scale the output
     #         hint: 1. scales are floating numbers, we need to convert output to float as well
     #               2. the shape of weight scale is [oc, 1, 1, 1] while the shape of output is [batch_size, oc, height, width]
-    output = 0
+    output = output.float() * (input_scale * weight_scale / output_scale)
 
     # Step 3: shift output by output_zero_point
     #         hint: one line of code
-    output = 0
+    output = output + output_zero_point
     ############### YOUR CODE ENDS HERE #################
 
     # Make sure all value lies in the bitwidth-bit range
@@ -1703,7 +1857,11 @@ def extra_preprocess(x):
     # hint: you need to convert the original fp32 input of range (0, 1)
     #  into int8 format of range (-128, 127)
     ############### YOUR CODE STARTS HERE ###############
-    return torch.zeros_like(x).clamp(-128, 127).to(torch.int8)
+    # return torch.zeros_like(x).clamp(-128, 127).to(torch.int8)
+
+    # return ( x* 255 - 128).round().clamp(-128, 127).to(torch.int8)
+    return (x * 255).round().clamp(-128, 127).to(torch.int8) - 128
+
     ############### YOUR CODE ENDS HERE #################
 
 
@@ -1716,9 +1874,50 @@ print(f"int8 model has accuracy={int8_model_accuracy:.2f}%")
 """
 问题 9.2
 请解释为什么线性量化模型中没有 ReLU 层。
-答案：
+
+答案:
+
+  ReLU 在量化域中等价于一个整数比较操作, 不需要独立的神经网络层。
+
+  推导:
+    原始 fp32:       y = max(0, x)
+    量化:            x = S × (q_x - Z)
+    代入:            y = max(0, S × (q_x - Z))
+    由于 S > 0:      y > 0  ⇔  q_x > Z
+    所以:            q_y = max(Z, q_x)  = clamp(q_x, min=Z)
+
+  也就是说, 量化域的 ReLU 就是把所有小于零点 Z 的值截断到 Z。
+  这个操作在 quantized_conv2d / quantized_linear 的最后一步
+  output.clamp_() 中已经包含了 — 只需要 clamp 到 [Z, q_max] 即可,
+  不需要额外插入一个 ReLU 模块。
+
+  为什么可以这样做:
+  - 定点比较是纯整数运算, 零额外开销
+  - 融合进前一层避免插入 quantize/dequantize 对(额外精度损失)
 
 问题 10
 请比较基于 k-means 的量化与线性量化的优缺点。你可以从准确率、延迟、硬件支持等方面进行讨论
-答案：
+
+答案:
+
+  ┌──────────────┬────────────────────────────────┬──────────────────────────────────┐
+  │              │ k-means 量化                    │ 线性量化                           │
+  ├──────────────┼────────────────────────────────┼──────────────────────────────────┤
+  │ 原理         │ 聚类 → 非均匀 centroids         │ 等距网格 → 统一 scale + zero_point │
+  │ 量化值分布   │ 非均匀, centroids 可任意取值    │ 均匀, 相邻值间距固定为 S           │
+  │ 精度(同bitwidth)│ 更高(centroids 可精确匹配分布) │ 对均匀分布好, 长尾分布差           │
+  │ 反量化       │ 必须查表 centroids[label]       │ 纯数学公式 r = S×(q-Z)             │
+  │              │ (多一次内存访问)                │ (一次乘法+加法, 1-2 cycle)         │
+  │ 延迟         │ 较慢(查表开销)                  │ 较快(公式简单)                     │
+  │ 硬件支持     │ 几乎没有                        │ 广泛: INT8 tensor core,            │
+  │              │ (GPU 无 k-means 查表指令)       │ ARM NEON, x86 VNNI, NPU           │
+  │ 码本存储     │ 需存储 2^n 个 fp32 centroids    │ 每通道 1 个 scale + 1 个 zero_point │
+  │ 适用场景     │ 研究/极致压缩比/非均匀分布权重  │ 生产部署(移动端/边缘/服务器推理)   │
+  │ QAT 训练     │ 每 step 重算 centroids(O(N))    │ 每 step 更新 scale/zp(O(1))        │
+  └──────────────┴────────────────────────────────┴──────────────────────────────────┘
+
+  总结:
+  - 学术/探索场景 → k-means 量化(精度高但慢)
+  - 工业/生产场景 → 线性量化(硬件原生支持, 推理快 2-4x)
+  - 实际部署几乎 100% 用线性量化(INT8/INT4), k-means 主要用于量化研究
 """
