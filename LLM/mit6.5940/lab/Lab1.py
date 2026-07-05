@@ -348,6 +348,7 @@ dense_model_accuracy = evaluate(model, dataloader["test"])
 dense_model_size = get_model_size(model)
 print(f"dense model has accuracy={dense_model_accuracy:.2f}%")
 print(f"dense model has size={dense_model_size / MiB:.2f} MiB")
+exit(0)
 
 
 # 看看稠密模型中权重值的分布
@@ -583,10 +584,9 @@ plot_sensitivity_scan(sparsities, accuracies, dense_model_accuracy)
 同时，不同网络层对剪枝的敏感性存在显著差异，整体呈现“浅层鲁棒、深层敏感、分类头最敏感”的规律，这源于各层特征抽象程度、冗余度以及梯度传播路径的不同。
 """
 
+
 # 每层的参数数量
 # 除了准确率之外，每层的参数数量也影响稀疏度的选择，参数较多的层需要更大的稀疏度
-
-
 def plot_num_parameters_distribution(model):
     num_parameters = dict()
     for name, param in model.named_parameters():
@@ -741,43 +741,62 @@ def get_num_channels_to_keep(channels: int, prune_ratio: float) -> int:
 
 @torch.no_grad()
 def channel_prune(model: nn.Module, prune_ratio: Union[List, float]) -> nn.Module:
-    """Apply channel pruning to each of the conv layer in the backbone
-    Note that for prune_ratio, we can either provide a floating-point number,
-    indicating that we use a uniform pruning rate for all layers, or a list of
-    numbers to indicate per-layer pruning rate.
+    """对 backbone 中的每个卷积层进行通道剪枝(channel pruning)
+    prune_ratio 可以是:
+      - 一个浮点数:所有层使用统一的剪枝比例
+      - 一个列表:每一层单独指定剪枝比例
+
+    示例:backbone 有 3 个卷积层,权重形状为 [out, in, kH, kW]:
+        conv0: [64, 3, 3, 3]   -> bn0: [64]
+        conv1: [128, 64, 3, 3] -> bn1: [128]
+        conv2: [256, 128, 3, 3] -> bn2: [256]
+    因为有 3 个 conv,所以 prune_ratio 需要 3 - 1 = 2 个比例,设为 [0.5, 0.25]。
+    第一次循环 (ratio=0.5):conv0 输出 64->32,bn0 64->32,conv1 输入 64->32
+    第二次循环 (ratio=0.25):conv1 输出 128->96,bn1 128->96,conv2 输入 128->96
+    最终:
+        conv0: [32, 3, 3, 3]   conv1: [96, 32, 3, 3]   conv2: [256, 96, 3, 3]
+    关键:前一层砍输出通道,下一层必须同步砍输入通道,否则维度不对齐会报错。
     """
-    # sanity check of provided prune_ratio
+    # 检查 prune_ratio 类型:必须是 float 或 list
     assert isinstance(prune_ratio, (float, list))
+    # 统计 backbone 中卷积层的数量
     n_conv = len([m for m in model.backbone if isinstance(m, nn.Conv2d)])
-    # note that for the ratios, it affects the previous conv output and next
-    # conv input, i.e., conv0 - ratio0 - conv1 - ratio1-...
+    # 注意:每个剪枝比例同时影响“前一个 conv 的输出”和“后一个 conv 的输入”
+    # 即结构为:conv0 - ratio0 - conv1 - ratio1 - ...
+    # 所以比例的数量是 n_conv - 1(最后一个 conv 的输出不剪,通常连接分类头)
     if isinstance(prune_ratio, list):
         assert len(prune_ratio) == n_conv - 1
-    else:  # convert float to list
+    else:  # 把单个 float 扩展成列表,方便统一处理
         prune_ratio = [prune_ratio] * (n_conv - 1)
 
-    # we prune the convs in the backbone with a uniform ratio
+    # 深拷贝模型,避免修改原始模型
     model = copy.deepcopy(model)  # prevent overwrite
-    # we only apply pruning to the backbone features
+    # 只对 backbone 的特征提取部分做剪枝
     all_convs = [m for m in model.backbone if isinstance(m, nn.Conv2d)]
     all_bns = [m for m in model.backbone if isinstance(m, nn.BatchNorm2d)]
-    # apply pruning. we naively keep the first k channels
+    # 这里采用最朴素的策略:直接保留前 k 个通道
+    # 前提假设:每个 conv 后面都紧跟一个 bn,所以数量必须相等
     assert len(all_convs) == len(all_bns)
     for i_ratio, p_ratio in enumerate(prune_ratio):
-        prev_conv = all_convs[i_ratio]
-        prev_bn = all_bns[i_ratio]
-        next_conv = all_convs[i_ratio + 1]
+        prev_conv = all_convs[i_ratio]  # 当前(前一个)卷积层
+        prev_bn = all_bns[i_ratio]  # 当前卷积层对应的 bn
+        next_conv = all_convs[i_ratio + 1]  # 下一个卷积层
+        # 前一个 conv 的输出通道数 == 下一个 conv 的输入通道数
         original_channels = prev_conv.out_channels  # same as next_conv.in_channels
+        # 根据剪枝比例计算需要保留的通道数量 k
         n_keep = get_num_channels_to_keep(original_channels, p_ratio)
 
-        # prune the output of the previous conv and bn
+        # 剪掉前一个 conv 的输出通道,只保留前 n_keep 个
+        # conv 权重形状 [out, in, kH, kW],对第 0 维(输出通道)切片
         prev_conv.weight.set_(prev_conv.weight.detach()[:n_keep])
-        prev_bn.weight.set_(prev_bn.weight.detach()[:n_keep])
-        prev_bn.bias.set_(prev_bn.bias.detach()[:n_keep])
-        prev_bn.running_mean.set_(prev_bn.running_mean.detach()[:n_keep])
-        prev_bn.running_var.set_(prev_bn.running_var.detach()[:n_keep])
+        # bn 的参数都按“通道”对齐,同样只保留前 n_keep 个
+        prev_bn.weight.set_(prev_bn.weight.detach()[:n_keep])  # 缩放系数 gamma
+        prev_bn.bias.set_(prev_bn.bias.detach()[:n_keep])  # 偏置 beta
+        prev_bn.running_mean.set_(prev_bn.running_mean.detach()[:n_keep])  # 滑动均值
+        prev_bn.running_var.set_(prev_bn.running_var.detach()[:n_keep])  # 滑动方差
 
-        # prune the input of the next conv (hint: just one line of code)
+        # 剪掉下一个 conv 的输入通道,使其与上面保留的 n_keep 个输出通道对齐
+        # next_conv 权重形状 [out, in, kH, kW],对第 1 维(输入通道)切片
         ##################### YOUR CODE STARTS HERE #####################
         next_conv.weight.set_(next_conv.weight.detach()[:, :n_keep, :, :])
         ##################### YOUR CODE ENDS HERE #####################
