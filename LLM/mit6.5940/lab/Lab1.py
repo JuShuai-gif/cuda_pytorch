@@ -700,6 +700,10 @@ print(
 sparse_model_accuracy = evaluate(model, dataloader["test"])
 print(f"Sparse model has accuracy={sparse_model_accuracy:.2f}% after fintuning")
 
+
+
+
+#====================================================================================#
 # 通道剪枝
 """
 通道剪枝移除整个通道，同样，我们移除权重幅度较小(通过 Frobenius 范数衡量)的通道
@@ -759,8 +763,10 @@ def channel_prune(model: nn.Module, prune_ratio: Union[List, float]) -> nn.Modul
     """
     # 检查 prune_ratio 类型:必须是 float 或 list
     assert isinstance(prune_ratio, (float, list))
+    
     # 统计 backbone 中卷积层的数量
     n_conv = len([m for m in model.backbone if isinstance(m, nn.Conv2d)])
+    
     # 注意:每个剪枝比例同时影响“前一个 conv 的输出”和“后一个 conv 的输入”
     # 即结构为:conv0 - ratio0 - conv1 - ratio1 - ...
     # 所以比例的数量是 n_conv - 1(最后一个 conv 的输出不剪,通常连接分类头)
@@ -774,24 +780,31 @@ def channel_prune(model: nn.Module, prune_ratio: Union[List, float]) -> nn.Modul
     # 只对 backbone 的特征提取部分做剪枝
     all_convs = [m for m in model.backbone if isinstance(m, nn.Conv2d)]
     all_bns = [m for m in model.backbone if isinstance(m, nn.BatchNorm2d)]
+    
     # 这里采用最朴素的策略:直接保留前 k 个通道
     # 前提假设:每个 conv 后面都紧跟一个 bn,所以数量必须相等
     assert len(all_convs) == len(all_bns)
     for i_ratio, p_ratio in enumerate(prune_ratio):
         prev_conv = all_convs[i_ratio]  # 当前(前一个)卷积层
         prev_bn = all_bns[i_ratio]  # 当前卷积层对应的 bn
+        
         next_conv = all_convs[i_ratio + 1]  # 下一个卷积层
+        
         # 前一个 conv 的输出通道数 == 下一个 conv 的输入通道数
         original_channels = prev_conv.out_channels  # same as next_conv.in_channels
+        
         # 根据剪枝比例计算需要保留的通道数量 k
         n_keep = get_num_channels_to_keep(original_channels, p_ratio)
 
         # 剪掉前一个 conv 的输出通道,只保留前 n_keep 个
         # conv 权重形状 [out, in, kH, kW],对第 0 维(输出通道)切片
         prev_conv.weight.set_(prev_conv.weight.detach()[:n_keep])
+        
         # bn 的参数都按“通道”对齐,同样只保留前 n_keep 个
         prev_bn.weight.set_(prev_bn.weight.detach()[:n_keep])  # 缩放系数 gamma
         prev_bn.bias.set_(prev_bn.bias.detach()[:n_keep])  # 偏置 beta
+        
+        # 均值和方差也要裁剪
         prev_bn.running_mean.set_(prev_bn.running_mean.detach()[:n_keep])  # 滑动均值
         prev_bn.running_var.set_(prev_bn.running_var.detach()[:n_keep])  # 滑动方差
 
