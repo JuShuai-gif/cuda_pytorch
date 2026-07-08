@@ -858,25 +858,25 @@ def get_input_channel_importance(weight):
 
 @torch.no_grad()
 def apply_channel_sorting(model):
-    model = copy.deepcopy(model)  # do not modify the original model
-    # fetch all the conv and bn layers from the backbone
+    model = copy.deepcopy(model)  # 不修改原始模型
+    # 从 backbone 中取出所有卷积层和 BN 层
     all_convs = [m for m in model.backbone if isinstance(m, nn.Conv2d)]
     all_bns = [m for m in model.backbone if isinstance(m, nn.BatchNorm2d)]
-    # iterate through conv layers
+    # 遍历卷积层
     for i_conv in range(len(all_convs) - 1):
-        # each channel sorting index, we need to apply it to:
-        # - the output dimension of the previous conv
-        # - the previous BN layer
-        # - the input dimension of the next conv (we compute importance here)
+        # 每个通道排序索引需要应用到：
+        # - 前一个卷积的输出维度
+        # - 前一个 BN 层
+        # - 后一个卷积的输入维度（此处计算重要性）
         prev_conv = all_convs[i_conv]
         prev_bn = all_bns[i_conv]
         next_conv = all_convs[i_conv + 1]
-        # note that we always compute the importance according to input channels
+        # 注意：始终根据输入通道计算重要性
         importance = get_input_channel_importance(next_conv.weight)
-        # sorting from large to small
+        # 从大到小排序
         sort_idx = torch.argsort(importance, descending=True)
 
-        # apply to previous conv and its following bn
+        # 应用到前一个卷积及其后续的 BN 层
         prev_conv.weight.copy_(
             torch.index_select(prev_conv.weight.detach(), 0, sort_idx)
         )
@@ -886,7 +886,7 @@ def apply_channel_sorting(model):
                 torch.index_select(tensor_to_apply.detach(), 0, sort_idx)
             )
 
-        # apply to the next conv input (hint: one line of code)
+        # 应用到后一个卷积的输入通道（提示：一行代码）
         ##################### YOUR CODE STARTS HERE #####################
         next_conv.weight.copy_(
             torch.index_select(next_conv.weight.detach(), 1, sort_idx)
