@@ -40,7 +40,7 @@ random.seed(0)
 np.random.seed(0)
 torch.manual_seed(0)
 
-
+# 下载
 def download_url(url, model_dir=".", overwrite=False):
     import os, sys
     from urllib.request import urlretrieve
@@ -62,7 +62,7 @@ def download_url(url, model_dir=".", overwrite=False):
         sys.stderr.write("Failed to download from url %s" % url + "\n" + str(e) + "\n")
         return None
 
-
+# VGG 模型
 class VGG(nn.Module):
     ARCH = [64, 128, "M", 256, 256, "M", 512, 512, "M", 512, 512, "M"]
 
@@ -103,7 +103,7 @@ class VGG(nn.Module):
         x = self.classifier(x)
         return x
 
-
+# 训练
 def train(
     model: nn.Module,
     dataloader: DataLoader,
@@ -137,7 +137,7 @@ def train(
             for callback in callbacks:
                 callback()
 
-
+# 推理
 @torch.inference_mode()
 def evaluate(model: nn.Module, dataloader: DataLoader, extra_preprocess=None) -> float:
     model.eval()
@@ -166,12 +166,12 @@ def evaluate(model: nn.Module, dataloader: DataLoader, extra_preprocess=None) ->
 
     return (num_correct / num_samples * 100).item()
 
-
+# 获取模型计算量
 def get_model_flops(model, inputs):
     num_macs = profile_macs(model, inputs)
     return num_macs
 
-
+# 获取模型大小
 def get_model_size(model: nn.Module, data_width=32):
     """
     calculate the model size in bits
@@ -623,37 +623,57 @@ Codebook = namedtuple("Codebook", ["centroids", "labels"])
 # 问题 1: 实现 k-means 量化
 from fast_pytorch_kmeans import KMeans
 
+"""
+简单注释一下: 
+聚类就是将一团点云分割成一小团一条团的点云
+
+比如你想让其量化 16 位,说明你有 2^16 个数可以表示,说明码本就有 2^16 个
+"""
 
 def k_means_quantize(fp32_tensor: torch.Tensor, bitwidth=4, codebook=None):
     """
+    使用 k-means 聚类对张量进行量化（将浮点值压缩为有限个离散值）
     quantize tensor using k-means clustering
-    :param fp32_tensor:
-    :param bitwidth: [int] quantization bit width, default=4
-    :param codebook: [Codebook] (the cluster centroids, the cluster label tensor)
-    :return:
-        [Codebook = (centroids, labels)]
-            centroids: [torch.(cuda.)FloatTensor] the cluster centroids
-            labels: [torch.(cuda.)LongTensor] cluster label tensor
+
+    :param fp32_tensor: 待量化的 FP32 浮点张量（输入，原地修改）
+    :param bitwidth:    量化位宽，默认 4 比特（可表示的离散值个数 = 2^bitwidth）
+    :param codebook:    已训练好的码本（Codebook 元组），为 None 时自动训练
+    :return: Codebook = (centroids, labels)
+        centroids: 聚类中心（质心），即每个簇的代表值，类型为 FloatTensor
+        labels:    每个元素所属簇的编号（0 ~ n_clusters-1），类型为 LongTensor
     """
     if codebook is None:
-        ############### YOUR CODE STARTS HERE ###############
-        # get number of clusters based on the quantization precision
-        # hint: one line of code
-        # bitwidth 位数能表示多少个不同的值？
-        # 比如 bitwidth = 4 -> 2^4 = 16 个不同的聚类
+        # ========== 阶段 1: 训练码本（仅当 codebook 为 None 时执行）==========
+
+        # 根据位宽计算聚类数量（质心个数）
+        # 例如: bitwidth=4 -> n_clusters=16，即用 16 个离散值近似整个张量
         n_clusters = 2**bitwidth
-        ############### YOUR CODE ENDS HERE #################
-        # use k-means to get the quantization centroids
+
+        # 创建 KMeans 聚类器
+        # n_clusters: 簇的个数；mode="euclidean": 使用欧氏距离衡量相似度
         kmeans = KMeans(n_clusters=n_clusters, mode="euclidean", verbose=0)
+
+        # 将张量展平为 (N, 1) 的二维矩阵（k-means 要求输入为 2D）
+        # fit_predict 返回每个元素的簇标签，转换为 LongTensor 用于后续索引
         labels = kmeans.fit_predict(fp32_tensor.view(-1, 1)).to(torch.long)
+
+        # 获取聚类中心（质心），转为 float 并展平为 1D 向量
         centroids = kmeans.centroids.to(torch.float).view(-1)
+
+        # 将质心和标签打包为 Codebook 元组，方便后续复用（推理时可跳过训练）
         codebook = Codebook(centroids, labels)
-    ############### YOUR CODE STARTS HERE ###############
-    # decode the codebook into k-means quantized tensor for inference
-    # hint: one line of code
+
+    # ========== 阶段 2: 解码码本，生成量化后的张量 ==========
+
+    # 用每个元素的标签(labels)去质心表(centroids)中查表，得到量化后的值
+    # 例如: labels=[2,0,2] centroids=[0.5,0.1,0.3] -> quantized_tensor=[0.3,0.5,0.3]
     quantized_tensor = codebook.centroids[codebook.labels]
-    ############### YOUR CODE ENDS HERE #################
+
+    # 将量化后的值原地写回原始张量（.set_() 是 PyTorch 的原地操作，不分配新内存）
+    # view_as() 确保量化前后的形状一致
     fp32_tensor.set_(quantized_tensor.view_as(fp32_tensor))
+
+    # 返回码本，供后续推理阶段复用（复用码本可避免重复训练 k-means）
     return codebook
 
 
@@ -1461,66 +1481,78 @@ def quantized_conv2d(
     groups,
 ):
     """
-    quantized 2d convolution
-    :param input: [torch.CharTensor] quantized input (torch.int8)
-    :param weight: [torch.CharTensor] quantized weight (torch.int8)
-    :param bias: [torch.IntTensor] shifted quantized bias or None (torch.int32)
-    :param feature_bitwidth: [int] quantization bit width of input and output
-    :param weight_bitwidth: [int] quantization bit width of weight
-    :param input_zero_point: [int] input zero point
-    :param output_zero_point: [int] output zero point
-    :param input_scale: [float] input feature scale
-    :param weight_scale: [torch.FloatTensor] weight per-channel scale
-    :param output_scale: [float] output feature scale
-    :return:
-        [torch.(cuda.)CharTensor] quantized output feature
-    """
-    assert len(padding) == 4
-    assert input.dtype == torch.int8
-    assert weight.dtype == input.dtype
-    assert bias is None or bias.dtype == torch.int32
-    assert isinstance(input_zero_point, int)
-    assert isinstance(output_zero_point, int)
-    assert isinstance(input_scale, float)
-    assert isinstance(output_scale, float)
-    assert weight_scale.dtype == torch.float
+    量化卷积 2D：在量化域中完成卷积计算，等价于 FP32 卷积的量化近似
+    核心公式：q_out = round( (conv(q_in, q_w) 的反量化值) / output_scale + output_zero_point )
 
-    # Step 1: calculate integer-based 2d convolution (8-bit multiplication with 32-bit accumulation)
+    :param input:           [int8] 量化后的输入特征图（每值用 int8 存储）
+    :param weight:          [int8] 量化后的卷积权重（每值用 int8 存储）
+    :param bias:            [int32] 量化域偏置（已与 scale/zero_point 融合），可为 None
+    :param feature_bitwidth: [int] 输入和输出特征的量化位宽（决定截断范围）
+    :param weight_bitwidth:  [int] 权重的量化位宽
+    :param input_zero_point: [int] 输入的零点（即实数 0 映射到量化域的哪个整数值）
+    :param output_zero_point:[int] 输出的零点
+    :param input_scale:      [float] 输入的缩放因子（每个实数单位对应多少量化步长）
+    :param weight_scale:     [FloatTensor] 权重的逐通道缩放因子，形状 [oc, 1, 1, 1]
+    :param output_scale:     [float] 输出的缩放因子
+    :return: [int8] 量化后的输出特征图
+    """
+    # ── 输入合法性检查 ──
+    assert len(padding) == 4                        # padding 必须是 4 元组 (left, right, top, bottom)
+    assert input.dtype == torch.int8                # 输入必须是 int8 量化值
+    assert weight.dtype == input.dtype              # 权重的 dtype 必须与输入一致
+    assert bias is None or bias.dtype == torch.int32  # bias 要么为 None，要么是 int32（32 位累加器）
+    assert isinstance(input_zero_point, int)        # zero_point 必须是整数
+    assert isinstance(output_zero_point, int)
+    assert isinstance(input_scale, float)           # scale 必须是浮点数
+    assert isinstance(output_scale, float)
+    assert weight_scale.dtype == torch.float        # weight_scale 必须是 float 类型
+
+    # ========== 第 1 步：整数卷积（int8 乘法 + int32 累加）==========
+    # 先对输入做 padding，填充值用 input_zero_point（量化域中表示"零"的值）
+    # 这样做卷积时，填充区域等价于实数域中的 0，不会引入额外偏差
     input = torch.nn.functional.pad(input, padding, "constant", input_zero_point)
+
+    # 判断设备类型：CPU vs GPU 走不同路径
     if "cpu" in input.device.type:
-        # use 32-b MAC for simplicity
+        # CPU 路径：PyTorch 支持 int32 的 conv2d
+        # 将 int8 的 input 和 weight 提升为 int32，用 32 位累加避免溢出
         output = torch.nn.functional.conv2d(
             input.to(torch.int32),
             weight.to(torch.int32),
-            None,
+            None,      # bias=None，后面单独加
             stride,
-            0,
+            0,         # padding 已在上面手动完成，此处传 0
             dilation,
             groups,
         )
     else:
-        # current version pytorch does not yet support integer-based conv2d() on GPUs
+        # GPU 路径：当前 PyTorch 不支持 GPU 上的整数 conv2d
+        # 退而求其次：转 float 做卷积 → round → 转回 int32
         output = torch.nn.functional.conv2d(
             input.float(), weight.float(), None, stride, 0, dilation, groups
         )
         output = output.round().to(torch.int32)
+
+    # 加上量化域偏置（形状对齐：[1, oc, 1, 1] 广播到 [N, oc, H, W]）
     if bias is not None:
         output = output + bias.view(1, -1, 1, 1)
 
-    ############### YOUR CODE STARTS HERE ###############
-    # hint: this code block should be the very similar to quantized_linear()
-
-    # Step 2: scale the output
-    #         hint: 1. scales are floating numbers, we need to convert output to float as well
-    #               2. the shape of weight scale is [oc, 1, 1, 1] while the shape of output is [batch_size, oc, height, width]
+    # ========== 第 2 步：缩放（反量化 + 重量化）==========
+    # 含义：conv 的结果是 (q_in - Z_in)⊙(q_w - Z_w) 的某个倍数
+    #       需要乘上 input_scale * weight_scale 恢复真实尺度
+    #       再除以 output_scale 映射到输出量化域
+    # broadcast 规则: output [N, oc, H, W] × weight_scale [oc, 1, 1, 1]
+    #                  → weight_scale 自动沿 N/H/W 广播
     output = output.float() * (input_scale * weight_scale / output_scale)
 
-    # Step 3: shift output by output_zero_point
-    #         hint: one line of code
+    # ========== 第 3 步：加上输出零点 ==========
+    # 将缩放后的浮点值偏移到输出量化域的正确位置
+    # 等价于：量化公式 q = round(r / S) + Z 中的 +Z 步骤
     output = output + output_zero_point
-    ############### YOUR CODE ENDS HERE #################
 
-    # Make sure all value lies in the bitwidth-bit range
+    # ── 截断到量化范围并转换为 int8 ──
+    # round() 就近取整；clamp(min, max) 截断以防止溢出
+    # get_quantized_range(bitwidth) 返回该位宽的 min/max 值（如 8bit → [-128, 127]）
     output = output.round().clamp(*get_quantized_range(feature_bitwidth)).to(torch.int8)
     return output
 
@@ -1538,13 +1570,43 @@ def quantized_conv2d(
 
 
 def fuse_conv_bn(conv, bn):
-    # modified from https://mmcv.readthedocs.io/en/latest/_modules/mmcv/cnn/utils/fuse_conv_bn.html
+    """
+    将 BatchNorm 层的参数融合（吸收）进 Conv2d 层，减少推理时的计算量
+
+    数学推导：
+        BN 的定义：  y = gamma * (x - mean) / sqrt(var + eps) + beta
+        其中 gamma=bn.weight, mean=bn.running_mean, var=bn.running_var, beta=bn.bias
+
+        Conv 的定义： x = W * input + bias   （假设 conv.bias 先为 None，即 bias=0）
+
+        将 Conv 代入 BN：
+        y = gamma * (W*input - mean) / sqrt(var+eps) + beta
+          = [gamma * W / sqrt(var+eps)] * input  +  [beta - gamma * mean / sqrt(var+eps)]
+          =          W'                      * input  +            b'
+          ↑ 融合后的新权重                        ↑ 融合后的新偏置
+
+    结果：原来 Conv + BN 两个算子变成一个 Conv 算子，推理时省掉了 BN 的计算开销
+    modified from https://mmcv.readthedocs.io/en/latest/_modules/mmcv/cnn/utils/fuse_conv_bn.html
+    """
+    # 前置条件：Conv 层必须没有现有 bias，否则会和融合后的 bias 冲突
     assert conv.bias is None
 
+    # factor = gamma / sqrt(var + eps)
+    # 即 BN 中除均值归一化和方差缩放的"合并系数"
+    # eps 防止除零，通常取 1e-5
     factor = bn.weight.data / torch.sqrt(bn.running_var.data + bn.eps)
+
+    # W' = W × factor
+    # 将 factor 广播到每个输出通道的每个像素位置
+    # reshape(-1, 1, 1, 1) 将 [C] 变为 [C, 1, 1, 1]，广播到 [C_out, C_in, K_h, K_w]
     conv.weight.data = conv.weight.data * factor.reshape(-1, 1, 1, 1)
+
+    # b' = beta - mean × factor
+    # -bn.running_mean * factor + bn.bias  =  bn.bias - bn.running_mean * factor
+    # 包装成 nn.Parameter，因为 bias 需要参与梯度计算
     conv.bias = nn.Parameter(-bn.running_mean.data * factor + bn.bias.data)
 
+    # 返回融合后的 Conv 层，BN 层可丢弃
     return conv
 
 
@@ -1624,35 +1686,49 @@ nn.AvgPool2d -> QuantizedAvgPool2d
 
 
 class QuantizedConv2d(nn.Module):
+    """
+    量化 2D 卷积层：将 Conv2d 的权重、偏置和所有量化参数封装为一个 nn.Module
+    内部调用 quantized_conv2d() 完成量化域的卷积计算
+    可以直接替换 FP32 模型中的 nn.Conv2d 使用
+    """
     def __init__(
         self,
-        weight,
-        bias,
-        input_zero_point,
-        output_zero_point,
-        input_scale,
-        weight_scale,
-        output_scale,
-        stride,
-        padding,
-        dilation,
-        groups,
-        feature_bitwidth=8,
-        weight_bitwidth=8,
+        weight,              # [int8] 量化后的卷积权重，形状 [oc, ic/groups, kh, kw]
+        bias,                # [int32] 量化域偏置，可为 None
+        input_zero_point,    # [int] 输入的量化零点
+        output_zero_point,   # [int] 输出的量化零点
+        input_scale,         # [float] 输入的缩放因子
+        weight_scale,        # [FloatTensor] 权重的逐通道缩放因子，形状 [oc, 1, 1, 1]
+        output_scale,        # [float] 输出的缩放因子
+        stride,              # 卷积步长
+        padding,             # 原始 padding(可能非对称)，传入 quantized_conv2d 时会重新编排
+        dilation,            # 卷积膨胀系数
+        groups,              # 分组卷积数
+        feature_bitwidth=8,  # 输入/输出特征量化位宽
+        weight_bitwidth=8,   # 权重量化位宽
     ):
         super().__init__()
-        # current version Pytorch does not support IntTensor as nn.Parameter
+        # 用 register_buffer 而非 nn.Parameter 存储 int 类型张量
+        # 原因：当前 PyTorch 版本不支持 IntTensor 作为可训练参数 (nn.Parameter)
+        # buffer 中的张量不会被优化器更新，但会随 .to(device) / .cuda() 自动移动设备
         self.register_buffer("weight", weight)
         self.register_buffer("bias", bias)
 
+        # 输入/输出量化参数（标量，直接存为 Python int/float）
         self.input_zero_point = input_zero_point
         self.output_zero_point = output_zero_point
 
         self.input_scale = input_scale
+
+        # weight_scale 是逐通道的张量，用 register_buffer 确保设备跟随
         self.register_buffer("weight_scale", weight_scale)
         self.output_scale = output_scale
 
+        # 卷积超参数
         self.stride = stride
+
+        # 将用户传入的 padding（可能是 2 元组）转为 quantized_conv2d 需要的 4 元组格式
+        # nn.Conv2d padding 格式可能是 (h, w)，quantized_conv2d 需要 (left, right, top, bottom)
         self.padding = (padding[1], padding[1], padding[0], padding[0])
         self.dilation = dilation
         self.groups = groups
@@ -1661,6 +1737,10 @@ class QuantizedConv2d(nn.Module):
         self.weight_bitwidth = weight_bitwidth
 
     def forward(self, x):
+        """
+        前向传播：将 int8 输入 x 和所有量化参数传给 quantized_conv2d()
+        完成: 量化域卷积 → 缩放 → 加零点 → 截断，返回 int8 量化输出
+        """
         return quantized_conv2d(
             x,
             self.weight,
@@ -1680,23 +1760,29 @@ class QuantizedConv2d(nn.Module):
 
 
 class QuantizedLinear(nn.Module):
+    """
+    量化全连接层：将 Linear 的权重、偏置和量化参数封装为 nn.Module
+    内部调用 quantized_linear() 完成量化域的矩阵乘法
+    与 QuantizedConv2d 结构完全一致，仅少了 stride/padding/dilation/groups
+    """
     def __init__(
         self,
-        weight,
-        bias,
-        input_zero_point,
-        output_zero_point,
-        input_scale,
-        weight_scale,
-        output_scale,
-        feature_bitwidth=8,
-        weight_bitwidth=8,
+        weight,              # [int8] 量化后的线性层权重，形状 [out_features, in_features]
+        bias,                # [int32] 量化域偏置，可为 None
+        input_zero_point,    # [int] 输入的量化零点
+        output_zero_point,   # [int] 输出的量化零点
+        input_scale,         # [float] 输入的缩放因子
+        weight_scale,        # [FloatTensor] 权重的逐通道缩放因子，形状 [out_features, 1]
+        output_scale,        # [float] 输出的缩放因子
+        feature_bitwidth=8,  # 输入/输出特征量化位宽
+        weight_bitwidth=8,   # 权重量化位宽
     ):
         super().__init__()
-        # current version Pytorch does not support IntTensor as nn.Parameter
+        # 用 register_buffer 存储整数张量（PyTorch 不支持 IntTensor 作为 nn.Parameter）
         self.register_buffer("weight", weight)
         self.register_buffer("bias", bias)
 
+        # 量化参数：缩放因子（scale）和零点（zero_point）
         self.input_zero_point = input_zero_point
         self.output_zero_point = output_zero_point
 
@@ -1708,6 +1794,10 @@ class QuantizedLinear(nn.Module):
         self.weight_bitwidth = weight_bitwidth
 
     def forward(self, x):
+        """
+        前向传播：将 int8 输入 x 和量化参数传给 quantized_linear()
+        完成: 量化域矩阵乘法 → 缩放 → 加零点 → 截断，返回 int8 输出
+        """
         return quantized_linear(
             x,
             self.weight,
@@ -1723,51 +1813,88 @@ class QuantizedLinear(nn.Module):
 
 
 class QuantizedMaxPool2d(nn.MaxPool2d):
+    """
+    量化最大池化层：继承 nn.MaxPool2d
+
+    当前 PyTorch 不支持 int8 格式的 MaxPool 操作（只支持 float）
+    因此退化为：先把 int8 输入转 float → 做 MaxPool → 转回 int8
+    对量化精度有微小影响（MaxPool 本身不含算术缩放，仅选最大值，转 float 基本无损）
+    """
     def forward(self, x):
-        # current version PyTorch does not support integer-based MaxPool
+        # PyTorch 目前不支持整数类型的 MaxPool，退化为 float 计算后转回 int8
         return super().forward(x.float()).to(torch.int8)
 
 
 class QuantizedAvgPool2d(nn.AvgPool2d):
+    """
+    量化平均池化层：继承 nn.AvgPool2d
+
+    注意：AvgPool 涉及除法（求平均），转 float 计算可能引入浮点舍入误差
+    严格量化实现应该在整数域用定点除法，但这里为简化退化为 float 路径
+    """
     def forward(self, x):
-        # current version PyTorch does not support integer-based AvgPool
+        # PyTorch 目前不支持整数类型的 AvgPool，退化为 float 计算后转回 int8
         return super().forward(x.float()).to(torch.int8)
 
 
-# we use int8 quantization, which is quite popular
-feature_bitwidth = weight_bitwidth = 8
+# ==============================================================================
+# 使用 int8 对 backbone 中所有 Conv2d+ReLU 层进行逐层量化替换
+# int8 量化是最主流的量化位宽，每个权重/激活值用 8 位整数存储
+# ==============================================================================
+feature_bitwidth = weight_bitwidth = 8  # 输入/输出特征和权重都用量化 8 位
+
+# 深拷贝融合后的模型（Conv+BN 已合并），在此基础上替换为量化层
 quantized_model = copy.deepcopy(model_fused)
-quantized_backbone = []
-ptr = 0
+quantized_backbone = []  # 存放量化后的 backbone 各层
+ptr = 0                   # 逐层遍历指针
+
 while ptr < len(quantized_model.backbone):
+    # ── case 1: Conv2d + ReLU（模型的"基本单元"，需要一起量化）──
     if isinstance(quantized_model.backbone[ptr], nn.Conv2d) and isinstance(
         quantized_model.backbone[ptr + 1], nn.ReLU
     ):
+        # 取出当前 Conv 和 ReLU 层
         conv = quantized_model.backbone[ptr]
-        conv_name = f"backbone.{ptr}"
+        conv_name = f"backbone.{ptr}"    # 用位置编号构造唯一名称（用于查激活统计表）
         relu = quantized_model.backbone[ptr + 1]
         relu_name = f"backbone.{ptr + 1}"
 
+        # 1) 从预先统计的激活值范围中计算输入的 scale 和 zero_point
+        #    input_activation[conv_name] 存的是校准数据经过该层前的激活值范围 (min, max)
         input_scale, input_zero_point = get_quantization_scale_and_zero_point(
             input_activation[conv_name], feature_bitwidth
         )
 
+        # 2) 从 ReLU 后的激活值范围计算输出的 scale 和 zero_point
+        #    ReLU 的输出 = Conv 的输出，所以用 ReLU 的位置查表
         output_scale, output_zero_point = get_quantization_scale_and_zero_point(
             output_activation[relu_name], feature_bitwidth
         )
 
+        # 3) 对 Conv 权重做逐通道线性量化
+        #    返回: quantized_weight [int8], weight_scale [float, per-channel], weight_zero_point [int]
         quantized_weight, weight_scale, weight_zero_point = (
             linear_quantize_weight_per_channel(conv.weight.data, weight_bitwidth)
         )
+
+        # 4) 对 Conv 偏置做量化（偏置用 int32 存储以防止累加溢出）
+        #    bias_scale = input_scale × weight_scale（参考量化线性代数推导）
         quantized_bias, bias_scale, bias_zero_point = (
             linear_quantize_bias_per_output_channel(
                 conv.bias.data, weight_scale, input_scale
             )
         )
+
+        # 5) 将偏置"偏移"一次，吸收 input_zero_point 的影响
+        #    这是量化卷积中的必要步骤：
+        #    y = W·(x - Z_in) + b  →  y = W·x + (b - W·Z_in)
+        #    其中 (b - W·Z_in) 就是 shifted_quantized_bias
+        #    提前算好 shift 后，forward 时就不需要每个输入都减 zero_point 了
         shifted_quantized_bias = shift_quantized_conv2d_bias(
             quantized_bias, quantized_weight, input_zero_point
         )
 
+        # 6) 用所有量化参数构造 QuantizedConv2d 层，替换原来的 Conv+ReLU 两个层
         quantized_conv = QuantizedConv2d(
             quantized_weight,
             shifted_quantized_bias,
@@ -1785,7 +1912,9 @@ while ptr < len(quantized_model.backbone):
         )
 
         quantized_backbone.append(quantized_conv)
-        ptr += 2
+        ptr += 2   # Conv+ReLU 两个层被一个 QuantizedConv2d 替代，指针跳 2
+
+    # ── case 2: MaxPool2d（无需量化，只需替换为支持 int8 输入输出的版本）──
     elif isinstance(quantized_model.backbone[ptr], nn.MaxPool2d):
         quantized_backbone.append(
             QuantizedMaxPool2d(
@@ -1794,6 +1923,8 @@ while ptr < len(quantized_model.backbone):
             )
         )
         ptr += 1
+
+    # ── case 3: AvgPool2d（同上）──
     elif isinstance(quantized_model.backbone[ptr], nn.AvgPool2d):
         quantized_backbone.append(
             QuantizedAvgPool2d(
@@ -1802,33 +1933,44 @@ while ptr < len(quantized_model.backbone):
             )
         )
         ptr += 1
+
     else:
+        # 理论上不应出现其他层类型（VGG 架构只包含 Conv, ReLU, Pool）
         raise NotImplementedError(
             type(quantized_model.backbone[ptr])
-        )  # should not happen
+        )
+
+# 将量化 backbone 组装回 Sequential 容器
 quantized_model.backbone = nn.Sequential(*quantized_backbone)
 
-# finally, quantized the classifier
+# ==============================================================================
+# 最后，量化分类器（全连接层）
+# 步骤与上面 Conv 量化完全一致，区别是分类器没有 ReLU 跟随
+# ==============================================================================
 fc_name = "classifier"
 fc = model.classifier
+
+# 获取分类器输入/输出的量化参数（从校准数据统计得到）
 input_scale, input_zero_point = get_quantization_scale_and_zero_point(
     input_activation[fc_name], feature_bitwidth
 )
-
 output_scale, output_zero_point = get_quantization_scale_and_zero_point(
     output_activation[fc_name], feature_bitwidth
 )
 
+# 量化分类器的权重和偏置
 quantized_weight, weight_scale, weight_zero_point = linear_quantize_weight_per_channel(
     fc.weight.data, weight_bitwidth
 )
 quantized_bias, bias_scale, bias_zero_point = linear_quantize_bias_per_output_channel(
     fc.bias.data, weight_scale, input_scale
 )
+# 偏移偏置以吸收 input_zero_point
 shifted_quantized_bias = shift_quantized_linear_bias(
     quantized_bias, quantized_weight, input_zero_point
 )
 
+# 替换为量化全连接层
 quantized_model.classifier = QuantizedLinear(
     quantized_weight,
     shifted_quantized_bias,
@@ -1854,17 +1996,28 @@ print(quantized_model)
 
 
 def extra_preprocess(x):
-    # hint: you need to convert the original fp32 input of range (0, 1)
-    #  into int8 format of range (-128, 127)
-    ############### YOUR CODE STARTS HERE ###############
-    # return torch.zeros_like(x).clamp(-128, 127).to(torch.int8)
+    """
+    将 FP32 输入从 [0, 1] 范围映射到 int8 的 [-128, 127] 范围
 
-    # return ( x* 255 - 128).round().clamp(-128, 127).to(torch.int8)
+    推导:
+        原始输入 x ∈ [0, 1]（图像像素归一化后的范围）
+        目标: 量化到 int8，使用对称量化（zero_point = 0 附近）
+        将 [0, 1] 线性映射到 [0, 255]：x * 255
+        再用 round() 就近取整，clamp(-128, 127) 截断
+        最后 -128 偏移到 int8 中心对称范围 [-128, 127]
+
+    等价于：将原始像素值(0~255)减去 128 偏移到对称范围
+    """
+    # x 是 FP32 张量，值域 [0, 1]
+    # ×255 映射到 [0, 255] → round 取整 → clamp 防溢出 → -128 偏移到 [-128, 127]
     return (x * 255).round().clamp(-128, 127).to(torch.int8) - 128
 
-    ############### YOUR CODE ENDS HERE #################
+    # 另一种等价写法（被注释掉）：
+    # return (x * 255 - 128).round().clamp(-128, 127).to(torch.int8)
 
 
+# 用 int8 量化模型在测试集上评估准确率
+# extra_preprocess 作为预处理钩子，在每个 batch 送入模型前将 FP32 → int8
 int8_model_accuracy = evaluate(
     quantized_model, dataloader["test"], extra_preprocess=[extra_preprocess]
 )

@@ -1,145 +1,145 @@
-# TinyEngine: Codebase of Demo Tutorial for Inference (Visual Wake Words)
+# TinyEngine：推理演示教程代码 (视觉唤醒词)
 
-This is the official demo tutorial for deploying a visual wake words (VWW) inference model on STM32F746G-DISCO discovery boards by exploiting **TinyEngine**.
+这是利用 **TinyEngine** 在 STM32F746G-DISCO 探索板上部署视觉唤醒词 (Visual Wake Words, VWW) 推理模型的官方演示教程。
 
-## Codebase Structure
+## 代码结构
 
-(The codebase structure after completing the codebase construction process, which is shown below in [`Detailed Instruction`](#detailed-instruction))
+（完成下方的[详细步骤](#详细步骤)后，代码结构如下）
 
 ```
 .
 ├── ...
-├── Debug                                  # Debug file folder.
-│   ├── TinyEngine_vww_tutorial.elf        # The ELF file to be run on MCUs.
+├── Debug                                  # 调试文件夹
+│   ├── TinyEngine_vww_tutorial.elf        # 将在 MCU 上运行的 ELF 可执行文件
 │   └── ...
-├── Drivers                                # Driver file folder.
-├── Inc                                    # Header file folder.
-├── Src                                    # Source file folder.
-│   ├── main.cpp                           # Main source file.
-│   ├── TinyEngine                         # TinyEngine folder.
-│   │   ├── codegen                        # Code generation folder.
+├── Drivers                                # 驱动文件夹
+├── Inc                                    # 头文件文件夹
+├── Src                                    # 源文件文件夹
+│   ├── main.cpp                           # 主源文件
+│   ├── TinyEngine                         # TinyEngine 文件夹
+│   │   ├── codegen                        # 代码生成文件夹
 │   │   │   ├── Include
-│   │   │   │   ├── genModel.h             # Header file of memory allocation.
+│   │   │   │   ├── genModel.h             # 内存分配头文件
 │   │   │   │   └── ...
 │   │   │   └── Source
-│   │   │       ├── genModel.c             # Codegen of computational graph.
+│   │   │       ├── genModel.c             # 计算图的代码生成
 │   │   │       └── ...
 │   │   ├── include
 │   │   └── src/kernels
-│   │       ├── fp_requantize_op           # Operators with floating-point requantization.
-│   │       ├── fp_backward_op             # FP32 Operators for backward propagation.
-│   │       └── int_forward_op             # INT Operators for forward propagation.
+│   │       ├── fp_requantize_op           # 浮点重量化算子
+│   │       ├── fp_backward_op             # 反向传播 FP32 算子
+│   │       └── int_forward_op             # 前向传播 INT 算子
 │   └── ...
 └── ...
 ```
 
-## Equipments
+## 所需硬件
 
-1. STM32F746G-DISCO discovery board
-2. Arducam Shield Mini 2MP Plus *(Optional)*
-3. Male to female jumper wires (x8) *(Optional)*
+1. STM32F746G-DISCO 探索板
+2. Arducam Shield Mini 2MP Plus *(可选)*
+3. 公对母杜邦线 (x8) *(可选)*
 
-## Overview of Usage
+## 使用概览
 
-1. Download and install STM32CubeIDE version 1.5.0.
-2. Download and import this project into your STM32CubeIDE.
-3. Connect your Arducam to the board with jumper wires. *(Optional)*
-4. Compile and flash program into your STM32F746G-DISCO discovery board.
-5. Done! In the demo, the LCD screen on your STM32F746G-DISCO discovery board should display person detection results (person/no person) and frames per second (FPS).
+1. 下载并安装 STM32CubeIDE 1.5.0 版本。
+2. 下载并将本项目导入你的 STM32CubeIDE。
+3. 用杜邦线将 Arducam 连接到开发板。*(可选)*
+4. 编译并将程序烧录到你的 STM32F746G-DISCO 探索板。
+5. 完成！在演示中，STM32F746G-DISCO 探索板的 LCD 屏幕将显示人物检测结果（有人/无人）和每秒帧数（FPS）。
 
-## Detailed Instruction
+## 详细步骤
 
-0. Prepare an STM32F746G-DISCO discovery board (and an Arducam, if applicable).
-1. Download STM32CubeIDE, an C/C++ development platform with peripheral configuration, code generation, code compilation, and debug features for STM32 microcontrollers and microprocessors.
+0. 准备一块 STM32F746G-DISCO 探索板（以及一个 Arducam，如果使用的话）。
+1. 下载 STM32CubeIDE，一款面向 STM32 微控制器和微处理器的 C/C++ 开发平台，集成了外设配置、代码生成、代码编译和调试功能。
 
-- Please download STM32CubeIDE **version 1.5.0**. \[[Link](https://www.st.com/en/development-tools/stm32cubeide.html#get-software)\]
-- Please refer to “UM2563 STM32CubeIDE installation guide” and “UM2553 STM32CubeIDE quick start guide” for more detailed installation and user guides. \[[Link](https://www.st.com/en/development-tools/stm32cubeide.html#documentation)\]
+- 请下载 STM32CubeIDE **1.5.0 版本**。\[[下载链接](https://www.st.com/en/development-tools/stm32cubeide.html#get-software)\]
+- 更详细的安装和使用指南请参考 "UM2563 STM32CubeIDE 安装指南" 和 "UM2553 STM32CubeIDE 快速入门指南"。\[[文档链接](https://www.st.com/en/development-tools/stm32cubeide.html#documentation)\]
 
-2. Prepare the codebase.
+2. 准备代码库。
 
-- First, please follow the instruction in [`Setup for Users`](https://github.com/mit-han-lab/tinyengine#setup-for-users) to setup your environment.
-- Copy the `tutorial/inference` folder and rename it as `TinyEngine_vww_tutorial` (for use in STM32CubeIDE later).
+- 首先，请按照 [`面向用户的设置`](https://github.com/mit-han-lab/tinyengine#setup-for-users) 中的说明配置环境。
+- 复制 `tutorial/inference` 文件夹并重命名为 `TinyEngine_vww_tutorial`（供后续在 STM32CubeIDE 中使用）。
 
 ```bash
 cp -r ./tutorial/inference ./tutorial/TinyEngine_vww_tutorial
 ```
 
-- Setup PYTHONPATH, and run the codegen example of VWW:
+- 设置 PYTHONPATH，然后运行 VWW 的代码生成示例：
 
 ```bash
 export PYTHONPATH=${PYTHONPATH}:$(pwd)
-python examples/vww.py  # To apply patch-based inference, please use `example/vww_patchbased.py`
+python examples/vww.py  # 如需使用基于 patch 的推理，请运行 `example/vww_patchbased.py`
 ```
 
-- Move the new generated `codegen` folder to the following path:
+- 将新生成的 `codegen` 文件夹移动到以下路径：
 
 ```bash
 mkdir ./tutorial/TinyEngine_vww_tutorial/Src/TinyEngine
 mv codegen ./tutorial/TinyEngine_vww_tutorial/Src/TinyEngine
 ```
 
-- Copy and paste the `TinyEngine` folder to the following path:
+- 将 `TinyEngine` 文件夹复制到以下路径：
 
 ```bash
 cp -r ./TinyEngine/include ./tutorial/TinyEngine_vww_tutorial/Src/TinyEngine
 cp -r ./TinyEngine/src ./tutorial/TinyEngine_vww_tutorial/Src/TinyEngine
 ```
 
-- Copy and paste the required Arm files to the correct path by using the following shell script:
+- 使用以下 Shell 脚本将所需的 Arm 文件复制到正确路径：
 
 ```bash
 bash import_arm_inference.sh
 ```
 
-3. Setup STM32CubeIDE for compilation and run.
+3. 在 STM32CubeIDE 中配置编译和运行。
 
-- Import the `TinyEngine_vww_tutorial` codebase into your STM32CubeIDE by: \[File\] -> \[Import…\] -> \[General\] -> \[Existing Projects into Workspace\] (Import the entire `TinyEngine_vww_tutorial` folder).
+- 将 `TinyEngine_vww_tutorial` 代码库导入 STM32CubeIDE：通过 \[File\] -> \[Import...\] -> \[General\] -> \[Existing Projects into Workspace\]（导入整个 `TinyEngine_vww_tutorial` 文件夹）。
 
 <img src="../../assets/figures/0_import_project_0.png" alt="0_import_project_0" width="47%"/>  <img src="../../assets/figures/1_import_project_1.png" alt="1_import_project_1" width="46%"/>
 
-- After the import, `TinyEngine_vww_tutorial` should be shown in Project Explorer of your STM32CubeIDE as the example figure below:
+- 导入完成后，`TinyEngine_vww_tutorial` 应出现在 STM32CubeIDE 的 Project Explorer 中，如下图所示：
 
 <img src="../../assets/figures/2_project_explorer.png" alt="2_project_explorer" width="30%"/>
 
-- Open `TinyEngine_vww_tutorial/Src/main.cpp`.
+- 打开 `TinyEngine_vww_tutorial/Src/main.cpp`。
   
-  - If using an Arducam, please set `UseCamera` macro to 1 (Line 32), as shown in the figure below:
+  - 如果使用 Arducam，请将 `UseCamera` 宏设置为 1（第 32 行），如下图所示：
 
   <img src="../../assets/figures/3_main_cpp_UseCamera.png" alt="3_main_cpp_UseCamera" width="80%"/>
 
-  - If not using an Arducam, please set `UseCamera` macro to 0 (Line 32) and set `NoCamera_Person` macro to 0 or 1 (Line 33), as shown in the figure below:
+  - 如果不使用 Arducam，请将 `UseCamera` 宏设置为 0（第 32 行），并将 `NoCamera_Person` 宏设置为 0 或 1（第 33 行），如下图所示：
   
   <img src="../../assets/figures/3_main_cpp_NoUseCamera.png" alt="3_main_cpp_NoUseCamera" width="80%"/>
 
-- Verify you have the correct compilation settings. (The default settings should be correct, but please follow the following steps to make sure that.):
+- 检查编译设置是否正确。（默认设置应该是正确的，但请按以下步骤确认）：
 
-  - Set the include paths of GCC compiler by \[Project\] -> \[Properties\] -> \[C/C++ Build\] -> \[Settings\] -> \[Tool Settings\] -> \[MCU GCC Compiler\] -> \[Include paths\] as the figure below:
+  - 通过 \[Project\] -> \[Properties\] -> \[C/C++ Build\] -> \[Settings\] -> \[Tool Settings\] -> \[MCU GCC Compiler\] -> \[Include paths\] 设置 GCC 编译器的头文件路径，如下图所示：
 
   <img src="../../assets/figures/4_gcc_include_paths.png" alt="4_gcc_include_paths" width="65%"/>
 
-  - Set the optimization level of GCC compiler to `-Ofast` by \[Project\] -> \[Properties\] -> \[C/C++ Build\] -> \[Settings\] -> \[Tool Settings\] -> \[MCU GCC Compiler\] -> \[Optimization\] as the figure below:
+  - 通过 \[Project\] -> \[Properties\] -> \[C/C++ Build\] -> \[Settings\] -> \[Tool Settings\] -> \[MCU GCC Compiler\] -> \[Optimization\] 将 GCC 编译器的优化级别设为 `-Ofast`，如下图所示：
 
   <img src="../../assets/figures/5_gcc_optimization.png" alt="5_gcc_optimization" width="65%"/>
 
-  - Set the include paths of G++ compiler by \[Project\] -> \[Properties\] -> \[C/C++ Build\] -> \[Settings\] -> \[Tool Settings\] -> \[MCU G++ Compiler\] -> \[Include paths\] as the figure below:
+  - 通过 \[Project\] -> \[Properties\] -> \[C/C++ Build\] -> \[Settings\] -> \[Tool Settings\] -> \[MCU G++ Compiler\] -> \[Include paths\] 设置 G++ 编译器的头文件路径，如下图所示：
 
   <img src="../../assets/figures/6_gplusplus_include_paths.png" alt="6_gplusplus_include_paths" width="65%"/>
 
-  - Set the optimization level of G++ compiler to `-Ofast` by \[Project\] -> \[Properties\] -> \[C/C++ Build\] -> \[Settings\] -> \[Tool Settings\] -> \[MCU G++ Compiler\] -> \[Optimization\] as the figure below:
+  - 通过 \[Project\] -> \[Properties\] -> \[C/C++ Build\] -> \[Settings\] -> \[Tool Settings\] -> \[MCU G++ Compiler\] -> \[Optimization\] 将 G++ 编译器的优化级别设为 `-Ofast`，如下图所示：
 
   <img src="../../assets/figures/7_gplusplus_optimization.png" alt="7_gplusplus_optimization" width="65%"/>
 
-- Click \[Project\] -> \[Build Project\] to build/compile the program and generate the binary executable files.
+- 点击 \[Project\] -> \[Build Project\] 编译程序并生成二进制可执行文件。
 
-- Set the run/debug configurations by \[Run\] -> \[Run Configurations…\] -> \[STM32 Cortex-M C/C++  Application\] -> \[TinyEngine_vww_tutorial Debug\] -> \[C/C++ Application\] -> \[Browse…\]:
+- 通过 \[Run\] -> \[Run Configurations...\] -> \[STM32 Cortex-M C/C++ Application\] -> \[TinyEngine_vww_tutorial Debug\] -> \[C/C++ Application\] -> \[Browse...\] 设置运行/调试配置：
 
-  - Point to the correct elf file (file path: `Debug/TinyEngine_vww_tutorial.elf`) to correctly run the program, as shown in the figure below:
+  - 指定正确的 elf 文件（文件路径：`Debug/TinyEngine_vww_tutorial.elf`）以确保程序能正确运行，如下图所示：
 
 <img src="../../assets/figures/8_run_configurations_0.png" alt="8_run_configurations_0" width="49%"/>  <img src="../../assets/figures/9_run_configurations_1.png" alt="9_run_configurations_1" width="49%"/>
 
-4. Setup your STM32F746G-DISCO discovery board to connect the Arducam to the board and also establish the USB connection with the board.
+4. 设置你的 STM32F746G-DISCO 探索板，将 Arducam 连接到开发板，同时建立与开发板的 USB 连接。
 
-- **(Optional)** Connect your Arducam to the board with jumper wires according to the following PIN connection:
+- **(可选)** 根据以下引脚定义用杜邦线将 Arducam 连接到开发板：
 
   - SPI: MOSI->PB15(D11), MISO->PB14(D12), SCK->PI_1(D13), CS(NSS)->PI_0(D5), VCC-> 3.3V, GND->GND
   - I2C: SCL->PB8(D15). SDA->PB9(D14)
@@ -148,46 +148,46 @@ bash import_arm_inference.sh
   <img src="../../assets/figures/11_mcu_side_view.png" alt="11_mcu_side_view" width="40%"/>
 
   ```
-                  (Top view)                                       (Side view)
+                  (俯视图)                                        (侧视图)
   ```
 
-- Establish the USB connection with the STM32F746G-DISCO discovery board.
+- 建立与 STM32F746G-DISCO 探索板的 USB 连接。
 
-5. Now, let’s run the demo.
+5. 现在，让我们运行演示。
 
-- Click \[Run\] -> \[Run\] to execute the binary executable file on your board.
-- If the system requires updating the ST-LINK firmware, please first click “OK”:
+- 点击 \[Run\] -> \[Run\] 在开发板上执行二进制可执行文件。
+- 如果系统要求更新 ST-LINK 固件，请先点击 "OK"：
 
 <img src="../../assets/figures/12_stlink_0.png" alt="12_stlink_0" width="40%"/>
 
-- Click “Open in update mode”:
+- 点击 "Open in update mode"：
 
 <img src="../../assets/figures/13_stlink_1.png" alt="13_stlink_1" width="40%"/>
 
-- Click “Upgrade”:
+- 点击 "Upgrade"：
 
 <img src="../../assets/figures/14_stlink_2.png" alt="14_stlink_2" width="40%"/>
 
-- Click \[Run\] -> \[Run\] in the STM32CubeIDE again.
+- 在 STM32CubeIDE 中再次点击 \[Run\] -> \[Run\]。
 
-6. If you successfully run the demo, the LCD screen on your STM32F746G-DISCO discovery board should display person detection results (person/no person) and frames per second (FPS), as shown in the example figure below:
+6. 如果你成功运行了演示，STM32F746G-DISCO 探索板的 LCD 屏幕将显示人物检测结果（有人/无人）和每秒帧数（FPS），如下图所示：
 
-  - **With Arducam:**
+  - **使用 Arducam 时：**
 
    <img src="../../assets/figures/15_demo_person.png" alt="15_demo_person" width="40%"/> <img src="../../assets/figures/16_demo_no_person.png" alt="16_demo_no_person" width="40%"/>
 
    ```
-                    (Person)                                       (No Person)
+                    (有人)                                         (无人)
    ```
 
-  - **Without Arducam:**
+  - **不使用 Arducam 时：**
 
    <img src="../../assets/figures/17_demo_person_noArducam.png" alt="17_demo_person_noArducam" width="40%"/> <img src="../../assets/figures/18_demo_no_person_noArducam.png" alt="18_demo_no_person_noArducam" width="40%"/>
 
    ```
-                    (Person)                                       (No Person)
+                    (有人)                                         (无人)
    ```
 
-## Limitation
+## 已知限制
 
-- Only tested the demo on STM32CubeIDE version 1.5.0.
+- 本演示仅在 STM32CubeIDE 1.5.0 版本上测试过。
