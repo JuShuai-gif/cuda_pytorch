@@ -1,0 +1,3 @@
+# override parent .gitignore for this directory only
+# keep all files trackable by git
+!*

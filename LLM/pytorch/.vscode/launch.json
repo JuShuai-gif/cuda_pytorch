@@ -1,0 +1,119 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Debug Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "stopOnEntry": false,
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "python": "/home/ghr/miniconda3/envs/torch_env/bin/python",
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0"
+            }
+        },
+        {
+            "name": "(gdb) Launch Python + C++ (trace_empty)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/home/ghr/miniconda3/envs/torch_env/bin/python",
+            "args": ["${workspaceFolder}/note/s1_01_tensor/trace_empty.py"],
+            "cwd": "${workspaceFolder}/note/s1_01_tensor",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "additionalSOLibSearchPath": "/home/ghr/code/pytorch/build/lib",
+            "sourceFileMap": {
+                "/home/ghr/code/pytorch": "/home/ghr/code/pytorch"
+            },
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "allow breakpoints on symbols loaded later",
+                    "text": "set breakpoint pending on",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "[1] torch.empty C++ binding entry",
+                    "text": "break torch::autograd::THPVariable_empty",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "[2] CPU backend impl",
+                    "text": "break at::native::empty_cpu",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "[3] build TensorImpl + StorageImpl",
+                    "text": "break at::detail::empty_generic",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "[4] raw memory allocation",
+                    "text": "break c10::alloc_cpu",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "[5] wrap at::Tensor -> Python object",
+                    "text": "break THPVariable_Wrap(at::TensorBase&&)",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "(gdb) Attach to Python",
+            "type": "cppdbg",
+            "request": "attach",
+            "program": "/home/ghr/miniconda3/envs/torch_env/bin/python",
+            "processId": "${command:pickProcess}",
+            "MIMode": "gdb",
+            "additionalSOLibSearchPath": "/home/ghr/code/pytorch/build/lib",
+            "sourceFileMap": {
+                "/home/ghr/code/pytorch": "/home/ghr/code/pytorch"
+            },
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "allow breakpoints on symbols loaded later",
+                    "text": "set breakpoint pending on",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "[1] torch.empty C++ binding entry",
+                    "text": "break torch::autograd::THPVariable_empty",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "[2] CPU backend impl",
+                    "text": "break at::native::empty_cpu",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "[3] build TensorImpl + StorageImpl",
+                    "text": "break at::detail::empty_generic",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "[4] raw memory allocation",
+                    "text": "break c10::alloc_cpu",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "[5] wrap at::Tensor -> Python object",
+                    "text": "break THPVariable_Wrap(at::TensorBase&&)",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ]
+}

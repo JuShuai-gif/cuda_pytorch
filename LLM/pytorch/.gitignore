@@ -1,1 +1,5 @@
 .venv/
+
+# 覆盖父级 .gitignore:让本目录的 .vscode 可被 git 跟踪
+!.vscode/
+!.vscode/*
