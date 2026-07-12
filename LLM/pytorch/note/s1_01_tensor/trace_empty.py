@@ -10,7 +10,7 @@ See tensor.md section "十二、Python <-> C++ 调用链路" for the annotated s
 """
 
 import torch
-
+import os; print(f"PID: {os.getpid()}")
 print("=== about to call torch.empty(2, 3) ===")
 t = torch.empty(2, 3)
 print("result:", t.shape, t.dtype, t.data_ptr())
