@@ -2,37 +2,103 @@
 
 # namespace: tflite
 
+# 此文件由 FlatBuffers 编译器 (flatc) 根据 TFLite schema 自动生成，请勿手动修改。
+# 
+# FlatBuffers 设计原理
+# ═══════════════════
+# TFLite 使用 Google FlatBuffers 作为模型序列化格式。相比 Protocol Buffers：
+#   1. 零拷贝反序列化 — 无需解析即可直接读取二进制数据，CPU/内存开销极低
+#   2. 按需字段访问 — vtable（虚表）机制，只读取需要的字段，不浪费
+#   3. 紧凑二进制格式 — 文件体积小，适合 MCU 等资源受限设备
+# 
+# 文件结构
+# ════════
+# 本文件定义了 TFLite schema 中对应表的 Python 绑定类，包含：
+#   - 读取部分：GetRootAsXxx / Init / 各字段访问器方法
+#   - 写入部分：StartXxx / AddXxx / EndXxx 构建器函数（用于创建新的 FlatBuffer）
+# 
+# 字段访问模式
+# ══════════════
+# 每个访问器方法的实现遵循固定模式：
+#   o = Offset(vtable_slot)  ← 通过 vtable 查找字段在 buffer 中的偏移
+#   if o != 0:               ← o==0 表示字段未设置（该字段在模型中不存在）
+#     return ReadData(o)     ← 从 buffer 的偏移位置读取数据
+#   return default_value     ← 字段不存在时返回默认值
+# 
+# 此包被 TfliteConvertor.py 在编译管线中调用，将 .tflite 模型文件解析为 TinyEngine IR。
+
+# ============================================================
+# SparsityParameters — 稀疏参数（结构化稀疏/剪枝权重的描述）
+# ============================================================
+
 import flatbuffers
 from flatbuffers.compat import import_numpy
 np = import_numpy()
 
 class SparsityParameters(object):
+# _tab 是 FlatBuffers Table 访问器，保存了该表在二进制 buffer 中的位置引用
+# 所有字段访问都通过 self._tab 进行 vtable 查找
     __slots__ = ['_tab']
 
+# ============================================================
+# FlatBuffer 根节点解析入口
+# 从内存中的 FlatBuffer 二进制数据中解析出 SparsityParameters 表
+# 调用方式: obj = SparsityParameters.GetRootAsSparsityParameters(buf, offset)
+#   - buf: bytes 类型，整个 FlatBuffer 二进制数据
+#   - offset: 起始偏移量（通常为 0）
+# TfliteConvertor.loadTFmodel() 通过 SparsityParameters.GetRootAsSparsityParameters(buf, 0) 调用
+# ============================================================
     @classmethod
+# 读取 uoffset（无符号偏移）值，这是 FlatBuffer 根表的起始位置
     def GetRootAsSparsityParameters(cls, buf, offset):
+# 从 buffer 中编码的 uoffset 偏移处开始解析根对象
         n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+# 创建表对象实例并初始化
         x = SparsityParameters()
+# Init 将 x._tab 绑定到 buffer 中的实际数据位置
         x.Init(buf, n + offset)
+# 返回解析后的对象
         return x
 
+# ------------------------------------------------------------
+# 检查 buffer 是否包含有效的 TFLite 文件标识符
+# 'TFL3' 魔术字 (0x54 0x46 0x4C 0x33) 是 TFLite 文件的签名
+# 用于验证文件是否为有效的 FlatBuffer TFLite 模型
+# ------------------------------------------------------------
     @classmethod
     def SparsityParametersBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+# flatbuffers.util.BufferHasIdentifier 内部实现二进制签名比对
         return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x54\x46\x4C\x33", size_prefixed=size_prefixed)
 
     # SparsityParameters
+# ------------------------------------------------------------
+# 初始化 SparsityParameters 表对象
+# self._tab 是 flatbuffers.table.Table 实例，封装了对 FlatBuffer 二进制数据的访问
+# buf: 完整的 FlatBuffer 二进制数据（bytes）
+# pos: 该表在 buf 中的起始位置偏移
+# 所有后续的字段访问器方法都通过 self._tab 进行 vtable 查找
+# ------------------------------------------------------------
     def Init(self, buf, pos):
+# 将 Table 访问器绑定到 buf 的 pos 位置
         self._tab = flatbuffers.table.Table(buf, pos)
 
     # SparsityParameters
+# 读取 TraversalOrder 向量字段（int32（有符号32位整数） 数组）
+# 遍历顺序（int32 数组），定义对稀疏数据如何按序访问
+# vtable 偏移量: 4
     def TraversalOrder(self, j):
+# Vector(o) 获取向量数据的起始偏移
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+# 通过索引 j * 元素字节大小 定位到第 j 个元素的位置
         if o != 0:
+# 读取该位置的 int32（有符号32位整数） 值
             a = self._tab.Vector(o)
             return self._tab.Get(flatbuffers.number_types.Int32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
         return 0
 
     # SparsityParameters
+# 以 Numpy ndarray 形式返回 TraversalOrder 向量的全部元素
+# vtable 偏移量: 4
     def TraversalOrderAsNumpy(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
@@ -40,26 +106,43 @@ class SparsityParameters(object):
         return 0
 
     # SparsityParameters
+# 返回 TraversalOrder 向量的长度（元素个数）
+# vtable 偏移量: 4
     def TraversalOrderLength(self):
+# VectorLen(o) 读取向量头部的长度字段
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # SparsityParameters
+# 读取 TraversalOrderIsNone 向量字段（标量 数组）
+# 遍历顺序（int32 数组），定义对稀疏数据如何按序访问
+# vtable 偏移量: 4
     def TraversalOrderIsNone(self):
+# Vector(o) 获取向量数据的起始偏移
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+# 通过索引 j * 元素字节大小 定位到第 j 个元素的位置
         return o == 0
+# 读取该位置的 标量 值
 
     # SparsityParameters
+# 读取 BlockMap 向量字段（int32（有符号32位整数） 数组）
+# 块映射（int32 数组），定义稀疏块的维度组织方式
+# vtable 偏移量: 6
     def BlockMap(self, j):
+# Vector(o) 获取向量数据的起始偏移
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+# 通过索引 j * 元素字节大小 定位到第 j 个元素的位置
         if o != 0:
+# 读取该位置的 int32（有符号32位整数） 值
             a = self._tab.Vector(o)
             return self._tab.Get(flatbuffers.number_types.Int32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
         return 0
 
     # SparsityParameters
+# 以 Numpy ndarray 形式返回 BlockMap 向量的全部元素
+# vtable 偏移量: 6
     def BlockMapAsNumpy(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
@@ -67,41 +150,70 @@ class SparsityParameters(object):
         return 0
 
     # SparsityParameters
+# 返回 BlockMap 向量的长度（元素个数）
+# vtable 偏移量: 6
     def BlockMapLength(self):
+# VectorLen(o) 读取向量头部的长度字段
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # SparsityParameters
+# 读取 BlockMapIsNone 向量字段（标量 数组）
+# 块映射（int32 数组），定义稀疏块的维度组织方式
+# vtable 偏移量: 6
     def BlockMapIsNone(self):
+# Vector(o) 获取向量数据的起始偏移
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+# 通过索引 j * 元素字节大小 定位到第 j 个元素的位置
         return o == 0
+# 读取该位置的 标量 值
 
     # SparsityParameters
+# 读取 DimMetadata 向量字段（子表对象数组）
+# 每维度的稀疏元数据（DimensionMetadata 列表）
+# vtable 偏移量: 8
     def DimMetadata(self, j):
+# Vector(o) 获取向量数据的起始偏移
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+# 每个元素占 4 字节（uoffset 指针），加上 j 偏移指向第 j 个元素
         if o != 0:
+# Indirect 解引用到实际子表的起始位置
             x = self._tab.Vector(o)
+# 导入对应的子表类（延迟导入，避免循环依赖）
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
+# 创建子表对象并绑定到 buffer 中的对应位置
             x = self._tab.Indirect(x)
+# 初始化子表
             from .DimensionMetadata import DimensionMetadata
+# 返回子表对象
             obj = DimensionMetadata()
+# 字段不存在时返回 None
             obj.Init(self._tab.Bytes, x)
             return obj
         return None
 
     # SparsityParameters
+# 返回 DimMetadata 向量的长度（元素个数）
+# vtable 偏移量: 8
     def DimMetadataLength(self):
+# VectorLen(o) 读取向量头部的长度字段
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # SparsityParameters
+# 读取 DimMetadataIsNone 向量字段（标量 数组）
+# 每维度的稀疏元数据（DimensionMetadata 列表）
+# vtable 偏移量: 8
     def DimMetadataIsNone(self):
+# Vector(o) 获取向量数据的起始偏移
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+# 通过索引 j * 元素字节大小 定位到第 j 个元素的位置
         return o == 0
+# 读取该位置的 标量 值
 
 def SparsityParametersStart(builder): builder.StartObject(3)
 def SparsityParametersAddTraversalOrder(builder, traversalOrder): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(traversalOrder), 0)

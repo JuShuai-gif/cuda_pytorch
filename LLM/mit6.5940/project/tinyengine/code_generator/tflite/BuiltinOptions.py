@@ -2,110 +2,137 @@
 
 # namespace: tflite
 
-class BuiltinOptions(object):
-    NONE = 0
-    Conv2DOptions = 1
-    DepthwiseConv2DOptions = 2
-    ConcatEmbeddingsOptions = 3
-    LSHProjectionOptions = 4
-    Pool2DOptions = 5
-    SVDFOptions = 6
-    RNNOptions = 7
-    FullyConnectedOptions = 8
-    SoftmaxOptions = 9
-    ConcatenationOptions = 10
-    AddOptions = 11
-    L2NormOptions = 12
-    LocalResponseNormalizationOptions = 13
-    LSTMOptions = 14
-    ResizeBilinearOptions = 15
-    CallOptions = 16
-    ReshapeOptions = 17
-    SkipGramOptions = 18
-    SpaceToDepthOptions = 19
-    EmbeddingLookupSparseOptions = 20
-    MulOptions = 21
-    PadOptions = 22
-    GatherOptions = 23
-    BatchToSpaceNDOptions = 24
-    SpaceToBatchNDOptions = 25
-    TransposeOptions = 26
-    ReducerOptions = 27
-    SubOptions = 28
-    DivOptions = 29
-    SqueezeOptions = 30
-    SequenceRNNOptions = 31
-    StridedSliceOptions = 32
-    ExpOptions = 33
-    TopKV2Options = 34
-    SplitOptions = 35
-    LogSoftmaxOptions = 36
-    CastOptions = 37
-    DequantizeOptions = 38
-    MaximumMinimumOptions = 39
-    ArgMaxOptions = 40
-    LessOptions = 41
-    NegOptions = 42
-    PadV2Options = 43
-    GreaterOptions = 44
-    GreaterEqualOptions = 45
-    LessEqualOptions = 46
-    SelectOptions = 47
-    SliceOptions = 48
-    TransposeConvOptions = 49
-    SparseToDenseOptions = 50
-    TileOptions = 51
-    ExpandDimsOptions = 52
-    EqualOptions = 53
-    NotEqualOptions = 54
-    ShapeOptions = 55
-    PowOptions = 56
-    ArgMinOptions = 57
-    FakeQuantOptions = 58
-    PackOptions = 59
-    LogicalOrOptions = 60
-    OneHotOptions = 61
-    LogicalAndOptions = 62
-    LogicalNotOptions = 63
-    UnpackOptions = 64
-    FloorDivOptions = 65
-    SquareOptions = 66
-    ZerosLikeOptions = 67
-    FillOptions = 68
-    BidirectionalSequenceLSTMOptions = 69
-    BidirectionalSequenceRNNOptions = 70
-    UnidirectionalSequenceLSTMOptions = 71
-    FloorModOptions = 72
-    RangeOptions = 73
-    ResizeNearestNeighborOptions = 74
-    LeakyReluOptions = 75
-    SquaredDifferenceOptions = 76
-    MirrorPadOptions = 77
-    AbsOptions = 78
-    SplitVOptions = 79
-    UniqueOptions = 80
-    ReverseV2Options = 81
-    AddNOptions = 82
-    GatherNdOptions = 83
-    CosOptions = 84
-    WhereOptions = 85
-    RankOptions = 86
-    ReverseSequenceOptions = 87
-    MatrixDiagOptions = 88
-    QuantizeOptions = 89
-    MatrixSetDiagOptions = 90
-    HardSwishOptions = 91
-    IfOptions = 92
-    WhileOptions = 93
-    DepthToSpaceOptions = 94
-    NonMaxSuppressionV4Options = 95
-    NonMaxSuppressionV5Options = 96
-    ScatterNdOptions = 97
-    SelectV2Options = 98
-    DensifyOptions = 99
-    SegmentSumOptions = 100
-    BatchMatMulOptions = 101
-    CumsumOptions = 102
-    CallOnceOptions = 103
-    BroadcastToOptions = 104
+# 此文件由 FlatBuffers 编译器 (flatc) 根据 TFLite schema 自动生成，请勿手动修改。
+# 
+# FlatBuffers 设计原理
+# ═══════════════════
+# TFLite 使用 Google FlatBuffers 作为模型序列化格式。相比 Protocol Buffers：
+#   1. 零拷贝反序列化 — 无需解析即可直接读取二进制数据，CPU/内存开销极低
+#   2. 按需字段访问 — vtable（虚表）机制，只读取需要的字段，不浪费
+#   3. 紧凑二进制格式 — 文件体积小，适合 MCU 等资源受限设备
+# 
+# 文件结构
+# ════════
+# 本文件定义了 TFLite schema 中对应表的 Python 绑定类，包含：
+#   - 读取部分：GetRootAsXxx / Init / 各字段访问器方法
+#   - 写入部分：StartXxx / AddXxx / EndXxx 构建器函数（用于创建新的 FlatBuffer）
+# 
+# 字段访问模式
+# ══════════════
+# 每个访问器方法的实现遵循固定模式：
+#   o = Offset(vtable_slot)  ← 通过 vtable 查找字段在 buffer 中的偏移
+#   if o != 0:               ← o==0 表示字段未设置（该字段在模型中不存在）
+#     return ReadData(o)     ← 从 buffer 的偏移位置读取数据
+#   return default_value     ← 字段不存在时返回默认值
+# 
+# 此包被 TfliteConvertor.py 在编译管线中调用，将 .tflite 模型文件解析为 TinyEngine IR。
 
+# BuiltinOptions 枚举类
+# 内置算子参数类型枚举。Operator.BuiltinOptionsType 返回此值，TfliteConvertor 据此将 BuiltinOptions 转换为具体类型
+
+class BuiltinOptions(object):
+    NONE = 0  # NONE=0
+    Conv2DOptions = 1  # Conv2DOptions=1 — Conv2D 参数（1）
+    DepthwiseConv2DOptions = 2  # DepthwiseConv2DOptions=2 — DepthwiseConv2D 参数（2）
+    ConcatEmbeddingsOptions = 3  # ConcatEmbeddingsOptions=3
+    LSHProjectionOptions = 4  # LSHProjectionOptions=4
+    Pool2DOptions = 5  # Pool2DOptions=5 — 池化层参数（5）
+    SVDFOptions = 6  # SVDFOptions=6
+    RNNOptions = 7  # RNNOptions=7
+    FullyConnectedOptions = 8  # FullyConnectedOptions=8 — 全连接层参数（8）
+    SoftmaxOptions = 9  # SoftmaxOptions=9 — Softmax 参数（15）
+    ConcatenationOptions = 10  # ConcatenationOptions=10 — Concat 参数（10）
+    AddOptions = 11  # AddOptions=11 — Add 参数（11）
+    L2NormOptions = 12  # L2NormOptions=12
+    LocalResponseNormalizationOptions = 13  # LocalResponseNormalizationOptions=13
+    LSTMOptions = 14  # LSTMOptions=14
+    ResizeBilinearOptions = 15  # ResizeBilinearOptions=15
+    CallOptions = 16  # CallOptions=16
+    ReshapeOptions = 17  # ReshapeOptions=17
+    SkipGramOptions = 18  # SkipGramOptions=18
+    SpaceToDepthOptions = 19  # SpaceToDepthOptions=19
+    EmbeddingLookupSparseOptions = 20  # EmbeddingLookupSparseOptions=20
+    MulOptions = 21  # MulOptions=21 — Mul 参数（21）
+    PadOptions = 22  # PadOptions=22
+    GatherOptions = 23  # GatherOptions=23
+    BatchToSpaceNDOptions = 24  # BatchToSpaceNDOptions=24
+    SpaceToBatchNDOptions = 25  # SpaceToBatchNDOptions=25
+    TransposeOptions = 26  # TransposeOptions=26
+    ReducerOptions = 27  # ReducerOptions=27
+    SubOptions = 28  # SubOptions=28
+    DivOptions = 29  # DivOptions=29
+    SqueezeOptions = 30  # SqueezeOptions=30
+    SequenceRNNOptions = 31  # SequenceRNNOptions=31
+    StridedSliceOptions = 32  # StridedSliceOptions=32
+    ExpOptions = 33  # ExpOptions=33
+    TopKV2Options = 34  # TopKV2Options=34
+    SplitOptions = 35  # SplitOptions=35
+    LogSoftmaxOptions = 36  # LogSoftmaxOptions=36
+    CastOptions = 37  # CastOptions=37
+    DequantizeOptions = 38  # DequantizeOptions=38
+    MaximumMinimumOptions = 39  # MaximumMinimumOptions=39
+    ArgMaxOptions = 40  # ArgMaxOptions=40
+    LessOptions = 41  # LessOptions=41
+    NegOptions = 42  # NegOptions=42
+    PadV2Options = 43  # PadV2Options=43
+    GreaterOptions = 44  # GreaterOptions=44
+    GreaterEqualOptions = 45  # GreaterEqualOptions=45
+    LessEqualOptions = 46  # LessEqualOptions=46
+    SelectOptions = 47  # SelectOptions=47
+    SliceOptions = 48  # SliceOptions=48
+    TransposeConvOptions = 49  # TransposeConvOptions=49
+    SparseToDenseOptions = 50  # SparseToDenseOptions=50
+    TileOptions = 51  # TileOptions=51
+    ExpandDimsOptions = 52  # ExpandDimsOptions=52
+    EqualOptions = 53  # EqualOptions=53
+    NotEqualOptions = 54  # NotEqualOptions=54
+    ShapeOptions = 55  # ShapeOptions=55
+    PowOptions = 56  # PowOptions=56
+    ArgMinOptions = 57  # ArgMinOptions=57
+    FakeQuantOptions = 58  # FakeQuantOptions=58
+    PackOptions = 59  # PackOptions=59
+    LogicalOrOptions = 60  # LogicalOrOptions=60
+    OneHotOptions = 61  # OneHotOptions=61
+    LogicalAndOptions = 62  # LogicalAndOptions=62
+    LogicalNotOptions = 63  # LogicalNotOptions=63
+    UnpackOptions = 64  # UnpackOptions=64
+    FloorDivOptions = 65  # FloorDivOptions=65
+    SquareOptions = 66  # SquareOptions=66
+    ZerosLikeOptions = 67  # ZerosLikeOptions=67
+    FillOptions = 68  # FillOptions=68
+    BidirectionalSequenceLSTMOptions = 69  # BidirectionalSequenceLSTMOptions=69
+    BidirectionalSequenceRNNOptions = 70  # BidirectionalSequenceRNNOptions=70
+    UnidirectionalSequenceLSTMOptions = 71  # UnidirectionalSequenceLSTMOptions=71
+    FloorModOptions = 72  # FloorModOptions=72
+    RangeOptions = 73  # RangeOptions=73
+    ResizeNearestNeighborOptions = 74  # ResizeNearestNeighborOptions=74
+    LeakyReluOptions = 75  # LeakyReluOptions=75
+    SquaredDifferenceOptions = 76  # SquaredDifferenceOptions=76
+    MirrorPadOptions = 77  # MirrorPadOptions=77
+    AbsOptions = 78  # AbsOptions=78
+    SplitVOptions = 79  # SplitVOptions=79
+    UniqueOptions = 80  # UniqueOptions=80
+    ReverseV2Options = 81  # ReverseV2Options=81
+    AddNOptions = 82  # AddNOptions=82
+    GatherNdOptions = 83  # GatherNdOptions=83
+    CosOptions = 84  # CosOptions=84
+    WhereOptions = 85  # WhereOptions=85
+    RankOptions = 86  # RankOptions=86
+    ReverseSequenceOptions = 87  # ReverseSequenceOptions=87
+    MatrixDiagOptions = 88  # MatrixDiagOptions=88
+    QuantizeOptions = 89  # QuantizeOptions=89
+    MatrixSetDiagOptions = 90  # MatrixSetDiagOptions=90
+    HardSwishOptions = 91  # HardSwishOptions=91
+    IfOptions = 92  # IfOptions=92
+    WhileOptions = 93  # WhileOptions=93
+    DepthToSpaceOptions = 94  # DepthToSpaceOptions=94
+    NonMaxSuppressionV4Options = 95  # NonMaxSuppressionV4Options=95
+    NonMaxSuppressionV5Options = 96  # NonMaxSuppressionV5Options=96
+    ScatterNdOptions = 97  # ScatterNdOptions=97
+    SelectV2Options = 98  # SelectV2Options=98
+    DensifyOptions = 99  # DensifyOptions=99
+    SegmentSumOptions = 100  # SegmentSumOptions=100
+    BatchMatMulOptions = 101  # BatchMatMulOptions=101
+    CumsumOptions = 102  # CumsumOptions=102
+    CallOnceOptions = 103  # CallOnceOptions=103
+    BroadcastToOptions = 104  # BroadcastToOptions=104

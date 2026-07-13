@@ -2,62 +2,148 @@
 
 # namespace: tflite
 
+# 此文件由 FlatBuffers 编译器 (flatc) 根据 TFLite schema 自动生成，请勿手动修改。
+# 
+# FlatBuffers 设计原理
+# ═══════════════════
+# TFLite 使用 Google FlatBuffers 作为模型序列化格式。相比 Protocol Buffers：
+#   1. 零拷贝反序列化 — 无需解析即可直接读取二进制数据，CPU/内存开销极低
+#   2. 按需字段访问 — vtable（虚表）机制，只读取需要的字段，不浪费
+#   3. 紧凑二进制格式 — 文件体积小，适合 MCU 等资源受限设备
+# 
+# 文件结构
+# ════════
+# 本文件定义了 TFLite schema 中对应表的 Python 绑定类，包含：
+#   - 读取部分：GetRootAsXxx / Init / 各字段访问器方法
+#   - 写入部分：StartXxx / AddXxx / EndXxx 构建器函数（用于创建新的 FlatBuffer）
+# 
+# 字段访问模式
+# ══════════════
+# 每个访问器方法的实现遵循固定模式：
+#   o = Offset(vtable_slot)  ← 通过 vtable 查找字段在 buffer 中的偏移
+#   if o != 0:               ← o==0 表示字段未设置（该字段在模型中不存在）
+#     return ReadData(o)     ← 从 buffer 的偏移位置读取数据
+#   return default_value     ← 字段不存在时返回默认值
+# 
+# 此包被 TfliteConvertor.py 在编译管线中调用，将 .tflite 模型文件解析为 TinyEngine IR。
+
+# ============================================================
+# SubGraph — TFLite 子图（计算图的一个独立执行单元）
+# ============================================================
+
 import flatbuffers
 from flatbuffers.compat import import_numpy
 np = import_numpy()
 
 class SubGraph(object):
+# _tab 是 FlatBuffers Table 访问器，保存了该表在二进制 buffer 中的位置引用
+# 所有字段访问都通过 self._tab 进行 vtable 查找
     __slots__ = ['_tab']
 
+# ============================================================
+# FlatBuffer 根节点解析入口
+# 从内存中的 FlatBuffer 二进制数据中解析出 SubGraph 表
+# 调用方式: obj = SubGraph.GetRootAsSubGraph(buf, offset)
+#   - buf: bytes 类型，整个 FlatBuffer 二进制数据
+#   - offset: 起始偏移量（通常为 0）
+# TfliteConvertor.loadTFmodel() 通过 SubGraph.GetRootAsSubGraph(buf, 0) 调用
+# ============================================================
     @classmethod
+# 读取 uoffset（无符号偏移）值，这是 FlatBuffer 根表的起始位置
     def GetRootAsSubGraph(cls, buf, offset):
+# 从 buffer 中编码的 uoffset 偏移处开始解析根对象
         n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+# 创建表对象实例并初始化
         x = SubGraph()
+# Init 将 x._tab 绑定到 buffer 中的实际数据位置
         x.Init(buf, n + offset)
+# 返回解析后的对象
         return x
 
+# ------------------------------------------------------------
+# 检查 buffer 是否包含有效的 TFLite 文件标识符
+# 'TFL3' 魔术字 (0x54 0x46 0x4C 0x33) 是 TFLite 文件的签名
+# 用于验证文件是否为有效的 FlatBuffer TFLite 模型
+# ------------------------------------------------------------
     @classmethod
     def SubGraphBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+# flatbuffers.util.BufferHasIdentifier 内部实现二进制签名比对
         return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x54\x46\x4C\x33", size_prefixed=size_prefixed)
 
     # SubGraph
+# ------------------------------------------------------------
+# 初始化 SubGraph 表对象
+# self._tab 是 flatbuffers.table.Table 实例，封装了对 FlatBuffer 二进制数据的访问
+# buf: 完整的 FlatBuffer 二进制数据（bytes）
+# pos: 该表在 buf 中的起始位置偏移
+# 所有后续的字段访问器方法都通过 self._tab 进行 vtable 查找
+# ------------------------------------------------------------
     def Init(self, buf, pos):
+# 将 Table 访问器绑定到 buf 的 pos 位置
         self._tab = flatbuffers.table.Table(buf, pos)
 
     # SubGraph
+# 读取 Tensors 向量字段（子表对象数组）
+# 子图中的所有张量元信息列表（形状、类型、量化参数等）
+# vtable 偏移量: 4
     def Tensors(self, j):
+# Vector(o) 获取向量数据的起始偏移
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+# 每个元素占 4 字节（uoffset 指针），加上 j 偏移指向第 j 个元素
         if o != 0:
+# Indirect 解引用到实际子表的起始位置
             x = self._tab.Vector(o)
+# 导入对应的子表类（延迟导入，避免循环依赖）
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
+# 创建子表对象并绑定到 buffer 中的对应位置
             x = self._tab.Indirect(x)
+# 初始化子表
             from .Tensor import Tensor
+# 返回子表对象
             obj = Tensor()
+# 字段不存在时返回 None
             obj.Init(self._tab.Bytes, x)
             return obj
         return None
 
     # SubGraph
+# 返回 Tensors 向量的长度（元素个数）
+# vtable 偏移量: 4
     def TensorsLength(self):
+# VectorLen(o) 读取向量头部的长度字段
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # SubGraph
+# 读取 TensorsIsNone 向量字段（标量 数组）
+# 子图中的所有张量元信息列表（形状、类型、量化参数等）
+# vtable 偏移量: 4
     def TensorsIsNone(self):
+# Vector(o) 获取向量数据的起始偏移
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+# 通过索引 j * 元素字节大小 定位到第 j 个元素的位置
         return o == 0
+# 读取该位置的 标量 值
 
     # SubGraph
+# 读取 Inputs 向量字段（int32（有符号32位整数） 数组）
+# 子图输入张量在 Tensors 列表中的索引（int32 向量）
+# vtable 偏移量: 6
     def Inputs(self, j):
+# Vector(o) 获取向量数据的起始偏移
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+# 通过索引 j * 元素字节大小 定位到第 j 个元素的位置
         if o != 0:
+# 读取该位置的 int32（有符号32位整数） 值
             a = self._tab.Vector(o)
             return self._tab.Get(flatbuffers.number_types.Int32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
         return 0
 
     # SubGraph
+# 以 Numpy ndarray 形式返回 Inputs 向量的全部元素
+# vtable 偏移量: 6
     def InputsAsNumpy(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
@@ -65,26 +151,43 @@ class SubGraph(object):
         return 0
 
     # SubGraph
+# 返回 Inputs 向量的长度（元素个数）
+# vtable 偏移量: 6
     def InputsLength(self):
+# VectorLen(o) 读取向量头部的长度字段
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # SubGraph
+# 读取 InputsIsNone 向量字段（标量 数组）
+# 子图输入张量在 Tensors 列表中的索引（int32 向量）
+# vtable 偏移量: 6
     def InputsIsNone(self):
+# Vector(o) 获取向量数据的起始偏移
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+# 通过索引 j * 元素字节大小 定位到第 j 个元素的位置
         return o == 0
+# 读取该位置的 标量 值
 
     # SubGraph
+# 读取 Outputs 向量字段（int32（有符号32位整数） 数组）
+# 子图输出张量在 Tensors 列表中的索引（int32 向量）
+# vtable 偏移量: 8
     def Outputs(self, j):
+# Vector(o) 获取向量数据的起始偏移
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+# 通过索引 j * 元素字节大小 定位到第 j 个元素的位置
         if o != 0:
+# 读取该位置的 int32（有符号32位整数） 值
             a = self._tab.Vector(o)
             return self._tab.Get(flatbuffers.number_types.Int32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
         return 0
 
     # SubGraph
+# 以 Numpy ndarray 形式返回 Outputs 向量的全部元素
+# vtable 偏移量: 8
     def OutputsAsNumpy(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
@@ -92,47 +195,82 @@ class SubGraph(object):
         return 0
 
     # SubGraph
+# 返回 Outputs 向量的长度（元素个数）
+# vtable 偏移量: 8
     def OutputsLength(self):
+# VectorLen(o) 读取向量头部的长度字段
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # SubGraph
+# 读取 OutputsIsNone 向量字段（标量 数组）
+# 子图输出张量在 Tensors 列表中的索引（int32 向量）
+# vtable 偏移量: 8
     def OutputsIsNone(self):
+# Vector(o) 获取向量数据的起始偏移
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+# 通过索引 j * 元素字节大小 定位到第 j 个元素的位置
         return o == 0
+# 读取该位置的 标量 值
 
     # SubGraph
+# 读取 Operators 向量字段（子表对象数组）
+# 子图中的算子列表（Operator 表），按执行顺序排列
+# vtable 偏移量: 10
     def Operators(self, j):
+# Vector(o) 获取向量数据的起始偏移
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+# 每个元素占 4 字节（uoffset 指针），加上 j 偏移指向第 j 个元素
         if o != 0:
+# Indirect 解引用到实际子表的起始位置
             x = self._tab.Vector(o)
+# 导入对应的子表类（延迟导入，避免循环依赖）
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
+# 创建子表对象并绑定到 buffer 中的对应位置
             x = self._tab.Indirect(x)
+# 初始化子表
             from .Operator import Operator
+# 返回子表对象
             obj = Operator()
+# 字段不存在时返回 None
             obj.Init(self._tab.Bytes, x)
             return obj
         return None
 
     # SubGraph
+# 返回 Operators 向量的长度（元素个数）
+# vtable 偏移量: 10
     def OperatorsLength(self):
+# VectorLen(o) 读取向量头部的长度字段
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # SubGraph
+# 读取 OperatorsIsNone 字段（字符串类型）
+# 子图中的算子列表（Operator 表），按执行顺序排列
+# vtable 偏移量: 10
     def OperatorsIsNone(self):
+# String(offset) 返回 buffer 中该偏移处的 UTF-8 字符串
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         return o == 0
+# return self._tab.String(...) = 读取字符串
 
+# 字段不存在时返回 None
     # SubGraph
+# 读取 Name 字段（字符串类型）
+# 子图名称（可选）
+# vtable 偏移量: 12
     def Name(self):
+# String(offset) 返回 buffer 中该偏移处的 UTF-8 字符串
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
+# return self._tab.String(...) = 读取字符串
             return self._tab.String(o + self._tab.Pos)
+# 字段不存在时返回 None
         return None
 
 def SubGraphStart(builder): builder.StartObject(5)

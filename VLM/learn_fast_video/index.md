@@ -1,6 +1,6 @@
 # FastVideo 源码学习笔记 · 总索引
 
-> 本笔记基于对 `/home/hpc/ghr_code/FastVideo` 的源码级解析（861 个 Python 文件 + 71 个 kernel 文件）。
+> 本笔记基于对 `/home/hpc/ghr_code/code/FastVideo` 的源码级解析（861 个 Python 文件 + 71 个 kernel 文件）。
 > 目标：从"能跑通"到"读懂源码实现"。所有结论尽量绑定到具体源码文件/类/函数。
 > 未完全确认处标注"待确认"，不臆造。
 
@@ -8,10 +8,11 @@
 
 ## 快速开始
 
-- 刚接触：先读 [`00_overview/00_project_overview.md`](00_overview/00_project_overview.md)。
-- 想跑通：[`00_overview/01_install_and_env.md`](00_overview/01_install_and_env.md) + [`06_practical_guides/00_minimal_inference_example.md`](06_practical_guides/00_minimal_inference_example.md)。
-- 系统学习：按 [`00_overview/02_learning_map.md`](00_overview/02_learning_map.md) 三阶段走。
-- 读源码：按 [`05_code_reading_notes/00_reading_order.md`](05_code_reading_notes/00_reading_order.md) 的文件优先级。
+- **跟计划学**：[`学习规划.md`](学习规划.md) — 每天 45 分钟 × 31 天，带重要性评级、配套笔记、面试题、工业实践。
+- **刚接触**：先读 [`00_overview/00_project_overview.md`](00_overview/00_project_overview.md)。
+- **想跑通**：[`00_overview/01_install_and_env.md`](00_overview/01_install_and_env.md) + [`06_practical_guides/00_minimal_inference_example.md`](06_practical_guides/00_minimal_inference_example.md)。
+- **读源码**：按 [`05_code_reading_notes/00_reading_order.md`](05_code_reading_notes/00_reading_order.md) 的文件优先级。
+- **复习面试**：[`学习规划.md` 附录 A](学习规划.md) — 19 道面试题 + 评分表。
 
 ---
 
@@ -121,13 +122,29 @@
 
 ```mermaid
 graph TD
-    A["00_overview 总览"] --> B["06/00 跑通最小推理"]
-    B --> C["03/00 完整推理链"]
-    C --> D["01 架构 + 02 逐目录"]
-    D --> E["04 知识点扩展"]
-    E --> F["05 读码笔记 + 优先级"]
-    F --> G["06 实践指南（改代码）"]
+    A["学习规划.md（日计划）"] --> B["00_overview 总览"]
+    B --> C["06/00 跑通最小推理"]
+    C --> D["03/00 完整推理链"]
+    D --> E["01 架构 + 02 逐目录"]
+    E --> F["04 知识点扩展"]
+    F --> G["05 读码笔记 + 优先级"]
+    G --> H["06 实践指南（改代码）"]
+    H --> I["附录 A 面试题（检验）"]
 ```
+
+## 知识领域速查
+
+| 想学的内容 | 优先看 |
+|-----------|--------|
+| 推理 Pipeline / 生成视频 | `03_core_flows/00-02`, `01_architecture/01`, 学习规划 Day 1-5 |
+| DiT Transformer 内部 | `02_source_by_directory/04a-04f`, `04_knowledge_expansion/01`, 学习规划 Day 6-7 |
+| VAE / Scheduler / TextEncoder | `03_core_flows/05-06`, `04_knowledge_expansion/02-04`, 学习规划 Day 7-8 |
+| 训练 / LoRA / 蒸馏 | `01_architecture/02`, `03_core_flows/08-09`, 学习规划 Day 11-16 |
+| 分布式推理 (SP/TP) | `01_architecture/03`, `02_source_by_directory/07`, 学习规划 Day 16b-20 |
+| Attention 后端 / CUDA Kernel | `02_source_by_directory/05+11`, `03_core_flows/07`, 学习规划 Day 9, 21-23 |
+| 量化 (FP8/FP4/INT8) | `layers/quantization/` 源码, `02_source_by_directory/11`, 学习规划 Day 23b |
+| 评估指标 | `02_source_by_directory/09`, `04_knowledge_expansion/15`, 学习规划 Day 19 |
+| 生产部署 / Dreamverse | `02_source_by_directory/12-13`, 学习规划 Day 28 |
 
 ## 源码阅读路线（三条主线）
 
@@ -147,6 +164,7 @@ graph TD
 
 ## 关于本笔记
 
-- 所有源码路径基于 `/home/hpc/ghr_code/FastVideo`。行号为解析时的近似位置，可能随版本变化，请以实际文件为准。
+- 所有源码路径基于 `/home/hpc/ghr_code/code/FastVideo`。行号为解析时的近似位置，可能随版本变化，请以实际文件为准。
 - 标注"待确认"的地方需结合官方文档（`hao-ai-lab.github.io/FastVideo`）或进一步读源码确认。
 - 笔记结构可长期维护：新读懂一处就补充对应 `.md`。
+- **学习计划**：[`学习规划.md`](学习规划.md) — 31 天 × 45 分钟，含配套笔记交叉引用、19 道面试题、工业落地 checklist、评分标准。

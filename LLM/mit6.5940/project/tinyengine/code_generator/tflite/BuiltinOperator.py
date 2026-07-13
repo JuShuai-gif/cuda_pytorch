@@ -2,136 +2,163 @@
 
 # namespace: tflite
 
-class BuiltinOperator(object):
-    ADD = 0
-    AVERAGE_POOL_2D = 1
-    CONCATENATION = 2
-    CONV_2D = 3
-    DEPTHWISE_CONV_2D = 4
-    DEPTH_TO_SPACE = 5
-    DEQUANTIZE = 6
-    EMBEDDING_LOOKUP = 7
-    FLOOR = 8
-    FULLY_CONNECTED = 9
-    HASHTABLE_LOOKUP = 10
-    L2_NORMALIZATION = 11
-    L2_POOL_2D = 12
-    LOCAL_RESPONSE_NORMALIZATION = 13
-    LOGISTIC = 14
-    LSH_PROJECTION = 15
-    LSTM = 16
-    MAX_POOL_2D = 17
-    MUL = 18
-    RELU = 19
-    RELU_N1_TO_1 = 20
-    RELU6 = 21
-    RESHAPE = 22
-    RESIZE_BILINEAR = 23
-    RNN = 24
-    SOFTMAX = 25
-    SPACE_TO_DEPTH = 26
-    SVDF = 27
-    TANH = 28
-    CONCAT_EMBEDDINGS = 29
-    SKIP_GRAM = 30
-    CALL = 31
-    CUSTOM = 32
-    EMBEDDING_LOOKUP_SPARSE = 33
-    PAD = 34
-    UNIDIRECTIONAL_SEQUENCE_RNN = 35
-    GATHER = 36
-    BATCH_TO_SPACE_ND = 37
-    SPACE_TO_BATCH_ND = 38
-    TRANSPOSE = 39
-    MEAN = 40
-    SUB = 41
-    DIV = 42
-    SQUEEZE = 43
-    UNIDIRECTIONAL_SEQUENCE_LSTM = 44
-    STRIDED_SLICE = 45
-    BIDIRECTIONAL_SEQUENCE_RNN = 46
-    EXP = 47
-    TOPK_V2 = 48
-    SPLIT = 49
-    LOG_SOFTMAX = 50
-    DELEGATE = 51
-    BIDIRECTIONAL_SEQUENCE_LSTM = 52
-    CAST = 53
-    PRELU = 54
-    MAXIMUM = 55
-    ARG_MAX = 56
-    MINIMUM = 57
-    LESS = 58
-    NEG = 59
-    PADV2 = 60
-    GREATER = 61
-    GREATER_EQUAL = 62
-    LESS_EQUAL = 63
-    SELECT = 64
-    SLICE = 65
-    SIN = 66
-    TRANSPOSE_CONV = 67
-    SPARSE_TO_DENSE = 68
-    TILE = 69
-    EXPAND_DIMS = 70
-    EQUAL = 71
-    NOT_EQUAL = 72
-    LOG = 73
-    SUM = 74
-    SQRT = 75
-    RSQRT = 76
-    SHAPE = 77
-    POW = 78
-    ARG_MIN = 79
-    FAKE_QUANT = 80
-    REDUCE_PROD = 81
-    REDUCE_MAX = 82
-    PACK = 83
-    LOGICAL_OR = 84
-    ONE_HOT = 85
-    LOGICAL_AND = 86
-    LOGICAL_NOT = 87
-    UNPACK = 88
-    REDUCE_MIN = 89
-    FLOOR_DIV = 90
-    REDUCE_ANY = 91
-    SQUARE = 92
-    ZEROS_LIKE = 93
-    FILL = 94
-    FLOOR_MOD = 95
-    RANGE = 96
-    RESIZE_NEAREST_NEIGHBOR = 97
-    LEAKY_RELU = 98
-    SQUARED_DIFFERENCE = 99
-    MIRROR_PAD = 100
-    ABS = 101
-    SPLIT_V = 102
-    UNIQUE = 103
-    CEIL = 104
-    REVERSE_V2 = 105
-    ADD_N = 106
-    GATHER_ND = 107
-    COS = 108
-    WHERE = 109
-    RANK = 110
-    ELU = 111
-    REVERSE_SEQUENCE = 112
-    MATRIX_DIAG = 113
-    QUANTIZE = 114
-    MATRIX_SET_DIAG = 115
-    ROUND = 116
-    HARD_SWISH = 117
-    IF = 118
-    WHILE = 119
-    NON_MAX_SUPPRESSION_V4 = 120
-    NON_MAX_SUPPRESSION_V5 = 121
-    SCATTER_ND = 122
-    SELECT_V2 = 123
-    DENSIFY = 124
-    SEGMENT_SUM = 125
-    BATCH_MATMUL = 126
-    PLACEHOLDER_FOR_GREATER_OP_CODES = 127
-    CUMSUM = 128
-    CALL_ONCE = 129
-    BROADCAST_TO = 130
+# 此文件由 FlatBuffers 编译器 (flatc) 根据 TFLite schema 自动生成，请勿手动修改。
+# 
+# FlatBuffers 设计原理
+# ═══════════════════
+# TFLite 使用 Google FlatBuffers 作为模型序列化格式。相比 Protocol Buffers：
+#   1. 零拷贝反序列化 — 无需解析即可直接读取二进制数据，CPU/内存开销极低
+#   2. 按需字段访问 — vtable（虚表）机制，只读取需要的字段，不浪费
+#   3. 紧凑二进制格式 — 文件体积小，适合 MCU 等资源受限设备
+# 
+# 文件结构
+# ════════
+# 本文件定义了 TFLite schema 中对应表的 Python 绑定类，包含：
+#   - 读取部分：GetRootAsXxx / Init / 各字段访问器方法
+#   - 写入部分：StartXxx / AddXxx / EndXxx 构建器函数（用于创建新的 FlatBuffer）
+# 
+# 字段访问模式
+# ══════════════
+# 每个访问器方法的实现遵循固定模式：
+#   o = Offset(vtable_slot)  ← 通过 vtable 查找字段在 buffer 中的偏移
+#   if o != 0:               ← o==0 表示字段未设置（该字段在模型中不存在）
+#     return ReadData(o)     ← 从 buffer 的偏移位置读取数据
+#   return default_value     ← 字段不存在时返回默认值
+# 
+# 此包被 TfliteConvertor.py 在编译管线中调用，将 .tflite 模型文件解析为 TinyEngine IR。
 
+# BuiltinOperator 枚举类
+# 所有 TFLite 标准算子的整数编码。TfliteConvertor 通过 getOpCodeStr() 读取 OperatorCode.BuiltinCode 获取此值，然后分发到相应的 Parser 函数
+
+class BuiltinOperator(object):
+    ADD = 0  # ADD=0 — 逐元素加法（0）
+    AVERAGE_POOL_2D = 1  # AVERAGE_POOL_2D=1 — 2D 平均池化（1）
+    CONCATENATION = 2  # CONCATENATION=2 — 张量拼接（2）
+    CONV_2D = 3  # CONV_2D=3 — 2D 卷积（3）
+    DEPTHWISE_CONV_2D = 4  # DEPTHWISE_CONV_2D=4 — 深度可分离卷积（4）- MCUNet 核心算子
+    DEPTH_TO_SPACE = 5  # DEPTH_TO_SPACE=5
+    DEQUANTIZE = 6  # DEQUANTIZE=6
+    EMBEDDING_LOOKUP = 7  # EMBEDDING_LOOKUP=7
+    FLOOR = 8  # FLOOR=8
+    FULLY_CONNECTED = 9  # FULLY_CONNECTED=9 — 全连接层（9）
+    HASHTABLE_LOOKUP = 10  # HASHTABLE_LOOKUP=10
+    L2_NORMALIZATION = 11  # L2_NORMALIZATION=11
+    L2_POOL_2D = 12  # L2_POOL_2D=12
+    LOCAL_RESPONSE_NORMALIZATION = 13  # LOCAL_RESPONSE_NORMALIZATION=13
+    LOGISTIC = 14  # LOGISTIC=14
+    LSH_PROJECTION = 15  # LSH_PROJECTION=15
+    LSTM = 16  # LSTM=16
+    MAX_POOL_2D = 17  # MAX_POOL_2D=17 — 2D 最大池化（17）
+    MUL = 18  # MUL=18 — 逐元素乘法（18）
+    RELU = 19  # RELU=19
+    RELU_N1_TO_1 = 20  # RELU_N1_TO_1=20
+    RELU6 = 21  # RELU6=21
+    RESHAPE = 22  # RESHAPE=22 — 形状变换（22）- TinyEngine 跳过的算子之一
+    RESIZE_BILINEAR = 23  # RESIZE_BILINEAR=23
+    RNN = 24  # RNN=24
+    SOFTMAX = 25  # SOFTMAX=25 — Softmax（25）
+    SPACE_TO_DEPTH = 26  # SPACE_TO_DEPTH=26
+    SVDF = 27  # SVDF=27
+    TANH = 28  # TANH=28
+    CONCAT_EMBEDDINGS = 29  # CONCAT_EMBEDDINGS=29
+    SKIP_GRAM = 30  # SKIP_GRAM=30
+    CALL = 31  # CALL=31
+    CUSTOM = 32  # CUSTOM=32 — 自定义算子（32）- 用户自定义操作的入口
+    EMBEDDING_LOOKUP_SPARSE = 33  # EMBEDDING_LOOKUP_SPARSE=33
+    PAD = 34  # PAD=34 — 填充（34）- TinyEngine 将其融合到 Conv 中
+    UNIDIRECTIONAL_SEQUENCE_RNN = 35  # UNIDIRECTIONAL_SEQUENCE_RNN=35
+    GATHER = 36  # GATHER=36
+    BATCH_TO_SPACE_ND = 37  # BATCH_TO_SPACE_ND=37
+    SPACE_TO_BATCH_ND = 38  # SPACE_TO_BATCH_ND=38
+    TRANSPOSE = 39  # TRANSPOSE=39 — 转置（39）- TinyEngine 尝试消除
+    MEAN = 40  # MEAN=40 — 均值归约（40）- TinyEngine 将连续 1D MEAN 合并为 2D MEAN
+    SUB = 41  # SUB=41
+    DIV = 42  # DIV=42
+    SQUEEZE = 43  # SQUEEZE=43
+    UNIDIRECTIONAL_SEQUENCE_LSTM = 44  # UNIDIRECTIONAL_SEQUENCE_LSTM=44
+    STRIDED_SLICE = 45  # STRIDED_SLICE=45
+    BIDIRECTIONAL_SEQUENCE_RNN = 46  # BIDIRECTIONAL_SEQUENCE_RNN=46
+    EXP = 47  # EXP=47
+    TOPK_V2 = 48  # TOPK_V2=48
+    SPLIT = 49  # SPLIT=49
+    LOG_SOFTMAX = 50  # LOG_SOFTMAX=50
+    DELEGATE = 51  # DELEGATE=51
+    BIDIRECTIONAL_SEQUENCE_LSTM = 52  # BIDIRECTIONAL_SEQUENCE_LSTM=52
+    CAST = 53  # CAST=53
+    PRELU = 54  # PRELU=54
+    MAXIMUM = 55  # MAXIMUM=55
+    ARG_MAX = 56  # ARG_MAX=56
+    MINIMUM = 57  # MINIMUM=57
+    LESS = 58  # LESS=58
+    NEG = 59  # NEG=59
+    PADV2 = 60  # PADV2=60
+    GREATER = 61  # GREATER=61
+    GREATER_EQUAL = 62  # GREATER_EQUAL=62
+    LESS_EQUAL = 63  # LESS_EQUAL=63
+    SELECT = 64  # SELECT=64
+    SLICE = 65  # SLICE=65
+    SIN = 66  # SIN=66
+    TRANSPOSE_CONV = 67  # TRANSPOSE_CONV=67 — 转置卷积/反卷积（67）
+    SPARSE_TO_DENSE = 68  # SPARSE_TO_DENSE=68
+    TILE = 69  # TILE=69
+    EXPAND_DIMS = 70  # EXPAND_DIMS=70
+    EQUAL = 71  # EQUAL=71
+    NOT_EQUAL = 72  # NOT_EQUAL=72
+    LOG = 73  # LOG=73
+    SUM = 74  # SUM=74
+    SQRT = 75  # SQRT=75
+    RSQRT = 76  # RSQRT=76
+    SHAPE = 77  # SHAPE=77
+    POW = 78  # POW=78
+    ARG_MIN = 79  # ARG_MIN=79
+    FAKE_QUANT = 80  # FAKE_QUANT=80
+    REDUCE_PROD = 81  # REDUCE_PROD=81
+    REDUCE_MAX = 82  # REDUCE_MAX=82
+    PACK = 83  # PACK=83
+    LOGICAL_OR = 84  # LOGICAL_OR=84
+    ONE_HOT = 85  # ONE_HOT=85
+    LOGICAL_AND = 86  # LOGICAL_AND=86
+    LOGICAL_NOT = 87  # LOGICAL_NOT=87
+    UNPACK = 88  # UNPACK=88
+    REDUCE_MIN = 89  # REDUCE_MIN=89
+    FLOOR_DIV = 90  # FLOOR_DIV=90
+    REDUCE_ANY = 91  # REDUCE_ANY=91
+    SQUARE = 92  # SQUARE=92
+    ZEROS_LIKE = 93  # ZEROS_LIKE=93
+    FILL = 94  # FILL=94
+    FLOOR_MOD = 95  # FLOOR_MOD=95
+    RANGE = 96  # RANGE=96
+    RESIZE_NEAREST_NEIGHBOR = 97  # RESIZE_NEAREST_NEIGHBOR=97
+    LEAKY_RELU = 98  # LEAKY_RELU=98
+    SQUARED_DIFFERENCE = 99  # SQUARED_DIFFERENCE=99
+    MIRROR_PAD = 100  # MIRROR_PAD=100
+    ABS = 101  # ABS=101
+    SPLIT_V = 102  # SPLIT_V=102
+    UNIQUE = 103  # UNIQUE=103
+    CEIL = 104  # CEIL=104
+    REVERSE_V2 = 105  # REVERSE_V2=105
+    ADD_N = 106  # ADD_N=106
+    GATHER_ND = 107  # GATHER_ND=107
+    COS = 108  # COS=108
+    WHERE = 109  # WHERE=109
+    RANK = 110  # RANK=110
+    ELU = 111  # ELU=111
+    REVERSE_SEQUENCE = 112  # REVERSE_SEQUENCE=112
+    MATRIX_DIAG = 113  # MATRIX_DIAG=113
+    QUANTIZE = 114  # QUANTIZE=114
+    MATRIX_SET_DIAG = 115  # MATRIX_SET_DIAG=115
+    ROUND = 116  # ROUND=116
+    HARD_SWISH = 117  # HARD_SWISH=117
+    IF = 118  # IF=118
+    WHILE = 119  # WHILE=119
+    NON_MAX_SUPPRESSION_V4 = 120  # NON_MAX_SUPPRESSION_V4=120
+    NON_MAX_SUPPRESSION_V5 = 121  # NON_MAX_SUPPRESSION_V5=121
+    SCATTER_ND = 122  # SCATTER_ND=122
+    SELECT_V2 = 123  # SELECT_V2=123
+    DENSIFY = 124  # DENSIFY=124
+    SEGMENT_SUM = 125  # SEGMENT_SUM=125
+    BATCH_MATMUL = 126  # BATCH_MATMUL=126
+    PLACEHOLDER_FOR_GREATER_OP_CODES = 127  # PLACEHOLDER_FOR_GREATER_OP_CODES=127
+    CUMSUM = 128  # CUMSUM=128
+    CALL_ONCE = 129  # CALL_ONCE=129
+    BROADCAST_TO = 130  # BROADCAST_TO=130

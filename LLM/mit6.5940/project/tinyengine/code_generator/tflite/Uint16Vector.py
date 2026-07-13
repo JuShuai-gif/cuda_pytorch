@@ -2,10 +2,40 @@
 
 # namespace: tflite
 
+# 此文件由 FlatBuffers 编译器 (flatc) 根据 TFLite schema 自动生成，请勿手动修改。
+# 
+# FlatBuffers 设计原理
+# ═══════════════════
+# TFLite 使用 Google FlatBuffers 作为模型序列化格式。相比 Protocol Buffers：
+#   1. 零拷贝反序列化 — 无需解析即可直接读取二进制数据，CPU/内存开销极低
+#   2. 按需字段访问 — vtable（虚表）机制，只读取需要的字段，不浪费
+#   3. 紧凑二进制格式 — 文件体积小，适合 MCU 等资源受限设备
+# 
+# 文件结构
+# ════════
+# 本文件定义了 TFLite schema 中对应表的 Python 绑定类，包含：
+#   - 读取部分：GetRootAsXxx / Init / 各字段访问器方法
+#   - 写入部分：StartXxx / AddXxx / EndXxx 构建器函数（用于创建新的 FlatBuffer）
+# 
+# 字段访问模式
+# ══════════════
+# 每个访问器方法的实现遵循固定模式：
+#   o = Offset(vtable_slot)  ← 通过 vtable 查找字段在 buffer 中的偏移
+#   if o != 0:               ← o==0 表示字段未设置（该字段在模型中不存在）
+#     return ReadData(o)     ← 从 buffer 的偏移位置读取数据
+#   return default_value     ← 字段不存在时返回默认值
+# 
+# 此包被 TfliteConvertor.py 在编译管线中调用，将 .tflite 模型文件解析为 TinyEngine IR。
+
+# ============================================================
+# Uint16Vector — FlatBuffer uint16 向量辅助包装类
+# ============================================================
+
 import flatbuffers
 from flatbuffers.compat import import_numpy
 np = import_numpy()
 
+# FlatBuffer 向量包装类，提供对 Uint16Vector 类型向量数据的访问
 class Uint16Vector(object):
     __slots__ = ['_tab']
 
@@ -21,10 +51,12 @@ class Uint16Vector(object):
         return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x54\x46\x4C\x33", size_prefixed=size_prefixed)
 
     # Uint16Vector
+# 初始化向量访问器
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
     # Uint16Vector
+# 向量字段 Values
     def Values(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
@@ -33,6 +65,7 @@ class Uint16Vector(object):
         return 0
 
     # Uint16Vector
+# 向量字段 ValuesAsNumpy
     def ValuesAsNumpy(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
@@ -40,6 +73,7 @@ class Uint16Vector(object):
         return 0
 
     # Uint16Vector
+# 向量字段 ValuesLength
     def ValuesLength(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
@@ -47,6 +81,7 @@ class Uint16Vector(object):
         return 0
 
     # Uint16Vector
+# 向量字段 ValuesIsNone
     def ValuesIsNone(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         return o == 0

@@ -2,37 +2,103 @@
 
 # namespace: tflite
 
+# 此文件由 FlatBuffers 编译器 (flatc) 根据 TFLite schema 自动生成，请勿手动修改。
+# 
+# FlatBuffers 设计原理
+# ═══════════════════
+# TFLite 使用 Google FlatBuffers 作为模型序列化格式。相比 Protocol Buffers：
+#   1. 零拷贝反序列化 — 无需解析即可直接读取二进制数据，CPU/内存开销极低
+#   2. 按需字段访问 — vtable（虚表）机制，只读取需要的字段，不浪费
+#   3. 紧凑二进制格式 — 文件体积小，适合 MCU 等资源受限设备
+# 
+# 文件结构
+# ════════
+# 本文件定义了 TFLite schema 中对应表的 Python 绑定类，包含：
+#   - 读取部分：GetRootAsXxx / Init / 各字段访问器方法
+#   - 写入部分：StartXxx / AddXxx / EndXxx 构建器函数（用于创建新的 FlatBuffer）
+# 
+# 字段访问模式
+# ══════════════
+# 每个访问器方法的实现遵循固定模式：
+#   o = Offset(vtable_slot)  ← 通过 vtable 查找字段在 buffer 中的偏移
+#   if o != 0:               ← o==0 表示字段未设置（该字段在模型中不存在）
+#     return ReadData(o)     ← 从 buffer 的偏移位置读取数据
+#   return default_value     ← 字段不存在时返回默认值
+# 
+# 此包被 TfliteConvertor.py 在编译管线中调用，将 .tflite 模型文件解析为 TinyEngine IR。
+
+# ============================================================
+# CustomQuantization — 自定义量化参数（QuantizationParameters.Details 的联合体选项）
+# ============================================================
+
 import flatbuffers
 from flatbuffers.compat import import_numpy
 np = import_numpy()
 
 class CustomQuantization(object):
+# _tab 是 FlatBuffers Table 访问器，保存了该表在二进制 buffer 中的位置引用
+# 所有字段访问都通过 self._tab 进行 vtable 查找
     __slots__ = ['_tab']
 
+# ============================================================
+# FlatBuffer 根节点解析入口
+# 从内存中的 FlatBuffer 二进制数据中解析出 CustomQuantization 表
+# 调用方式: obj = CustomQuantization.GetRootAsCustomQuantization(buf, offset)
+#   - buf: bytes 类型，整个 FlatBuffer 二进制数据
+#   - offset: 起始偏移量（通常为 0）
+# TfliteConvertor.loadTFmodel() 通过 CustomQuantization.GetRootAsCustomQuantization(buf, 0) 调用
+# ============================================================
     @classmethod
+# 读取 uoffset（无符号偏移）值，这是 FlatBuffer 根表的起始位置
     def GetRootAsCustomQuantization(cls, buf, offset):
+# 从 buffer 中编码的 uoffset 偏移处开始解析根对象
         n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+# 创建表对象实例并初始化
         x = CustomQuantization()
+# Init 将 x._tab 绑定到 buffer 中的实际数据位置
         x.Init(buf, n + offset)
+# 返回解析后的对象
         return x
 
+# ------------------------------------------------------------
+# 检查 buffer 是否包含有效的 TFLite 文件标识符
+# 'TFL3' 魔术字 (0x54 0x46 0x4C 0x33) 是 TFLite 文件的签名
+# 用于验证文件是否为有效的 FlatBuffer TFLite 模型
+# ------------------------------------------------------------
     @classmethod
     def CustomQuantizationBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+# flatbuffers.util.BufferHasIdentifier 内部实现二进制签名比对
         return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x54\x46\x4C\x33", size_prefixed=size_prefixed)
 
     # CustomQuantization
+# ------------------------------------------------------------
+# 初始化 CustomQuantization 表对象
+# self._tab 是 flatbuffers.table.Table 实例，封装了对 FlatBuffer 二进制数据的访问
+# buf: 完整的 FlatBuffer 二进制数据（bytes）
+# pos: 该表在 buf 中的起始位置偏移
+# 所有后续的字段访问器方法都通过 self._tab 进行 vtable 查找
+# ------------------------------------------------------------
     def Init(self, buf, pos):
+# 将 Table 访问器绑定到 buf 的 pos 位置
         self._tab = flatbuffers.table.Table(buf, pos)
 
     # CustomQuantization
+# 读取 Custom 向量字段（uint8（无符号8位整数） 数组）
+# 自定义量化参数字节数组
+# vtable 偏移量: 4
     def Custom(self, j):
+# Vector(o) 获取向量数据的起始偏移
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+# 通过索引 j * 元素字节大小 定位到第 j 个元素的位置
         if o != 0:
+# 读取该位置的 uint8（无符号8位整数） 值
             a = self._tab.Vector(o)
             return self._tab.Get(flatbuffers.number_types.Uint8Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
         return 0
 
     # CustomQuantization
+# 以 Numpy ndarray 形式返回 Custom 向量的全部元素
+# vtable 偏移量: 4
     def CustomAsNumpy(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
@@ -40,16 +106,25 @@ class CustomQuantization(object):
         return 0
 
     # CustomQuantization
+# 返回 Custom 向量的长度（元素个数）
+# vtable 偏移量: 4
     def CustomLength(self):
+# VectorLen(o) 读取向量头部的长度字段
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # CustomQuantization
+# 读取 CustomIsNone 向量字段（标量 数组）
+# 自定义量化参数字节数组
+# vtable 偏移量: 4
     def CustomIsNone(self):
+# Vector(o) 获取向量数据的起始偏移
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+# 通过索引 j * 元素字节大小 定位到第 j 个元素的位置
         return o == 0
+# 读取该位置的 标量 值
 
 def CustomQuantizationStart(builder): builder.StartObject(1)
 def CustomQuantizationAddCustom(builder, custom): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(custom), 0)

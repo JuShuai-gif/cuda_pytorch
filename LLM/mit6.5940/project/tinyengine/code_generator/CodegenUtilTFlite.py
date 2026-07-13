@@ -19,6 +19,7 @@
 import os
 from tempfile import TemporaryDirectory
 
+# 导入自定义模块：代码生成器、内存调度器、TFLite 转换器
 from .CodeGenerator import CodeGenerator
 from .GeneralMemoryScheduler import GeneralMemoryScheduler
 from .TfliteConvertor import TfliteConvertor
@@ -28,19 +29,30 @@ def GenerateSourceFilesFromTFlite(
     tflite_path,
     life_cycle_path=None,
 ):
-    use_inplace = True
+    """
+    从 TFLite 模型文件生成 C 源码文件（模型推理代码）
 
+    参数:
+        tflite_path: TFLite 模型文件路径
+        life_cycle_path: 内存生命周期图的保存路径，为 None 时使用临时目录
+    """
+    use_inplace = True  # 是否启用原地内存复用（in-place memory sharing）
+
+    # 使用临时目录存放中间文件，退出时自动清理
     with TemporaryDirectory() as WORKING_DIR:
         if life_cycle_path is None:
+            # 未指定路径时，生命周期图保存到临时目录
             schedule_image_path = os.path.join(WORKING_DIR, "schedule.png")
         else:
             schedule_image_path = life_cycle_path
 
+        # Step 1: 解析 TFLite 模型，提取算子信息
         tf_convertor = TfliteConvertor(tflite_path)
         tf_convertor.parseOperatorInfo()
         layer = tf_convertor.layer
         outTable = []
-        VisaulizeTrainable = False  # disable for code gen
+        VisaulizeTrainable = False  # 代码生成阶段禁用可视化训练模式
+        # Step 2: 创建内存调度器，规划激活值的运行时内存布局
         memory_scheduler = GeneralMemoryScheduler(
             layer,
             False,
@@ -51,22 +63,25 @@ def GenerateSourceFilesFromTFlite(
             VisaulizeTrainable=VisaulizeTrainable,
         )
         memory_scheduler.USE_INPLACE = use_inplace
-        memory_scheduler.allocateMemory()
+        memory_scheduler.allocateMemory()  # 执行内存分配 / 调度算法
 
+        # 获取转换器中的输出表（算子参数信息）
         outTable = tf_convertor.outputTables if hasattr(tf_convertor, "outputTables") else []
+        # Step 3: 创建代码生成器，生成模型推理的 C 代码
         code_generator = CodeGenerator(
             memsche=memory_scheduler,
             inplace=memory_scheduler.USE_INPLACE,
-            unsigned_input=False,
-            patch_params=None,
-            FP_output=False,
-            profile_mode=False,
-            fp_requantize=True,
-            tflite_op=False,
-            dummy_address=False,
+            unsigned_input=False,   # 输入数据不使用无符号类型
+            patch_params=None,      # patch-based 推理参数（MCUNetV2）
+            FP_output=False,        # 输出不需要浮点
+            profile_mode=False,     # 非性能分析模式
+            fp_requantize=True,     # 启用浮点反量化
+            tflite_op=False,        # 不使用 TFLite 算子模拟
+            dummy_address=False,    # 不使用虚假地址
             outputTables=outTable,
         )
-        # set detection outputs before codegen if any
+        # 代码生成前设置检测输出（如有）
         code_generator.codeGeneration()
 
+        # 返回输入/输出缓冲区的指针信息
         return memory_scheduler.buffers["input_output"]
