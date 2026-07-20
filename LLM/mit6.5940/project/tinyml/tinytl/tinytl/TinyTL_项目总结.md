@@ -4,6 +4,43 @@
 
 `tinytl/tinytl/` 是 TinyTL 的 **Python 核心子包**，提供网络构建（`model/`）、数据加载（`data_providers/`）、训练控制工具（`utils/`）三大模块，被上层训练脚本 `tinytl_fgvc_train.py` 调用。
 
+## 为什么需要端侧训练
+
+标准做法是在服务器/台式机上用大量数据训练好模型，然后部署到端侧推理。但以下场景需要**端侧直接进行迁移学习**：
+
+1. **隐私**：用户照片、语音、健康数据不出设备，本地训练避免数据上传
+2. **个性化**：预训练大模型是通用的，用少量个人数据在端侧微调能大幅提升效果（键盘输入习惯、语音指令偏好）
+3. **网络延迟/离线**：需要持续适应个人行为的场景（如输入法纠错），不能等云端反馈
+
+## MCU vs 移动端：TinyTL 实际部署流水线
+
+TinyTL **不在 MCU 上跑 Python 训练**（MCU 通常只有 256KB SRAM，连 Python 解释器都跑不了）。部署分两层：
+
+```
+移动端（手机/平板/树莓派）          MCU（STM32/ARM Cortex-M）
+├── 跑 TinyTL Python 代码           ├── 跑 MCUNet 编译出的 C 代码
+├── 主干网络冻结                    ├── 仅推理，不训练
+├── 只有旁路分支需要训练内存          ├── 模型经量化/剪枝后体积极小
+└── 微调完成后导出模型               └── 从移动端接收微调后的模型
+```
+
+即：**TinyTL (PyTorch) 在手机上做个性化微调 → 训练结果经 MCUNet 编译为 C 代码 → 部署到 MCU 上推理**。论文中的"端侧"指移动端。
+
+## 为什么端侧训练内存能压到这么低
+
+标准微调（更新全部参数）需要同时存储：
+- 所有权重的梯度（`param.numel() × 4 bytes`）
+- 所有中间激活（前向输入输出，用于反向传播计算梯度）
+- 优化器状态（SGD 动量 / Adam 的 m/v，通常是参数量的 1-2 倍）
+
+这三者加起来往往是模型本身的 **3-4 倍**，端侧根本装不下。
+
+TinyTL 的解：
+- **主干冻结** → 不需要存主干权重的梯度，也不需要存主干的中间激活（没有反向传播经过主干）
+- **旁路极轻** → 只有一个 depthwise Conv + 一个 1×1 Conv + BN，参数量不到主干的 1%
+- **Pooling 下采样** → 旁路输入先缩小（默认 2×），中间激活体积进一步减半
+- **量化冻结参数** → 冻结的 Conv/Linear 权重可压缩到 INT8（`weight_quantization` 函数），进一步节省内存
+
 ## 目录结构
 
 ```
@@ -52,6 +89,24 @@ from .network import *
 | `LiteResidualModule.build_from_config()` | 静态方法 | 从序列化配置字典重建 `LiteResidualModule` 实例。                                                                                                                                                  |
 | `LiteResidualModule.has_lite_residual_module()` | 静态方法 | 检测网络中是否已插入过 LiteResidual 模块（防止重复插入）。                                                                                                                                        |
 | `ReducedMBConvLayer`       | 模块类   | 简化版 MBConv：expand depthwise Conv（+ 可选 SE）→ 1×1 reduce Conv。两步完成，比标准 MBConv（expand → depthwise → SE → project）更轻量但表达能力足够。                                             |
+
+**LiteResidual 设计原理**：
+
+TinyTL 不对主干网络做任何修改——主干权重保持冻结，反向传播不会经过主干。而是在每一层 MBConv 的**输入侧**添加一个极轻的可训练旁路分支，与主干的输出做残差相加。
+
+```
+x ──┬── main_branch (冻结 MBConv，反向不经过) ──→ main_x ──┐
+    │                                                        ├──→ main_x + lite_x
+    └── lite_residual (可训练，只有这里反向)                   │
+         ├── AvgPool2d(2)      ← 空间压缩，省后续计算           │
+         ├── DepthwiseConv     ← 空间特征，参数量极少            │
+         ├── BN + ReLU                                        │
+         ├── 1×1 Conv           ← 通道投影，唯一密集参数          │
+         ├── final_bn (weight=0) ← 初始化为零，训练初输出=0      │
+         └── Upsample(bilinear) ← 恢复空间尺寸，与 main_x 对齐 ──┘
+```
+
+`final_bn.weight` 初始化为零是关键技巧：训练初期旁路输出 = 0，网络输出完全由冻结的主干决定，残差分支从零逐渐学习新任务的特征。这样做避免了随机初始化的旁路在训练起步时扰乱主干已经学好的特征表示。
 
 **LiteResidualModule 前向数据流**：
 ```
