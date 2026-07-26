@@ -1,0 +1,2 @@
+# torch.compile 中间产物目录 — 每次运行自动生成
+_compile_artifacts/
