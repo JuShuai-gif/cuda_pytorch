@@ -106,15 +106,21 @@ def demo_mini_graph():
             return f"MiniNode({self.name!r}, op={self.op!r}, args=({args_str}))"
 
     # ── MiniGraph ──
+    # FX Graph 的精简实现，核心是一张节点有序链表 + users 反向索引
     class MiniGraph:
         def __init__(self):
+            # _root 是哨兵节点（sentinel），不参与计算，仅标记链表首尾
+            # 通过双向循环链表维护节点的拓扑顺序
             self._root = MiniNode(self, "__root__", "root", None, ())
-            self._root._next = self._root
+            self._root._next = self._root  # root 指向自身 = 空链表
             self._root._prev = self._root
+            # 自动命名计数器: 避免同名节点，如 relu → relu_1 → relu_2
             self._name_counter = {}
+            # 按插入顺序记录所有节点，便于遍历打印
             self.nodes = []
 
         def _unique_name(self, base):
+            """节点去重命名: 第一个叫 relu，第二个叫 relu_1，第三个叫 relu_2"""
             if base not in self._name_counter:
                 self._name_counter[base] = 0
                 return base
@@ -122,44 +128,57 @@ def demo_mini_graph():
             return f"{base}_{self._name_counter[base]}"
 
         def _insert(self, node):
+            """将节点插入到链表末尾（root 之前），同时维护 users 反向索引"""
+            # 双向循环链表: 新节点插在 tail 和 root 之间
             tail = self._root._prev
             tail._next = node
             node._prev = tail
             node._next = self._root
             self._root._prev = node
+            # 加入线性列表，保持插入顺序
             self.nodes.append(node)
+            # 维护 users: 如果输入参数是另一个节点，记录"谁依赖我"
             for a in node.args:
                 if isinstance(a, MiniNode):
-                    a.users[node] = None
+                    a.users[node] = None  # dict 仅用 key 做集合
             return node
 
         def create_node(self, op, target, args, name=None):
+            """通用节点工厂: 自动命名 + 插入链表"""
+            # 自动命名: 优先用 target 的名字，字符串直接当名字用
             name = name or self._unique_name(
                 target if isinstance(target, str) else target.__name__
             )
             return self._insert(MiniNode(self, name, op, target, args))
 
         def placeholder(self, name="x"):
+            """输入占位节点: 无输入参数，代表函数的输入"""
             return self.create_node("placeholder", name, ())
 
         def call_module(self, mod, *args):
+            """模块调用节点: self.linear(x) → call_module，图里保存模块引用"""
             return self.create_node("call_module", mod, args)
 
         def call_function(self, fn, *args):
+            """函数调用节点: torch.relu(x) → call_function，图里保存函数指针"""
             return self.create_node("call_function", fn, args)
 
         def output(self, result):
+            """输出节点: 标记图的最终返回值"""
             return self.create_node("output", "output", (result,))
 
         def print_me(self):
+            """可视化: 打印节点表格 + 数据流链路"""
             print(f"\n  {'op':<16} {'name':<12} {'target':<20} inputs")
             print(f"  {'-' * 60}")
             for n in self.nodes:
+                # target 可能是字符串/函数/模块，统一转显示名
                 t = (
                     n.target.__name__
                     if hasattr(n.target, "__name__")
                     else str(n.target)
                 )
+                # 输入参数中，节点显示名字，常量显示值
                 args = ", ".join(
                     a.name if isinstance(a, MiniNode) else str(a) for a in n.args
                 )

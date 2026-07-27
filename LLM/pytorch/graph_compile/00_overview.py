@@ -87,6 +87,14 @@ def demo_evolution():
     print("\n阶段 2: FX (PyTorch 1.8, 2021)")
     print(f"  图是 Python 对象，{len(list(traced.graph.nodes))} 个节点，可读可改写")
     traced.graph.print_tabular()
+    # FX 图 4 种 op 类型:
+    #   placeholder    = 函数输入 (x)
+    #   call_module    = self.xxx(...), 有 nn.Module 包装, 图里保存模块引用
+    #   call_function  = torch.relu(...), 纯函数, 无参数无状态
+    #   output         = 返回值
+    # self.linear = nn.Linear(...) → call_module, 有 weight/bias 可学习参数
+    # torch.relu 没有 nn.Module 包装 → call_function
+    # 若写成 self.relu = nn.ReLU(); y = self.relu(y), relu 也是 call_module
 
     # 阶段 3: torch.compile
     compiled = torch.compile(Tiny(), backend="inductor")
