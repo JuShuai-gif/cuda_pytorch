@@ -41,6 +41,12 @@ def demo_basic_trace():
             y = torch.abs(y)
             return y + 2.0
 
+    # gm 是什么?
+    #   GraphModule = 一张图 + 一个可执行的 nn.Module.
+    #   抓图方式: 给 forward() 喂 Proxy 假输入跑一遍,
+    #   每执行一步操作(self.linear, torch.relu, ...)就记录一个 Node.
+    #   跑完后 gm 内部装着一张 FX Graph, gm(x) 能直接执行推理.
+    #   类比: 让人走迷宫时在身后撒面包屑, 走完面包屑就是路径图.
     gm = torch.fx.symbolic_trace(Model())
 
     print("=" * 60)
@@ -90,14 +96,16 @@ def demo_mini_graph():
     # ── MiniNode ──
     class MiniNode:
         def __init__(self, graph, name, op, target, args):
-            self.graph = graph
-            self.name = name
-            self.op = op
-            self.target = target
-            self.args = tuple(args) if args else ()
-            self.users: dict["MiniNode", None] = {}
-            self._prev = None
-            self._next = None
+            self.graph = graph  # 所属图, 反向引用
+            self.name = name  # 节点名, 如 "relu", "linear", "x"
+            self.op = op  # 操作类型: placeholder / call_module / call_function / output
+            self.target = target  # 被调用的对象: nn.Module 实例 / 函数 / None
+            self.args = (
+                tuple(args) if args else ()
+            )  # 输入节点列表, 即图的边(数据从 args 流向本节点)
+            self.users: dict["MiniNode", None] = {}  # 下游节点集合: 谁把本节点当输入
+            self._prev = None  # 双向链表前驱, 维护拓扑顺序
+            self._next = None  # 双向链表后继, 维护拓扑顺序
 
         def __repr__(self):
             args_str = ", ".join(

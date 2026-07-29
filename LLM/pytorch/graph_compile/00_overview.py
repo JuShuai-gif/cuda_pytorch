@@ -95,12 +95,25 @@ def demo_evolution():
     # self.linear = nn.Linear(...) → call_module, 有 weight/bias 可学习参数
     # torch.relu 没有 nn.Module 包装 → call_function
     # 若写成 self.relu = nn.ReLU(); y = self.relu(y), relu 也是 call_module
+    #
+    # symbolic_trace 抓图方式: 静态分析 Python 源代码 (AST 级别)
+    #   局限: 不支持动态控制流 (如 if x.shape[0] > 2: ...)
+    #   Dynamo 通过字节码级 tracing (PEP 523 frame 拦截) 解决了这个问题,
+    #   遇到动态分支会用 guard 回退到 eager, 覆盖面更广.
+    #   两者输出的都是 torch.fx.GraphModule, FX 是共同的 IR.
 
     # 阶段 3: torch.compile
     compiled = torch.compile(Tiny(), backend="inductor")
     compiled(x)
     print("\n阶段 3: torch.compile = Dynamo + Inductor (PyTorch 2.0, 2023)")
     print("  Dynamo 抓图 → Inductor 融合 → Triton/C++ kernel")
+    # Dynamo 抓到的图本质上还是 FX Graph (torch.fx.GraphModule).
+    # 与 symbolic_trace 的关键区别:
+    #   symbolic_trace: 读 Python 源码 → AST → 静态推导图
+    #   Dynamo:        截获 CPython 字节码执行 → 运行时记录图
+    # Inductor 拿到 FX Graph 后做 lowering + fusion + codegen,
+    # 最终生成 Triton/C++ kernel. 所以 torch.compile pipeline 中
+    # FX 依然是核心 IR.
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -142,6 +155,61 @@ def demo_pipeline():
 
     c = torch.compile(fn, backend=show)
     c(torch.randn(100).cuda())
+
+
+# ═══════════════════════════════════════════════════════════════
+# 4. Dynamo 源码级调用链: torch.compile → PEP 523 → FX Graph
+# ═══════════════════════════════════════════════════════════════
+#
+# torch.compile(fn)
+#   └─ _TorchDynamoContext.__call__()            # eval_frame.py:783
+#        └─ 返回 compile_wrapper，内部注册 PEP 523 帧回调
+#
+# compile_wrapper(*args)
+#   └─ set_eval_frame(callback)                  # eval_frame.py:950, PEP 523 hook
+#        └─ fn(*args, **kwargs)                  # 触发 CPython 帧执行
+#             └─ callback(frame) 被调用
+#                  └─ ConvertFrame.__call__()    # convert_frame.py:1914
+#                       └─ _compile()            # convert_frame.py:1390
+#                            ├─ InstructionTranslator(code, ...)  # 创建
+#                            └─ tracer.run()                      # 执行
+#
+# InstructionTranslator.run()                   # symbolic_convert.py:1647
+#   └─ while self.step(): ...                   # 逐字节码指令循环
+#        └─ self.dispatch_table[opcode](self, inst)  # :1334, 按 opcode 分发
+#             ├─ LOAD_FAST     → 读局部变量
+#             ├─ CALL_FUNCTION → 记录算子到 self.output.graph (fx.Graph)
+#             ├─ RETURN_VALUE  → 图完成
+#             └─ 不支持的 op   → graph break, 退回到 eager
+#
+# dispatch_table 生成机制:
+#   元类 OpcodeDispatcherMeta (symbolic_convert.py:996) 在类创建时扫描
+#   dis.opmap 中所有字节码指令, 找出类上同名方法填入 dispatch_table[256] 数组.
+#   step() 中 dispatch_table[inst.opcode](self, inst) 直接数组查表分发.
+#
+# 关键源码位置:
+#   torch/_C/_dynamo/eval_frame.pyi → C 扩展   PEP 523 set_eval_frame hook
+#   torch/_dynamo/eval_frame.py:783             torch.compile 装饰器入口
+#   torch/_dynamo/convert_frame.py:1390         帧→FX Graph 编排层
+#   torch/_dynamo/symbolic_convert.py:1291      step() 逐字节码分发
+#   torch/_dynamo/output_graph.py:2950          self.graph = torch.fx.Graph()
+#   torch/_dynamo/guards.py                     守卫系统: 缓存复用判定
+#
+# ═══════════════════════════════════════════════════════════════
+# FX Graph = 统一 IR, 前后端解耦
+# ═══════════════════════════════════════════════════════════════
+#
+# symbolic_trace(通过 AST) 和 Dynamo(通过字节码) 虽然抓图手段不同,
+# 但输出都是 torch.fx.GraphModule. 后续所有环节只认这个格式:
+#
+#   symbolic_trace(AST 解析)
+#              ↘
+#           FX Graph → 后端(Inductor / 自定义 backend / 图变换)
+#              ↗
+#      Dynamo(字节码拦截)
+#
+# 后端不关心图是谁抓的, 只管拿到 FX Graph 后做 lowering → fusion → codegen.
+# 这就是 FX 作为统一 IR 的价值: 前端可换, 后端可插.
 
 
 if __name__ == "__main__":
