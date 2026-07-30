@@ -1,6 +1,6 @@
 import torch
 
-from kernels.matmul_triton import matmul
+from kernels._09_matmul_triton import matmul
 
 
 def _device():

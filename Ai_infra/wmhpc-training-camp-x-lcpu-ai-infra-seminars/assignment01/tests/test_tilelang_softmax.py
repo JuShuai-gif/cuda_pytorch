@@ -6,21 +6,23 @@ pytest.importorskip("tilelang", reason="需要安装 tilelang（uv sync --extra 
 if not torch.cuda.is_available():
     pytest.skip("TileLang 题需要 GPU，在集群上运行", allow_module_level=True)
 
-from kernels.tilelang_softmax import softmax
+from kernels._08_tilelang_softmax import softmax
 
 
 def test_basic():
     torch.manual_seed(0)
     x = torch.randn(33, 127, device="cuda")
-    torch.testing.assert_close(softmax(x), torch.softmax(x, dim=-1),
-                               atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(
+        softmax(x), torch.softmax(x, dim=-1), atol=1e-5, rtol=1e-5
+    )
 
 
 def test_wide_rows():
     torch.manual_seed(1)
     x = torch.randn(8, 1000, device="cuda")
-    torch.testing.assert_close(softmax(x), torch.softmax(x, dim=-1),
-                               atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(
+        softmax(x), torch.softmax(x, dim=-1), atol=1e-5, rtol=1e-5
+    )
 
 
 def test_numerical_stability():
@@ -29,11 +31,11 @@ def test_numerical_stability():
     x = torch.randn(4, 256, device="cuda") * 1000.0
     got = softmax(x)
     assert torch.isfinite(got).all(), "出现 inf/nan——先减去行内最大值再做 exp"
-    torch.testing.assert_close(got, torch.softmax(x, dim=-1),
-                               atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(got, torch.softmax(x, dim=-1), atol=1e-5, rtol=1e-5)
 
 
 def test_single_element_rows():
     x = torch.randn(5, 1, device="cuda")
-    torch.testing.assert_close(softmax(x), torch.softmax(x, dim=-1),
-                               atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(
+        softmax(x), torch.softmax(x, dim=-1), atol=1e-5, rtol=1e-5
+    )

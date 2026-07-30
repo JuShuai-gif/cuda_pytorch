@@ -21,7 +21,24 @@ __global__ void histogram_naive(const unsigned char *data, unsigned int *hist,
 
 __global__ void histogram_priv(const unsigned char *data, unsigned int *hist,
                                int n) {
-    // TODO：从这里开始写（shared memory 私有化版本）
+    __shared__ unsigned int shist[BINS];
+    int tid = threadIdx.x;
+
+    // 每个 block 初始化自己的 shared 直方图
+    for (int b = tid; b < BINS; b += blockDim.x)
+        shist[b] = 0;
+    __syncthreads();
+
+    // grid-stride 处理数据，往 shared 计数器加
+    int i = blockIdx.x * blockDim.x + tid;
+    int stride = blockDim.x * gridDim.x;
+    for (; i < n; i += stride)
+        atomicAdd(&shist[data[i]], 1u);
+    __syncthreads();
+
+    // 把 shared 直方图汇入全局
+    for (int b = tid; b < BINS; b += blockDim.x)
+        atomicAdd(&hist[b], shist[b]);
 }
 
 // ---------------- 以下是判测与计时，不要修改 ----------------

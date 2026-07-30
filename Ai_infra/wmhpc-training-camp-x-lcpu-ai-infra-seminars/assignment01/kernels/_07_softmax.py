@@ -18,5 +18,25 @@ import triton
 import triton.language as tl
 
 
+@triton.jit
+def softmax_kernel(x_ptr, y_ptr, M, N, BLOCK_SIZE: tl.constexpr):
+    pid = tl.program_id(0)
+    row_start = pid * N
+    offsets = row_start + tl.arange(0, BLOCK_SIZE)
+    mask = tl.arange(0, BLOCK_SIZE) < N
+
+    x = tl.load(x_ptr + offsets, mask=mask, other=float("-inf"))
+    x_max = tl.max(x, axis=0)  # 行内最大值，数值稳定
+    x = tl.exp(x - x_max)
+    x_sum = tl.sum(x, axis=0)
+    y = x / x_sum
+    tl.store(y_ptr + offsets, y, mask=mask)
+
+
 def softmax(x: torch.Tensor) -> torch.Tensor:
-    raise NotImplementedError("从这里开始写")
+    M, N = x.shape
+    y = torch.empty_like(x)
+    BLOCK_SIZE = triton.next_power_of_2(N)
+    grid = (M,)
+    softmax_kernel[grid](x, y, M, N, BLOCK_SIZE=BLOCK_SIZE)
+    return y

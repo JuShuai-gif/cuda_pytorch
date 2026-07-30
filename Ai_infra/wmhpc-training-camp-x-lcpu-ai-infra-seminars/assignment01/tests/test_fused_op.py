@@ -1,6 +1,6 @@
 import torch
 
-from kernels.fused_op import fused, scale
+from kernels._02_fused_op import fused, scale
 
 
 def _device():

@@ -1,4 +1,4 @@
-from kernels.simt_sim import run
+from kernels._06_simt_sim import run
 
 
 def test_uniform():
@@ -23,9 +23,7 @@ def test_one_sided_branch_skips():
 
 def test_nested():
     prog = [
-        ("if_lt", 16,
-         [("if_lt", 8, [("add", 1)], [("add", 2)])],
-         [("add", 3)]),
+        ("if_lt", 16, [("if_lt", 8, [("add", 1)], [("add", 2)])], [("add", 3)]),
     ]
     regs, cycles = run(prog)
     want = []

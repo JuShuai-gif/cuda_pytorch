@@ -1,6 +1,6 @@
 import torch
 
-from kernels.softmax import softmax
+from kernels._07_softmax import softmax
 
 
 def _device():
@@ -10,15 +10,17 @@ def _device():
 def test_basic():
     torch.manual_seed(0)
     x = torch.randn(33, 127, device=_device())
-    torch.testing.assert_close(softmax(x), torch.softmax(x, dim=-1),
-                               atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(
+        softmax(x), torch.softmax(x, dim=-1), atol=1e-5, rtol=1e-5
+    )
 
 
 def test_wide_rows():
     torch.manual_seed(1)
     x = torch.randn(8, 1000, device=_device())
-    torch.testing.assert_close(softmax(x), torch.softmax(x, dim=-1),
-                               atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(
+        softmax(x), torch.softmax(x, dim=-1), atol=1e-5, rtol=1e-5
+    )
 
 
 def test_numerical_stability():
@@ -27,11 +29,11 @@ def test_numerical_stability():
     x = torch.randn(4, 256, device=_device()) * 1000.0
     got = softmax(x)
     assert torch.isfinite(got).all(), "出现 inf/nan——先减去行内最大值再做 exp"
-    torch.testing.assert_close(got, torch.softmax(x, dim=-1),
-                               atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(got, torch.softmax(x, dim=-1), atol=1e-5, rtol=1e-5)
 
 
 def test_single_element_rows():
     x = torch.randn(5, 1, device=_device())
-    torch.testing.assert_close(softmax(x), torch.softmax(x, dim=-1),
-                               atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(
+        softmax(x), torch.softmax(x, dim=-1), atol=1e-5, rtol=1e-5
+    )

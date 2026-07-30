@@ -1,14 +1,16 @@
 import pytest
 import torch
 
-tilelang = pytest.importorskip("tilelang", reason="需要安装 tilelang（uv sync --extra tilelang）")
+tilelang = pytest.importorskip(
+    "tilelang", reason="需要安装 tilelang（uv sync --extra tilelang）"
+)
 
 if not torch.cuda.is_available():
     pytest.skip("TileLang 题需要 GPU，在集群上运行", allow_module_level=True)
 
 
 def test_scale_add():
-    from kernels.tilelang_scale_add import make_scale_add
+    from kernels._03_tilelang_scale_add import make_scale_add
 
     M, N = 123, 77
     func = make_scale_add(M, N)
@@ -19,7 +21,7 @@ def test_scale_add():
 
 
 def test_copy2d():
-    from kernels.tilelang_copy2d import make_scale2d
+    from kernels._04_tilelang_copy2d import make_scale2d
 
     for M, N in [(64, 128), (123, 77), (1, 500), (500, 1)]:
         func = make_scale2d(M, N)
@@ -29,7 +31,7 @@ def test_copy2d():
 
 
 def test_matmul():
-    from kernels.tilelang_matmul import make_matmul
+    from kernels._05_tilelang_matmul import make_matmul
 
     M, N, K = 256, 256, 128
     func = make_matmul(M, N, K, BLOCK_M=64, BLOCK_N=64, BLOCK_K=32)
@@ -37,5 +39,5 @@ def test_matmul():
     a = torch.randn(M, K, device="cuda", dtype=torch.float16)
     b = torch.randn(K, N, device="cuda", dtype=torch.float16)
     c = kernel(a, b)
-    ref = (a.float() @ b.float())
+    ref = a.float() @ b.float()
     torch.testing.assert_close(c, ref, atol=1e-2, rtol=1e-2)

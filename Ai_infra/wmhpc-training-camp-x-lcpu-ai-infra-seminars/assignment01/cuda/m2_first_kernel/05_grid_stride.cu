@@ -4,11 +4,24 @@
 //      跨过整个 grid 的步长处理多个元素——让任意 n 都能 PASS。
 // 参考：NVIDIA 博客 "CUDA Pro Tip: Write Flexible Kernels with Grid-Stride Loops"
 //      https://developer.nvidia.com/blog/cuda-pro-tip-write-flexible-kernels-grid-stride-loops/
+//
+// ===================== grid-stride loop 原理 =====================
+//
+// 核心思想：每个线程不再只处理一个元素，而是以"grid 总线程数"为步长，
+// 跳跃处理多个元素。这样不论 launch 给多少线程，都能覆盖任意大小的 n。
+//
+// stride = blockDim.x * gridDim.x = 256 × 64 = 16384
+// 每个线程从自己的 id 出发，每次 +16384，直到超出 n。
+// 16M / 16384 = 1024，每个线程处理 1024 个元素，全覆盖无遗漏。
+//
+// 好处：launch 配置和 n 完全解耦——随便给多少个 block 都能跑对。
+// ==================================================================
 #include "common.h"
 
 __global__ void vectorAdd(const float *a, const float *b, float *c, int n) {
-    int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    if (idx < n) c[idx] = a[idx] + b[idx];
+    int id = threadIdx.x + blockIdx.x * blockDim.x;       // 线程在 grid 中的起点
+    int stride = blockDim.x * gridDim.x;                   // grid 总线程数 = 步长
+    for (int i = id; i < n; i += stride) c[i] = a[i] + b[i];
 }
 
 int main() {

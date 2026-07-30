@@ -1,6 +1,6 @@
 import torch
 
-from kernels.vector_add import add
+from kernels._01_vector_add import add
 
 
 def _device():

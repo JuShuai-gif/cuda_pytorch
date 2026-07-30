@@ -23,6 +23,52 @@ import torch
 import tilelang
 import tilelang.language as T
 
+_cache = {}
+
+
+def make_softmax(M, N):
+    BLOCK_N = 1
+    while BLOCK_N < N:
+        BLOCK_N *= 2
+
+    @T.prim_func
+    def kernel(
+        X: T.Buffer((M, N), "float32"),
+        Y: T.Buffer((M, N), "float32"),
+    ):
+        with T.Kernel(1, M, threads=128) as (bx, by):
+            x_local = T.alloc_fragment((BLOCK_N,), "float32")
+
+            # Load row with -inf padding for positions >= N
+            for j in T.Parallel(BLOCK_N):
+                x_local[j] = T.if_then_else(
+                    j < N,
+                    X[by, j],
+                    -T.infinity("float32"),
+                )
+
+            # Numerically stable: subtract max before exp
+            x_max = T.reduce_max(x_local, axis=0)
+            for j in T.Parallel(BLOCK_N):
+                x_local[j] = T.exp(x_local[j] - x_max)
+
+            x_sum = T.reduce_sum(x_local, axis=0)
+            for j in T.Parallel(BLOCK_N):
+                Y[by, j] = T.if_then_else(
+                    j < N,
+                    x_local[j] / x_sum,
+                    T.float32(0.0),
+                )
+
+    return kernel
+
 
 def softmax(x: torch.Tensor) -> torch.Tensor:
-    raise NotImplementedError("从这里开始写")
+    M, N = x.shape
+    key = (M, N)
+    if key not in _cache:
+        _cache[key] = tilelang.compile(make_softmax(M, N), out_idx=[1])
+    kernel = _cache[key]
+    y = torch.empty_like(x)
+    kernel(x, y)
+    return y
