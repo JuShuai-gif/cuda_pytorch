@@ -17,6 +17,37 @@ contract：
 
 (Optional) 将你的实现和 torch.softmax 比较一下性能（行宽取 256/1024/4096），
 Tip: elementwise + 行内归约的 kernel 大概率是带宽瓶颈，可以想想理论上限是多少。
+
+TileLang softmax 和 Triton 版（_07）的对照：
+
+相同思路（reduce_max → exp → reduce_sum → divide），API 不同：
+
+┌──────────────────┬─────────────────────────────┬──────────────────────────────┐
+│ 步骤              │ Triton                      │ TileLang                     │
+├──────────────────┼─────────────────────────────┼──────────────────────────────┤
+│ block 索引        │ pid = tl.program_id(0)      │ with T.Kernel(1, M) as(bx,by)│
+│ 行定位            │ row_start = pid * N          │ by 直接索引行，bx=0（1D grid）│
+│ 分配寄存器缓冲     │ （隐式，用 tl.arange 向量）  │ T.alloc_fragment((BLOCK_N,))  │
+│ 加载 + 边界填充    │ tl.load(..., other=-inf)    │ T.Parallel + T.if_then_else   │
+│ 求行最大值         │ tl.max(x, axis=0)           │ T.reduce_max(x_local, axis=0) │
+│ exp               │ tl.exp(x - x_max)           │ T.Parallel + T.exp            │
+│ 求行和            │ tl.sum(x, axis=0)           │ T.reduce_sum(x_local, axis=0) │
+│ 除法 + 写回       │ y = x / x_sum; tl.store     │ T.Parallel + Y[by,j] = ...    │
+│ JIT 编译          │ @triton.jit（隐式）          │ tilelang.compile(...)          │
+└──────────────────┴─────────────────────────────┴──────────────────────────────┘
+
+TileLang 额外要点：
+- T.if_then_else(cond, true_val, false_val)  条件赋值（类似 Python 的三元表达式）
+- T.infinity("float32")  浮点无穷大常量
+- T.float32(0.0)  显式类型转换，不然 T.if_then_else 可能类型推断失败
+- BLOCK_N = 2 的幂：TileLang 的布局推导要求 fragment 尺寸对齐，
+  不足位置用 -inf 填充
+- _cache 按 (M, N) 缓存编译结果：TileLang 的 kernel 是 shape-specialized 的，
+  换形状要重新编译，缓存避免重复 JIT
+
+对比感受：Triton 更"指令级"（显式 load/store/arange/mask），
+TileLang 更"语义级"（Parallel/if_then_else/reduce），
+后者读起来更像数学公式但需要理解其隐式映射。
 """
 
 import torch

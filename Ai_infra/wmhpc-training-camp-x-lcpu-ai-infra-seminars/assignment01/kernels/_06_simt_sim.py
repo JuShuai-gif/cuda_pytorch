@@ -16,6 +16,24 @@ contract: 实现 run(program) -> (regs, cycles)
 - 返回值 regs 是 32 个 lane 的最终寄存器值（list），cycles 是总拍数。
 
 通过 pytest tests/test_simt_sim.py 即为完成。
+
+这个模拟器体现了 GPU 的 SIMT 执行模型：
+
+1. warp = 32 lanes, 所有 lane 执行同一条指令（lockstep）
+   lane i 的寄存器初值为 i，模拟线程 id（≈ threadIdx.x）
+2. mask 机制：每个指令只在 active lanes 上生效
+   add/mul 时 if mask[i] 检查确保只更新参与分支的 lane
+3. if_lt 分支发散（divergence）：
+   - 先算 then_mask：regs[i] < t 的 lane 走 then 分支
+   - 再算 else_mask：其余走 else 分支
+   - 两个分支串行执行（不是同时），这就是 warp divergence 的代价：
+     分支越多、串行执行的指令越多，cycles 越大
+   - 某一支无 active lane 时跳过，不计拍
+4. cycles 只计实际执行的 add/mul，if_lt 本身不计拍
+   所以 divergence 的代价体现为：执行了更多 add/mul 指令
+
+理解这个模拟器后，再去看 Triton/TileLang kernel 里的 mask 和分支，
+就能明白为什么 GPU 编程要尽量避免 warp 内部的分支发散。
 """
 
 

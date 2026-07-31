@@ -9,6 +9,31 @@ C = A @ B，A 形状 (M, K)，B 形状 (K, N)，fp16 输入、fp32 累加。
 Bonus 用的也是这个文件：填完后调 bench() 里的配置，记录实测数据。
 
     python -c "from kernels.tilelang_matmul import bench; bench()"
+
+演示的 TileLang 用法（tiled matmul 全流程）：
+
+1. T.alloc_shared((BLOCK_M, BLOCK_K), dtype)
+   分配 shared memory tile：A_shared 为 A 的分块缓存，B_shared 为 B 的分块缓存
+   后续 T.gemm 从 shared 读取，避免重复访问全局内存
+2. T.alloc_fragment((BLOCK_M, BLOCK_N), accum_dtype)
+   分配寄存器级累加器（fragment），存 C 的子矩阵部分和
+   fragment 在寄存器中，速度最快，算完最后一并写回全局内存
+3. T.clear(C_local)
+   将累加器清零（相当于 C_local = 0），为 K 维累加做准备
+4. for k in T.Pipelined(T.ceildiv(K, BLOCK_K), num_stages=3):
+   沿 K 维流水推进：每一轮搬 A/B 的一个 tile 进 shared，做一次 tile 级 GEMM 累加到 C_local
+   T.Pipelined 实现软件流水线（software pipeline），num_stages 控制预取深度，
+   让数据搬运和计算重叠执行，隐藏访存延迟
+5. T.copy(源, 目标)
+   搬运数据：T.copy(A[行切片, 列切片], A_shared) 把 A 的子块拷进 shared
+   T.copy(C_local, C[行切片, 列切片]) 算完把累加器写回全局内存
+6. T.gemm(A_shared, B_shared, C_local)
+   tile 级矩阵乘累加：C_local += A_shared @ B_shared
+   TileLang 自动生成高效的 warp tile MMA 指令
+
+总结：这一套（shared + fragment + Pipelined + T.copy + T.gemm）就是
+tiled matmul 的标准范式。手写 Triton 需要自己管理 TMA / cp_async / warp MMA，
+TileLang 把这三层抽象合并成上面几个 API，大幅降低编写成本。
 """
 
 import tilelang

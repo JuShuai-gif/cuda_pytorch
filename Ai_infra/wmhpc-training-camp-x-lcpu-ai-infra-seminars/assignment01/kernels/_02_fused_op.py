@@ -35,6 +35,10 @@ def scale(x: torch.Tensor) -> torch.Tensor:
 # ====== 从这里开始改 ======
 
 
+# kernel fusion: 将 a*x、+b、ReLU 三次运算合并到一个 kernel 里完成。
+# 用 PyTorch 写 z = relu(a*x + b) 会拆成 3 个 kernel（mul→add→relu），
+# 中间结果 a*x 和 a*x+b 各需一次显存 round-trip（写回再读出）。
+# 这里只读一次 x、只写一次 z，中间值全在寄存器里，节省带宽。
 @triton.jit
 def fused_kernel(x_ptr, z_ptr, n, a, b, BLOCK_SIZE: tl.constexpr):
     pid = tl.program_id(0)
