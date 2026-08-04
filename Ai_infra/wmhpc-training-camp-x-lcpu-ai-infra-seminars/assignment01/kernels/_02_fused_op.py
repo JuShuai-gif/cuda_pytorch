@@ -42,8 +42,14 @@ def scale(x: torch.Tensor) -> torch.Tensor:
 @triton.jit
 def fused_kernel(x_ptr, z_ptr, n, a, b, BLOCK_SIZE: tl.constexpr):
     pid = tl.program_id(0)
+    # pid * BLOCK_SIZE：表示每个块起始位置
+    # tl.arange(0,BLOCK_SIZE): 表示每个块内的索引号
     offsets = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
     mask = offsets < n
+    
+    # x_ptr + offsets: 计算实际要读取的 GPU 内存地址(基地址 + 偏移量)
+    # mask = mask：布尔掩码，False的位置不会真正去读内存（避免越界访问）
+    # other=0.0 — 被 mask 掉的位置填充 0.0
     x = tl.load(x_ptr + offsets, mask=mask, other=0.0)
     z = tl.maximum(a * x + b, 0.0)  # relu(a * x + b)
     tl.store(z_ptr + offsets, z, mask=mask)

@@ -54,20 +54,32 @@ def make_matmul(
 ):
     @T.prim_func
     def main(
+        # 这是需要操作的三个矩阵的指针
+        # 编译成 CUDA kernel后，这三个 T.Buffer 分别变成一个 float* (或 half*等)指针，指向 GPU 全局内存
         A: T.Buffer((M, K), dtype),
         B: T.Buffer((K, N), dtype),
         C: T.Buffer((M, N), accum_dtype),
     ):
         with T.Kernel(
+            # x 方向 ceil(N/BLOCK_N) 个 block
             T.ceildiv(N, BLOCK_N),
+            # y 方向 ceil(M/BLOCK_M) 个 block
             T.ceildiv(M, BLOCK_M),
+            # threads 是每个 block 内的线程数
             threads=threads,
-        ) as (bx, by):
-            # ====== 空 1：A、B 各自的 shared tile ======
+        ) as (bx, by):  # bx / by 是当前block的grid坐标(作为循环变量)，用于计算该 block 处理的是 A B C 矩阵中的那一块数据
+            # 可以理解为将 M*N 大小的输出拆成 BLOCK_M * BLOCK_N 的小块
+            
+            
+            # K 维度会被分成多个 step，每个 step 把 A 的一列 tile 和 B 的一行 tile 搬进 共享内存，
+            # 二者在共享内存上做乘加，结果累加到 C 的一个 BLOCK_M * BLOCK_N tile 中
+            # 共享内存让 K 维度上的数据只需要加载一次就能被 block 内所有线程复用，大幅减少全局内存访问
             A_shared = T.alloc_shared((BLOCK_M, BLOCK_K), dtype)
             B_shared = T.alloc_shared((BLOCK_K, BLOCK_N), dtype)
 
-            # ====== 空 2：C 的累加器 tile（fragment） ======
+            # 在寄存器上分配一个累加器 tile
+            # BLOCK_M * BLOCK_N ---- 输出 C 矩阵的一个小块
+            # accum_dtype ---- 累加精度()
             C_local = T.alloc_fragment((BLOCK_M, BLOCK_N), accum_dtype)
 
             T.clear(C_local)

@@ -27,25 +27,30 @@ import tilelang.language as T
 
 
 def make_scale2d(M, N, block_M=32, block_N=32, dtype="float32"):
-    @T.prim_func
+    @T.prim_func  # 等同于 @triton.jit: 声明此函数可编译为 GPU kernel
     def scale2d(
-        X: T.Buffer((M, N), dtype),
-        Y: T.Buffer((M, N), dtype),
+        X: T.Buffer((M, N), dtype),  # 输入 buffer: 形状 (M, N)，float32
+        Y: T.Buffer((M, N), dtype),  # 输出 buffer: 同形状同类型
     ):
-        # ====== 空 1：二维 CTA grid——x 方向管 N 列，y 方向管 M 行 ======
+        # Grid: (ceil(N/block_N), ceil(M/block_M)) 个 block，每个 block 128 线程
+        # bx, by: 当前 block 在 grid 中的 x 方向(列)和 y 方向(行)索引
         with T.Kernel(T.ceildiv(N, block_N), T.ceildiv(M, block_M), threads=128) as (
             bx,
             by,
         ):
+            # 在片上共享内存中分配一个 tile（比全局内存快约 100 倍）
             X_shared = T.alloc_shared((block_M, block_N), dtype)
 
-            # ====== 空 2：把当前 tile 从 X 搬进 shared ======
+            # 将 X 中当前 block 对应的 tile 从全局内存搬进共享内存
+            # T.copy 自动处理边界 mask / 越界检查，无需手动写
             T.copy(X[by * block_M, bx * block_N], X_shared)
 
+            # 并行计算: block 内每个线程处理 tile 中的一个元素
+            # T.Parallel 将 block_M * block_N 个线程分配到 i, j 维度上
             for i, j in T.Parallel(block_M, block_N):
-                X_shared[i, j] = X_shared[i, j] * 2.0
+                X_shared[i, j] = X_shared[i, j] * 2.0  # Y = 2 * X，在共享内存中完成计算
 
-            # ====== 空 3：把算完的 tile 写回 Y ======
+            # 将算完的 tile 从共享内存写回全局内存 Y 的对应位置
             T.copy(X_shared, Y[by * block_M, bx * block_N])
 
     return scale2d

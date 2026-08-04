@@ -33,14 +33,21 @@ def make_scale_add(M, N, block_M=32, block_N=32, dtype="float32"):
         X: T.Buffer((M, N), dtype),
         Y: T.Buffer((M, N), dtype),
     ):
-        # ====== 空 1：二维 CTA grid——x 方向要多少个 block（管 N 列），
-        #         y 方向要多少个（管 M 行）？提示：T.ceildiv ======
+        # 定义一个 GPU kernel 的线程网格和线程块维度
+        # - T.ceildiv(N, block_N) — grid 的 x 方向 block 数量（保证覆盖所有元素）
+        # - T.ceildiv(M, block_M) — grid 的 y 方向 block 数量
+        # - threads=128 — 每个 block 有 128 个线程
+        # - bx, by — 当前 block 的 grid 坐标索引
+        # 等价于 CUDA 中 <<<gridDim, blockDim>>> 的 launch 配置。bx、by 在循环体内用来确定当前 block 处理的是输入输出张量的哪一块
         with T.Kernel(T.ceildiv(N, block_N), T.ceildiv(M, block_M), threads=128) as (
             bx,
             by,
         ):
-            # ====== 空 2：block 内并行遍历 tile 的每个元素，
-            #         提示：T.Parallel(维度1, 维度2) ======
+            # 并行遍历当前 block 内的每个线程，做逐元素计算
+            # - T.Parallel(block_M, block_N) — 把 block_M × block_N 个线程并行分配到 i, j 上（类似 Triton 的 tl.program_id 配合手工偏移）
+            # - gi, gj — 当前线程对应的全局坐标（block 偏移 + 线程内偏移）
+            # - if gi < M and gj < N — 边界检查，防止越界
+            # - 核心操作：Y[gi, gj] = X[gi, gj] * 2.0 + 1.0 即 y = 2x + 1
             for i, j in T.Parallel(block_M, block_N):
                 gi = by * block_M + i
                 gj = bx * block_N + j
