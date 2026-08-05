@@ -1,0 +1,41 @@
+== sequence_containers ==
+Iterating 2000000 elements in each container.
+
+sizes: vector=24 deque=80 list=24 forward_list=8 bytes
+Benchmark: std::vector (contiguous)
+  mean:     182376.9 ns/iter
+  median:   183282.3 ns/iter
+  min:      178702.3 ns/iter
+  max:      185360.7 ns/iter
+  stddev:     2518.9 ns/iter
+  iterations: 3
+  checksum:   42000000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: std::deque (block-based)
+  mean:     486416.2 ns/iter
+  median:   474088.7 ns/iter
+  min:      461922.3 ns/iter
+  max:      519492.0 ns/iter
+  stddev:    22524.7 ns/iter
+  iterations: 3
+  checksum:   42000000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: std::list (doubly linked)
+  mean:    3749165.2 ns/iter
+  median:  3740747.7 ns/iter
+  min:     3655246.3 ns/iter
+  max:     3881705.7 ns/iter
+  stddev:    83014.2 ns/iter
+  iterations: 3
+  checksum:   42000000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: std::forward_list (singly linked)
+  mean:    3592260.7 ns/iter
+  median:  3576423.7 ns/iter
+  min:     3490631.3 ns/iter
+  max:     3750011.7 ns/iter
+  stddev:    89369.3 ns/iter
+  iterations: 3
+  checksum:   42000000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Checksums identical.

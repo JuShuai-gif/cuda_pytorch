@@ -1,0 +1,22 @@
+== optional_demo benchmark ==
+Accessing 1M int values: direct vector vs vector<optional>.
+
+Benchmark: vector<int> direct access
+  mean:     125193.0 ns/iter
+  median:   111455.9 ns/iter
+  min:      101753.1 ns/iter
+  max:      163961.0 ns/iter
+  stddev:    24276.0 ns/iter
+  iterations: 10
+  checksum:   630000000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: vector<optional<int>> with has_value check
+  mean:     304185.0 ns/iter
+  median:   286350.4 ns/iter
+  min:      254586.0 ns/iter
+  max:      419065.1 ns/iter
+  stddev:    49715.5 ns/iter
+  iterations: 10
+  checksum:   630000000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+optional/direct time ratio: 2.43x (extra is the bool check)

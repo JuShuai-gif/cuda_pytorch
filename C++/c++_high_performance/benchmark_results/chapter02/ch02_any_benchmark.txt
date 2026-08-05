@@ -1,0 +1,22 @@
+== any_demo benchmark ==
+Reading a stored value back: direct int vs std::any + any_cast.
+
+Benchmark: direct int value
+  mean:          0.1 ns/iter
+  median:        0.1 ns/iter
+  min:           0.1 ns/iter
+  max:           0.1 ns/iter
+  stddev:        0.0 ns/iter
+  iterations: 2000000
+  checksum:   756000000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: std::any + std::any_cast
+  mean:          1.4 ns/iter
+  median:        1.2 ns/iter
+  min:           0.6 ns/iter
+  max:           2.0 ns/iter
+  stddev:        0.6 ns/iter
+  iterations: 2000000
+  checksum:   756000000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+any/direct time ratio: 11.35x

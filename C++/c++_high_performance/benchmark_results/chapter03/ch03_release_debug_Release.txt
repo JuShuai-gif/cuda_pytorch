@@ -1,0 +1,5 @@
+== release_vs_debug ==
+Build type: Release (NDEBUG defined)
+
+5x workload (sort 200k + count): 9.68 ms
+checksum: 499500000

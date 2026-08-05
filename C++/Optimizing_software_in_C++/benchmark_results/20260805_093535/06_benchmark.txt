@@ -1,0 +1,5 @@
+plain_method       min=  2670.89 us  median=  2823.12 us  mean=  3031.93 us
+virtual_call       min=     0.01 us  median=     0.01 us  mean=     0.01 us
+rtti_dyncast       min=     0.01 us  median=     0.01 us  mean=     0.02 us
+
+check: 3.00 4.00 4.00

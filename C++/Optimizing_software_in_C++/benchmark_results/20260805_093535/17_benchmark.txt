@@ -1,0 +1,4 @@
+std::pow(x,10)     min=  1794.21 us  median=  1799.18 us  mean=  1800.55 us
+integerPower<10>   min=  1760.12 us  median=  1797.56 us  mean=  1805.22 us
+
+checksums: 57.665039 57.665039  fact_table=201136842709144

@@ -1,0 +1,60 @@
+== aos_vs_soa ==
+sizeof(BigUser)=168  sizeof(SmallUser)=48
+
+-- num_users_at_level (1M users) --
+Benchmark: BigUser   (128 B, AoS)
+  mean:    5467963.5 ns/iter
+  median:  5385386.4 ns/iter
+  min:     5342545.8 ns/iter
+  max:     5906603.8 ns/iter
+  stddev:   186225.1 ns/iter
+  iterations: 5
+  checksum:   2244465
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: SmallUser (40 B, AoS)
+  mean:    4221661.1 ns/iter
+  median:  4207137.2 ns/iter
+  min:     3933414.6 ns/iter
+  max:     4523763.2 ns/iter
+  stddev:   195640.4 ns/iter
+  iterations: 5
+  checksum:   2244465
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: vector<short> levels (SoA)
+  mean:     248360.0 ns/iter
+  median:   248467.4 ns/iter
+  min:      246977.8 ns/iter
+  max:      249919.6 ns/iter
+  stddev:      896.3 ns/iter
+  iterations: 5
+  checksum:   2244465
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+
+-- num_playing_users (1M users) --
+Benchmark: BigUser   (128 B, AoS)
+  mean:    6138587.3 ns/iter
+  median:  6147789.6 ns/iter
+  min:     6076801.2 ns/iter
+  max:     6203638.0 ns/iter
+  stddev:    42326.3 ns/iter
+  iterations: 5
+  checksum:   22494060
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: SmallUser (40 B, AoS)
+  mean:    5223295.7 ns/iter
+  median:  5190287.4 ns/iter
+  min:     4821906.8 ns/iter
+  max:     5644293.2 ns/iter
+  stddev:   254864.4 ns/iter
+  iterations: 5
+  checksum:   22494060
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: vector<bool> playing (bit array)
+  mean:     768552.3 ns/iter
+  median:   773584.8 ns/iter
+  min:      749502.6 ns/iter
+  max:      790543.8 ns/iter
+  stddev:    15464.1 ns/iter
+  iterations: 5
+  checksum:   22494060
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]

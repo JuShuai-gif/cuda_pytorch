@@ -1,0 +1,9 @@
+serial             min= 29099.44 us  median= 29400.24 us  mean= 29419.95 us
+local x1           min= 34886.97 us  median= 35929.54 us  mean= 36856.43 us
+local x2           min= 21052.20 us  median= 23097.49 us  mean= 23100.75 us
+local x4           min= 14415.59 us  median= 16205.38 us  mean= 15892.33 us
+local x8           min= 11255.89 us  median= 11425.62 us  mean= 11448.60 us
+local x16          min=  7873.70 us  median=  8035.99 us  mean=  8010.19 us
+atomic x4          min= 14721.31 us  median= 16091.78 us  mean= 15745.86 us
+
+results: 64000000 64000000 64000000 64000000 64000000 64000000

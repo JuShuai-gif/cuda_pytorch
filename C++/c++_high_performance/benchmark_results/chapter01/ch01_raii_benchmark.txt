@@ -1,0 +1,22 @@
+== raii_resource benchmark ==
+Both implementations allocate+release the same heap resource; the RAII guard adds no extra runtime cost of its own.
+
+Benchmark: manual new/delete per call
+  mean:          8.5 ns/iter
+  median:        8.4 ns/iter
+  min:           7.9 ns/iter
+  max:           9.6 ns/iter
+  stddev:        0.6 ns/iter
+  iterations: 200000
+  checksum:   25200000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: RAII guard per call
+  mean:          8.5 ns/iter
+  median:        8.2 ns/iter
+  min:           7.9 ns/iter
+  max:           9.9 ns/iter
+  stddev:        0.6 ns/iter
+  iterations: 200000
+  checksum:   25200000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+manual/raii time ratio: 1.01x

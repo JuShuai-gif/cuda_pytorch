@@ -1,0 +1,24 @@
+== hash_policy ==
+
+100k inserts: buckets=172933 max_load_factor=1.0 rehashes=14
+good hash: 1000000 keys, 1056323 buckets, max bucket size 1
+bad hash: 100000 keys, 107897 buckets, bucket[0] size 100000
+Benchmark: bad hash (one bucket, O(n) scan)
+  mean:   99336601.6 ns/iter
+  median: 97974634.3 ns/iter
+  min:    97428393.6 ns/iter
+  max:    105516719.6 ns/iter
+  stddev:  2666586.4 ns/iter
+  iterations: 10
+  checksum:   90000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: good hash (even distribution)
+  mean:       2089.5 ns/iter
+  median:     2089.9 ns/iter
+  min:        2088.1 ns/iter
+  max:        2090.8 ns/iter
+  stddev:        1.1 ns/iter
+  iterations: 10
+  checksum:   90000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+bad/good time ratio: 47541.50x

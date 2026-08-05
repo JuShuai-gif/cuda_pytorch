@@ -1,0 +1,22 @@
+== associative_containers ==
+Lookup of 1000000 integer keys.
+
+Benchmark: std::map (balanced tree, O(log n))
+  mean:   14997011.0 ns/iter
+  median: 14982275.8 ns/iter
+  min:    14725014.1 ns/iter
+  max:    15372868.3 ns/iter
+  stddev:   196178.0 ns/iter
+  iterations: 10
+  checksum:   6428603571390
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: std::unordered_map (hash table, O(1))
+  mean:    1694308.6 ns/iter
+  median:  1705835.1 ns/iter
+  min:     1583614.8 ns/iter
+  max:     1794571.6 ns/iter
+  stddev:    73290.7 ns/iter
+  iterations: 10
+  checksum:   6428603571390
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+map/unordered_map time ratio: 8.85x

@@ -1,0 +1,22 @@
+== loop_vs_count benchmark ==
+Data: 4000000 random ints in [0,9], needle=5, hits=400952
+
+Benchmark: hand-written for-loop
+  mean:     527016.5 ns/iter
+  median:   498625.3 ns/iter
+  min:      462208.7 ns/iter
+  max:      626057.7 ns/iter
+  stddev:    64020.5 ns/iter
+  iterations: 3
+  checksum:   10825704
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: std::count
+  mean:     517045.4 ns/iter
+  median:   483474.7 ns/iter
+  min:      455595.3 ns/iter
+  max:      700668.0 ns/iter
+  stddev:    79298.6 ns/iter
+  iterations: 3
+  checksum:   10825704
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Checksums identical.

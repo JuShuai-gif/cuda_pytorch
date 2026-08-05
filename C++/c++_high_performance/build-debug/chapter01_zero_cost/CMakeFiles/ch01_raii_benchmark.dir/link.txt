@@ -1,0 +1,1 @@
+/usr/bin/c++ -g -Wl,--dependency-file=CMakeFiles/ch01_raii_benchmark.dir/link.d CMakeFiles/ch01_raii_benchmark.dir/raii_resource/benchmark.cpp.o CMakeFiles/ch01_raii_benchmark.dir/raii_resource/baseline.cpp.o CMakeFiles/ch01_raii_benchmark.dir/raii_resource/optimized.cpp.o -o ch01_raii_benchmark  ../common/libchp_common.a

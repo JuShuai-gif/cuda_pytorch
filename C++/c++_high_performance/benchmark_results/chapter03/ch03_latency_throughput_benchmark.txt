@@ -1,0 +1,27 @@
+== latency_throughput ==
+
+Benchmark: latency: serial dependency chain (10M steps)
+  mean:    7614910.1 ns/iter
+  median:  7586805.0 ns/iter
+  min:     7421565.0 ns/iter
+  max:     8053554.0 ns/iter
+  stddev:   195543.3 ns/iter
+  iterations: 1
+  checksum:   10409235120473769088
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: throughput: 10M independent elements
+  mean:    5741370.3 ns/iter
+  median:  5725587.2 ns/iter
+  min:     5462593.6 ns/iter
+  max:     5986294.2 ns/iter
+  stddev:   161691.6 ns/iter
+  iterations: 5
+  checksum:   0
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+
+per-step latency:        0.76 ns/op
+per-element batch:       0.57 ns/op
+throughput:              1.74 ops/ns (batch)
+
+The chain is latency-bound: its per-op cost cannot be
+hidden because every step depends on the previous one.

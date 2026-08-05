@@ -1,0 +1,11 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/hpc/ghr_code/cuda_pytorch/C++/c++_high_performance/build-debug/cmake_install.cmake",
+		"/home/hpc/ghr_code/cuda_pytorch/C++/c++_high_performance/build-debug/common/cmake_install.cmake",
+		"/home/hpc/ghr_code/cuda_pytorch/C++/c++_high_performance/build-debug/chapter01_zero_cost/cmake_install.cmake",
+		"/home/hpc/ghr_code/cuda_pytorch/C++/c++_high_performance/build-debug/chapter02_modern_cpp/cmake_install.cmake",
+		"/home/hpc/ghr_code/cuda_pytorch/C++/c++_high_performance/build-debug/chapter03_measurement/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

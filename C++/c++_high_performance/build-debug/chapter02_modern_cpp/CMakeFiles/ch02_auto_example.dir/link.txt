@@ -1,0 +1,1 @@
+/usr/bin/c++ -g -Wl,--dependency-file=CMakeFiles/ch02_auto_example.dir/link.d CMakeFiles/ch02_auto_example.dir/auto_deduction/example.cpp.o -o ch02_auto_example  ../common/libchp_common.a

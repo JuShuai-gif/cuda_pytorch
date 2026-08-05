@@ -1,0 +1,31 @@
+== find_unroll benchmark ==
+std::find over 10000000 ints, value present (book PDF p.159).
+
+Benchmark: find_slow (naive loop)
+  mean:        130.2 ns/iter
+  median:      130.0 ns/iter
+  min:         129.6 ns/iter
+  max:         131.2 ns/iter
+  stddev:        0.5 ns/iter
+  iterations: 5
+  checksum:   27945
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: find_fast (unrolled x4)
+  mean:         86.9 ns/iter
+  median:       87.0 ns/iter
+  min:          86.2 ns/iter
+  max:          87.8 ns/iter
+  stddev:        0.5 ns/iter
+  iterations: 5
+  checksum:   27945
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: std::find (libstdc++)
+  mean:         86.4 ns/iter
+  median:       86.4 ns/iter
+  min:          86.0 ns/iter
+  max:          86.8 ns/iter
+  stddev:        0.2 ns/iter
+  iterations: 5
+  checksum:   27945
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+expected distance: 621

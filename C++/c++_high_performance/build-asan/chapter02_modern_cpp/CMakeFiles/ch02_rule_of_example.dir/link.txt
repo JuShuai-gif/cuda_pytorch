@@ -1,0 +1,1 @@
+/usr/bin/c++ -O2 -g -DNDEBUG -fsanitize=address,undefined -Wl,--dependency-file=CMakeFiles/ch02_rule_of_example.dir/link.d CMakeFiles/ch02_rule_of_example.dir/rule_of_three_five_zero/example.cpp.o -o ch02_rule_of_example

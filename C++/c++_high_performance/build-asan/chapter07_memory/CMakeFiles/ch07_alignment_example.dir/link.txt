@@ -1,0 +1,1 @@
+/usr/bin/c++ -O2 -g -DNDEBUG -fsanitize=address,undefined -Wl,--dependency-file=CMakeFiles/ch07_alignment_example.dir/link.d CMakeFiles/ch07_alignment_example.dir/alignment_padding/example.cpp.o -o ch07_alignment_example

@@ -1,0 +1,16 @@
+== warmup_effect ==
+
+round-by-round (no warmup):
+  round  0:   236.00 ms
+  round  1:   229.07 ms
+  round  2:   226.47 ms
+  round  3:   227.49 ms
+  round  4:   226.56 ms
+  round  5:   225.72 ms
+  round  6:   224.82 ms
+  round  7:   223.60 ms
+  round  8:   227.96 ms
+  round  9:   227.93 ms
+  checksum: 0
+
+with warmup (mean): 2.24 ms/iter (checksum 18430793941029317417)

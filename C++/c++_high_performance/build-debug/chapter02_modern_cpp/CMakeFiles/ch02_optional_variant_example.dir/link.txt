@@ -1,0 +1,1 @@
+/usr/bin/c++ -g -Wl,--dependency-file=CMakeFiles/ch02_optional_variant_example.dir/link.d CMakeFiles/ch02_optional_variant_example.dir/optional_variant_pointer/example.cpp.o -o ch02_optional_variant_example

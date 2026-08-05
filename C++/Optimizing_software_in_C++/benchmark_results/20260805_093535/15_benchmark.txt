@@ -1,0 +1,6 @@
+factorial_loop     min= 20650.29 us  median= 24070.16 us  mean= 23507.26 us
+factorial_table    min= 14583.25 us  median= 14642.95 us  mean= 14674.30 us
+small_table_lookup min=  2954.08 us  median=  2999.33 us  mean=  3004.16 us
+big_table_lookup   min= 31909.03 us  median= 32405.53 us  mean= 32526.49 us
+
+checksums: 479001600 479001600

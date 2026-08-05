@@ -1,0 +1,7 @@
+add_executable(11_baseline baseline.cpp)
+target_link_libraries(11_baseline PRIVATE oopt_common Threads::Threads)
+add_executable(11_optimized optimized.cpp)
+target_link_libraries(11_optimized PRIVATE oopt_common Threads::Threads)
+add_executable(11_benchmark benchmark.cpp)
+target_link_libraries(11_benchmark PRIVATE oopt_common Threads::Threads)
+find_package(Threads REQUIRED)

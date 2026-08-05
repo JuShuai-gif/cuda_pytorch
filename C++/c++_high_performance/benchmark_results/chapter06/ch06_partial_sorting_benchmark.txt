@@ -1,0 +1,32 @@
+== partial_sorting benchmark ==
+2000000 elements, need the top 100000 (book PDF p.160-162).
+
+Benchmark: std::sort        (O(n log n))
+  mean:   94400390.4 ns/iter
+  median: 94413549.8 ns/iter
+  min:    93908036.4 ns/iter
+  max:    94786512.4 ns/iter
+  stddev:   321761.1 ns/iter
+  iterations: 5
+  checksum:   2253134
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: std::partial_sort (O(n log m))
+  mean:   30591031.1 ns/iter
+  median: 30260783.2 ns/iter
+  min:    30212045.4 ns/iter
+  max:    32183273.8 ns/iter
+  stddev:   661896.8 ns/iter
+  iterations: 5
+  checksum:   2250963
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: std::nth_element  (O(n))
+  mean:   10889042.7 ns/iter
+  median: 10296203.0 ns/iter
+  min:     8910133.4 ns/iter
+  max:    14706152.4 ns/iter
+  stddev:  1770162.2 ns/iter
+  iterations: 5
+  checksum:   2251387
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+sort/partial time ratio: 3.09x
+sort/nth     time ratio: 8.67x

@@ -1,0 +1,22 @@
+== vector_growth benchmark ==
+Building a 100000-element vector of ints.
+
+Benchmark: push_back without reserve (reallocations happen)
+  mean:     181543.5 ns/iter
+  median:   177139.1 ns/iter
+  min:      169434.1 ns/iter
+  max:      203152.2 ns/iter
+  stddev:    11780.7 ns/iter
+  iterations: 30
+  checksum:   26999730
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: push_back with reserve (no reallocations)
+  mean:      43102.7 ns/iter
+  median:    42941.1 ns/iter
+  min:       42413.5 ns/iter
+  max:       43827.0 ns/iter
+  stddev:      501.9 ns/iter
+  iterations: 30
+  checksum:   26999730
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+no-reserve/reserve time ratio: 4.21x

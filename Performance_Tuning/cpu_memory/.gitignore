@@ -1,0 +1,13 @@
+# Build outputs
+src/build/
+src/build-*/
+*.o
+*.a
+
+# Benchmark result snapshots (keep the directory, not every run)
+benchmark_results/*/
+!benchmark_results/.gitkeep
+
+# Editor/OS cruft
+*.swp
+.DS_Store

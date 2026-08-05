@@ -1,0 +1,9 @@
+int_div_variable   min=  3065.36 us  median=  3093.43 us  mean=  3102.12 us
+int_div_const      min=  3655.68 us  median=  3912.44 us  mean=  3927.63 us
+int_div_unsigned   min=  1843.58 us  median=  1908.18 us  mean=  1961.17 us
+int_div_pow2       min=  1178.89 us  median=  1241.64 us  mean=  1247.45 us
+float_div_variable min=  4657.34 us  median=  4918.51 us  mean=  4915.58 us
+float_div_recip    min=  4078.82 us  median=  4440.20 us  mean=  4474.97 us
+
+results equal (int): 1136000000 1136000000 1136000000 1000000000
+results equal (float): 1142857142.7194 1142857142.7194

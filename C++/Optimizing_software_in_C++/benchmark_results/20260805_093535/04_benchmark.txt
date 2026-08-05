@@ -1,0 +1,8 @@
+sum1               min=  7222.18 us  median=  7526.22 us  mean=  7715.70 us
+sum2               min=  5164.16 us  median=  5350.32 us  mean=  5467.64 us
+sum4               min=  5434.65 us  median=  5666.78 us  mean=  5614.44 us
+sum8               min=  5444.18 us  median=  5645.76 us  mean=  5636.85 us
+div_in_loop        min=  7476.39 us  median=  7737.50 us  mean=  7729.67 us
+div_hoisted        min=  7174.65 us  median=  7395.66 us  mean=  7463.22 us
+
+results equal: 16000000 16000000 16000000 16000000 5333333.333054 5333333.333054

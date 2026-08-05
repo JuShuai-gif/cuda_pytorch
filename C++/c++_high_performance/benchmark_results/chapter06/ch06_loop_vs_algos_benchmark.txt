@@ -1,0 +1,76 @@
+== loop_vs_algorithms benchmark ==
+4000000 ints (book PDF p.153-159).
+
+Benchmark: count     : hand loop
+  mean:     481568.6 ns/iter
+  median:   476189.4 ns/iter
+  min:      464428.4 ns/iter
+  max:      522185.4 ns/iter
+  stddev:    17920.3 ns/iter
+  iterations: 5
+  checksum:   1810890
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: count     : std::count
+  mean:     421158.9 ns/iter
+  median:   410759.4 ns/iter
+  min:      388362.6 ns/iter
+  max:      466269.2 ns/iter
+  stddev:    31393.0 ns/iter
+  iterations: 5
+  checksum:   1810890
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: accumulate: hand loop
+  mean:     267565.5 ns/iter
+  median:   261872.6 ns/iter
+  min:      239340.6 ns/iter
+  max:      307863.0 ns/iter
+  stddev:    24099.8 ns/iter
+  iterations: 5
+  checksum:   8909845605
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: accumulate: std::accumulate
+  mean:     258969.8 ns/iter
+  median:   257825.0 ns/iter
+  min:      244530.4 ns/iter
+  max:      273491.0 ns/iter
+  stddev:     9878.4 ns/iter
+  iterations: 5
+  checksum:   8909845605
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: transform : hand loop
+  mean:    2021498.5 ns/iter
+  median:  2021465.2 ns/iter
+  min:     1965689.2 ns/iter
+  max:     2122396.8 ns/iter
+  stddev:    47889.1 ns/iter
+  iterations: 5
+  checksum:   6120
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: transform : std::transform
+  mean:    1155733.8 ns/iter
+  median:  1180213.8 ns/iter
+  min:     1016126.8 ns/iter
+  max:     1268642.4 ns/iter
+  stddev:    84337.7 ns/iter
+  iterations: 5
+  checksum:   6120
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: copy_if   : hand loop
+  mean:   10709354.2 ns/iter
+  median: 10695110.8 ns/iter
+  min:    10633052.8 ns/iter
+  max:    10893662.4 ns/iter
+  stddev:    82382.7 ns/iter
+  iterations: 5
+  checksum:   88213455
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: copy_if   : std::copy_if
+  mean:   10907692.6 ns/iter
+  median: 10887801.6 ns/iter
+  min:    10822384.6 ns/iter
+  max:    11004497.6 ns/iter
+  stddev:    57235.9 ns/iter
+  iterations: 5
+  checksum:   88213455
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+checksums match.

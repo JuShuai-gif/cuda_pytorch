@@ -1,0 +1,1 @@
+/usr/bin/c++ -g -Wl,--dependency-file=CMakeFiles/ch02_optional_variant_tests.dir/link.d CMakeFiles/ch02_optional_variant_tests.dir/optional_variant_pointer/tests.cpp.o -o ch02_optional_variant_tests  ../common/libchp_common.a

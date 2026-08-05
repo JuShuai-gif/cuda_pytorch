@@ -1,0 +1,1 @@
+/usr/bin/c++ -g -Wl,--dependency-file=CMakeFiles/ch02_function_cost_example.dir/link.d CMakeFiles/ch02_function_cost_example.dir/std_function_cost/example.cpp.o -o ch02_function_cost_example

@@ -1,0 +1,7 @@
+# benchmark results
+# host:    hpc
+# cpu:     
+# date:    2026年 08月 05日 星期三 09:35:35 CST
+# compiler: g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+# perf_event_paranoid: 4
+

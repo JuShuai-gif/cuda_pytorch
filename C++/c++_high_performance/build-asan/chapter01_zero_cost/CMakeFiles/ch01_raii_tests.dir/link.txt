@@ -1,0 +1,1 @@
+/usr/bin/c++ -O2 -g -DNDEBUG -fsanitize=address,undefined -Wl,--dependency-file=CMakeFiles/ch01_raii_tests.dir/link.d CMakeFiles/ch01_raii_tests.dir/raii_resource/tests.cpp.o CMakeFiles/ch01_raii_tests.dir/raii_resource/baseline.cpp.o CMakeFiles/ch01_raii_tests.dir/raii_resource/optimized.cpp.o -o ch01_raii_tests  ../common/libchp_common.a

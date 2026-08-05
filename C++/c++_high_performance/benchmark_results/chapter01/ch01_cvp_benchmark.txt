@@ -1,0 +1,22 @@
+== contiguous_vs_pointer benchmark ==
+Data: 2000000 particles, stored contiguously vs as 2000000 separate heap allocations
+
+Benchmark: vector<Particle> (contiguous)
+  mean:    1197944.5 ns/iter
+  median:  1152959.4 ns/iter
+  min:     1054395.8 ns/iter
+  max:     1335341.8 ns/iter
+  stddev:   112773.6 ns/iter
+  iterations: 5
+  checksum:   4497174357245858880
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: vector<unique_ptr<Particle>> (pointer indirection)
+  mean:    2615163.3 ns/iter
+  median:  2598661.8 ns/iter
+  min:     2579774.4 ns/iter
+  max:     2706537.8 ns/iter
+  stddev:    41348.8 ns/iter
+  iterations: 5
+  checksum:   4497174357245858880
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+pointer/contiguous time ratio: 2.18x

@@ -1,0 +1,3 @@
+naive_log_sum      min=  2103.46 us  median=  2175.46 us  mean=  2194.72 us
+loop_log_sum       min=  2914.20 us  median=  2969.80 us  mean=  2973.10 us
+naive=693147.180566 loop=693147.180562

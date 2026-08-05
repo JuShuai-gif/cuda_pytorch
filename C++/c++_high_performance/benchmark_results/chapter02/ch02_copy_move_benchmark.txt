@@ -1,0 +1,22 @@
+== copy_vs_move benchmark ==
+Copy/move of a Buffer owning 4096 doubles.
+
+Benchmark: copy-construct (allocate + copy data)
+  mean:        489.2 ns/iter
+  median:      490.6 ns/iter
+  min:         484.3 ns/iter
+  max:         493.6 ns/iter
+  stddev:        3.3 ns/iter
+  iterations: 50000
+  checksum:   1843200000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: move-construct (steal pointer)
+  mean:          1.4 ns/iter
+  median:        1.4 ns/iter
+  min:           1.4 ns/iter
+  max:           1.5 ns/iter
+  stddev:        0.0 ns/iter
+  iterations: 50000
+  checksum:   0
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+copy/move time ratio: 343.16x

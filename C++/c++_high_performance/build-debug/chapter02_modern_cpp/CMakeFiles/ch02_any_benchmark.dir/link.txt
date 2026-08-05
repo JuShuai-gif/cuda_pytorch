@@ -1,0 +1,1 @@
+/usr/bin/c++ -g -Wl,--dependency-file=CMakeFiles/ch02_any_benchmark.dir/link.d CMakeFiles/ch02_any_benchmark.dir/any_demo/benchmark.cpp.o -o ch02_any_benchmark  ../common/libchp_common.a

@@ -1,0 +1,31 @@
+== callable_overhead benchmark ==
+One million callable objects in a vector, invoked in a loop.
+
+Benchmark: vector of lambdas (direct)
+  mean:     502401.3 ns/iter
+  median:   493213.3 ns/iter
+  min:      490589.7 ns/iter
+  max:      540504.3 ns/iter
+  stddev:    19189.4 ns/iter
+  iterations: 3
+  checksum:   18446744061878857216
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: vector of functor objects
+  mean:     574730.1 ns/iter
+  median:   575962.0 ns/iter
+  min:      565888.7 ns/iter
+  max:      579242.3 ns/iter
+  stddev:     4901.6 ns/iter
+  iterations: 3
+  checksum:   18446744061878857216
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: vector of std::function
+  mean:    1498302.5 ns/iter
+  median:  1485340.7 ns/iter
+  min:     1463110.7 ns/iter
+  max:     1567861.7 ns/iter
+  stddev:    36360.3 ns/iter
+  iterations: 3
+  checksum:   18446744061878857216
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Checksums identical.

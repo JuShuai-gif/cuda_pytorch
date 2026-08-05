@@ -1,0 +1,40 @@
+== optional_variant_pointer benchmark ==
+Reading 1M values via four 'maybe-absent' representations.
+
+Benchmark: sentinel value (-1 check)
+  mean:     208520.7 ns/iter
+  median:   208030.3 ns/iter
+  min:      203483.1 ns/iter
+  max:      221346.8 ns/iter
+  stddev:     5657.2 ns/iter
+  iterations: 10
+  checksum:   3780000000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: pointer (nullptr check)
+  mean:     282852.9 ns/iter
+  median:   278086.6 ns/iter
+  min:      271086.1 ns/iter
+  max:      305997.3 ns/iter
+  stddev:    11677.4 ns/iter
+  iterations: 10
+  checksum:   3780000000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: std::optional (has_value)
+  mean:     289830.3 ns/iter
+  median:   287115.7 ns/iter
+  min:      274266.7 ns/iter
+  max:      326186.8 ns/iter
+  stddev:    16075.6 ns/iter
+  iterations: 10
+  checksum:   3780000000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: std::variant (holds_alternative)
+  mean:     270870.6 ns/iter
+  median:   272811.6 ns/iter
+  min:      259928.8 ns/iter
+  max:      282012.6 ns/iter
+  stddev:     6889.9 ns/iter
+  iterations: 10
+  checksum:   3780000000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Checksums identical.

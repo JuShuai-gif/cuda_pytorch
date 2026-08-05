@@ -1,0 +1,22 @@
+== cache_thrashing ==
+Matrix 8192x8192 int (256 MiB), L1 data cache 32768 bytes
+
+Benchmark: row-major  matrix[i][j]
+  mean:   33222446.3 ns/iter
+  median: 33156055.0 ns/iter
+  min:    32935646.0 ns/iter
+  max:    33575638.0 ns/iter
+  stddev:   265459.7 ns/iter
+  iterations: 1
+  checksum:   9007199120523264
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: column-major matrix[j][i]
+  mean:   180201814.7 ns/iter
+  median: 181969157.0 ns/iter
+  min:    174923624.0 ns/iter
+  max:    183712663.0 ns/iter
+  stddev:  3799511.0 ns/iter
+  iterations: 1
+  checksum:   9007199120523264
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+column/row time ratio: 5.42x

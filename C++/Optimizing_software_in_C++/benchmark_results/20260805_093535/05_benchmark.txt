@@ -1,0 +1,9 @@
+plain_call         min=  3579.54 us  median=  3663.98 us  mean=  3687.00 us
+static_call        min=  3544.58 us  median=  3621.46 us  mean=  3651.83 us
+inline_call        min=  3568.30 us  median=  3634.72 us  mean=  3722.23 us
+func_pointer       min=  4790.16 us  median=  4965.50 us  mean=  4951.64 us
+std_function       min= 12934.77 us  median= 13123.33 us  mean= 13127.13 us
+virtual_call       min= 12583.83 us  median= 12730.75 us  mean= 12729.68 us
+lambda_template    min=  4588.84 us  median=  4840.03 us  mean=  4867.91 us
+
+results equal: 24000000

@@ -1,0 +1,1 @@
+/usr/bin/c++ -O2 -g -DNDEBUG -fsanitize=address,undefined -Wl,--dependency-file=CMakeFiles/ch08_type_traits_example.dir/link.d CMakeFiles/ch08_type_traits_example.dir/type_traits/example.cpp.o -o ch08_type_traits_example

@@ -1,0 +1,4 @@
+same_line (false sharing) min=    32.58 us  median=    35.30 us  mean=    40.42 us
+padded (own cache line) min=    31.05 us  median=    32.53 us  mean=    32.74 us
+
+results equal: 200000000 200000000

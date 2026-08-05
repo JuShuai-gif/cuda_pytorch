@@ -1,0 +1,9 @@
+traverse_vector    min=   428.06 us  median=   430.49 us  mean=   432.21 us
+traverse_list      min=   546.46 us  median=   638.57 us  mean=   657.81 us
+traverse_deque     min=    78.02 us  median=    80.39 us  mean=    80.97 us
+map_lookup         min=  8989.69 us  median=  9157.89 us  mean=  9174.41 us
+umap_lookup        min=   358.06 us  median=   387.34 us  mean=   383.43 us
+new_delete_loop    min=   709.72 us  median=   720.28 us  mean=   726.61 us
+pool_alloc         min=    59.41 us  median=    62.75 us  mean=    62.59 us
+
+results: vec=2000000 map=0 umap=0

@@ -1,0 +1,4 @@
+add_two (restrict) min=  1941.96 us  median=  1969.76 us  mean=  1979.31 us
+add_conditional    min=  3687.23 us  median=  3726.13 us  mean=  3732.21 us
+
+results: 3.0 3.0

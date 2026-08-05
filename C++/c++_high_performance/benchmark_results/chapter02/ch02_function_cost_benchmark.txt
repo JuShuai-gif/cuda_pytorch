@@ -1,0 +1,31 @@
+== std_function_cost benchmark ==
+Comparing call overhead of a std::function that fits the
+Small Buffer Optimization vs one that heap allocates.
+
+Benchmark: std::function, SBO-friendly capture (created per call)
+  mean:          0.1 ns/iter
+  median:        0.1 ns/iter
+  min:           0.1 ns/iter
+  max:           0.1 ns/iter
+  stddev:        0.0 ns/iter
+  iterations: 2000000
+  checksum:   36000000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: std::function, large capture (heap-allocated per call)
+  mean:          8.4 ns/iter
+  median:        8.4 ns/iter
+  min:           8.3 ns/iter
+  max:           8.6 ns/iter
+  stddev:        0.1 ns/iter
+  iterations: 2000000
+  checksum:   18000000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: plain lambda (created per call)
+  mean:          0.1 ns/iter
+  median:        0.1 ns/iter
+  min:           0.1 ns/iter
+  max:           0.1 ns/iter
+  stddev:        0.0 ns/iter
+  iterations: 2000000
+  checksum:   36000000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]

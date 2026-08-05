@@ -1,0 +1,22 @@
+== arena_allocator benchmark ==
+Inserting 40k unique ints into std::set.
+
+Benchmark: std::set with global heap allocator
+  mean:    7155507.4 ns/iter
+  median:  7150935.4 ns/iter
+  min:     7080225.8 ns/iter
+  max:     7245607.6 ns/iter
+  stddev:    48046.7 ns/iter
+  iterations: 5
+  checksum:   4500000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: std::set with stack arena allocator
+  mean:    1954197.6 ns/iter
+  median:  1953716.2 ns/iter
+  min:     1933312.6 ns/iter
+  max:     1982140.4 ns/iter
+  stddev:    16876.3 ns/iter
+  iterations: 5
+  checksum:   1800000
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+default/arena time ratio: 3.66x

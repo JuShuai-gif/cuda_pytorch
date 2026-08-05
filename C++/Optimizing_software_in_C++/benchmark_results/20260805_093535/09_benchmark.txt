@@ -1,0 +1,5 @@
+A aligned by 16;  B offset pointer aligned by 20
+aligned_copy       min=  1977.73 us  median=  2062.83 us  mean=  2094.50 us
+misaligned_copy    min=  1966.55 us  median=  2104.32 us  mean=  2098.32 us
+
+results: 3.0 3.0

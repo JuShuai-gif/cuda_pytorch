@@ -1,0 +1,9 @@
+CPU instruction-set level: 8 (AVX2)
+
+scalar_dot         min=  3080.61 us  median=  3095.14 us  mean=  3144.77 us
+sse_dot            min=  1659.78 us  median=  1684.57 us  mean=  1681.04 us
+avx2_dot           min=  1534.67 us  median=  1578.64 us  mean=  1578.74 us
+scalar_reduce      min=  2900.91 us  median=  2962.13 us  mean=  2985.43 us
+avx2_reduce        min=   659.49 us  median=   725.82 us  mean=   737.11 us
+
+checksums: scalar=4087885824.0 sse=4088130560.0 avx2=4088888832.0

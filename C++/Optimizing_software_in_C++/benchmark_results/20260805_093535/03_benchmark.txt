@@ -1,0 +1,10 @@
+== random data (poor prediction) ==
+branch             min=  1035.46 us  median=  1093.65 us  mean=  1106.43 us
+branchless         min=  1084.40 us  median=  1196.23 us  mean=  1215.26 us
+
+== sorted data (good prediction) ==
+branch             min=  1062.82 us  median=  1129.85 us  mean=  1121.08 us
+branchless         min=  1005.78 us  median=  1159.27 us  mean=  1163.47 us
+
+random : branch=765915330 branchless=765915330
+sorted : branch=765915330 branchless=765915330

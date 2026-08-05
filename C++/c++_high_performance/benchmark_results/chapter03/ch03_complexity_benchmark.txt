@@ -1,0 +1,8 @@
+== complexity_growth benchmark ==
+Searching for a key that is NOT present (worst case).
+Time per single search, in ns.
+
+n              linear/int   linear/Point     binary/int
+10                   2.33           2.28           1.75
+1000               196.18         197.82           3.72
+100000           19815.36       20030.68           6.57

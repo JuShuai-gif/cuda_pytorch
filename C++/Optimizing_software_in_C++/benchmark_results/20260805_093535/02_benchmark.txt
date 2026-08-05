@@ -1,0 +1,9 @@
+sum_int32_div_var  min=  3008.97 us  median=  3069.04 us  mean=  3080.03 us
+sum_int32_div_const min=  3083.15 us  median=  3170.16 us  mean=  3166.66 us
+sum_int64_add      min=  2294.45 us  median=  2455.11 us  mean=  2499.24 us
+sum_double_mul     min=  3527.30 us  median=  3672.31 us  mean=  3659.84 us
+sum_float_mul      min=  2910.70 us  median=  2971.92 us  mean=  3025.38 us
+conv_loop          min=  3059.57 us  median=  3088.64 us  mean=  3143.08 us
+no_conv_loop       min=  3051.12 us  median=  3108.45 us  mean=  3127.64 us
+
+results: 800000000 800000000 8000000000 8000799.999 8000000.500 8000000000.000 8000000000.000

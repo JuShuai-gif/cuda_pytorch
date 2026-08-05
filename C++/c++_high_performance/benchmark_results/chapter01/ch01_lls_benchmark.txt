@@ -1,0 +1,32 @@
+== linked_list_search benchmark ==
+Data: 1000000 books, "Hamlet" occurs 5067 times
+(checksum across impls should be equal)
+
+Benchmark: C-style linked list + manual loop
+  mean:    2633515.3 ns/iter
+  median:  2636378.7 ns/iter
+  min:     2545282.7 ns/iter
+  max:     2721267.0 ns/iter
+  stddev:    69232.9 ns/iter
+  iterations: 3
+  checksum:   106407
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: std::list + std::count
+  mean:    3226762.9 ns/iter
+  median:  3230744.3 ns/iter
+  min:     3176261.7 ns/iter
+  max:     3274442.0 ns/iter
+  stddev:    37138.3 ns/iter
+  iterations: 3
+  checksum:   106407
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: std::vector + std::count
+  mean:    1072924.1 ns/iter
+  median:  1070274.0 ns/iter
+  min:      942399.0 ns/iter
+  max:     1201558.0 ns/iter
+  stddev:    85557.4 ns/iter
+  iterations: 3
+  checksum:   106407
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Checksums identical: all implementations agreed.

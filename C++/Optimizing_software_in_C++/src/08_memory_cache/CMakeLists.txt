@@ -1,0 +1,8 @@
+add_executable(08_cache_stride cache_stride.cpp)
+target_link_libraries(08_cache_stride PRIVATE oopt_common)
+add_executable(08_cache_random cache_random.cpp)
+target_link_libraries(08_cache_random PRIVATE oopt_common)
+add_executable(08_aos_soa aos_soa.cpp)
+target_link_libraries(08_aos_soa PRIVATE oopt_common)
+add_executable(08_transpose transpose.cpp)
+target_link_libraries(08_transpose PRIVATE oopt_common)

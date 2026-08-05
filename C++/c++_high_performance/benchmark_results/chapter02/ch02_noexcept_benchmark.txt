@@ -1,0 +1,22 @@
+== noexcept_move benchmark ==
+Building a 100k-element vector with many reallocations.
+
+Benchmark: MoveNoexcept (noexcept move)  -> moves during growth
+  mean:     149050.0 ns/iter
+  median:   147371.1 ns/iter
+  min:      144685.2 ns/iter
+  max:      153835.7 ns/iter
+  stddev:     3829.0 ns/iter
+  iterations: 300
+  checksum:   269997300
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: MoveThrowing (throwing move)  -> copies during growth
+  mean:     145456.5 ns/iter
+  median:   143650.8 ns/iter
+  min:      141864.9 ns/iter
+  max:      159548.8 ns/iter
+  stddev:     5831.5 ns/iter
+  iterations: 300
+  checksum:   269997300
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+throwing/noexcept time ratio: 0.98x

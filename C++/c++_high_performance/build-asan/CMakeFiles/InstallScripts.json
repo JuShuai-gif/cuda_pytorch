@@ -1,0 +1,16 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/hpc/ghr_code/cuda_pytorch/C++/c++_high_performance/build-asan/cmake_install.cmake",
+		"/home/hpc/ghr_code/cuda_pytorch/C++/c++_high_performance/build-asan/common/cmake_install.cmake",
+		"/home/hpc/ghr_code/cuda_pytorch/C++/c++_high_performance/build-asan/chapter01_zero_cost/cmake_install.cmake",
+		"/home/hpc/ghr_code/cuda_pytorch/C++/c++_high_performance/build-asan/chapter02_modern_cpp/cmake_install.cmake",
+		"/home/hpc/ghr_code/cuda_pytorch/C++/c++_high_performance/build-asan/chapter03_measurement/cmake_install.cmake",
+		"/home/hpc/ghr_code/cuda_pytorch/C++/c++_high_performance/build-asan/chapter04_data_structures/cmake_install.cmake",
+		"/home/hpc/ghr_code/cuda_pytorch/C++/c++_high_performance/build-asan/chapter05_iterators/cmake_install.cmake",
+		"/home/hpc/ghr_code/cuda_pytorch/C++/c++_high_performance/build-asan/chapter06_algorithms/cmake_install.cmake",
+		"/home/hpc/ghr_code/cuda_pytorch/C++/c++_high_performance/build-asan/chapter07_memory/cmake_install.cmake",
+		"/home/hpc/ghr_code/cuda_pytorch/C++/c++_high_performance/build-asan/chapter08_metaprogramming/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

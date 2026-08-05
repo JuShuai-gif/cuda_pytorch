@@ -1,0 +1,10 @@
+== cpu_vs_memory_bound ==
+
+CPU loop: 100000000 arithmetic iterations -> 73.07 ms
+  checksum: 6713156591470877440
+Memory loop: 256 MiB read+write once -> 19.70 ms
+  checksum: 0
+effective read bandwidth: 13.6 GiB/s
+
+Use: perf stat <binary> to see cache-misses
+  ./scripts/perf_stat.sh ./build/chapter03_measurement/ch03_cpu_mem_benchmark

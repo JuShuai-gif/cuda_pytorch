@@ -1,0 +1,20 @@
+== sequence_containers insertion ==
+
+Benchmark: push_back: vector + deque + list
+  mean:    3823817.7 ns/iter
+  median:  3529770.9 ns/iter
+  min:     3508641.2 ns/iter
+  max:     4510100.2 ns/iter
+  stddev:   400288.4 ns/iter
+  iterations: 30
+  checksum:   125999370
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]
+Benchmark: single middle insert: vector + deque + list
+  mean:   59492097.6 ns/iter
+  median: 59204771.0 ns/iter
+  min:    58889885.0 ns/iter
+  max:    60633429.0 ns/iter
+  stddev:   617330.7 ns/iter
+  iterations: 1
+  checksum:   100020
+  system: [Linux | GCC 13.3.0 | 32 threads | CPU: Intel(R) Core(TM) i9-14900HX]

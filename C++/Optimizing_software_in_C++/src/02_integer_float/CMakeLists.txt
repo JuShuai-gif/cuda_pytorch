@@ -1,0 +1,6 @@
+add_executable(02_baseline baseline.cpp)
+target_link_libraries(02_baseline PRIVATE oopt_common)
+add_executable(02_optimized optimized.cpp)
+target_link_libraries(02_optimized PRIVATE oopt_common)
+add_executable(02_benchmark benchmark.cpp)
+target_link_libraries(02_benchmark PRIVATE oopt_common)
