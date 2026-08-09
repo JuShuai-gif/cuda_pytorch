@@ -1,1 +1,0 @@
-/usr/bin/c++ -g -Wl,--dependency-file=CMakeFiles/ch03_vector_growth_tests.dir/link.d CMakeFiles/ch03_vector_growth_tests.dir/vector_growth/tests.cpp.o -o ch03_vector_growth_tests  ../common/libchp_common.a

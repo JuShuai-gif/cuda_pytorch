@@ -51,6 +51,14 @@ endif()
 find_package(Threads REQUIRED)
 
 # ---------------------------------------------------------------------------
+# Parallel STL (std::execution) backend: libstdc++ delegates to oneTBB.
+# ---------------------------------------------------------------------------
+find_library(TBB_LIBRARY NAMES tbb HINTS /usr/lib/x86_64-linux-gnu)
+if(TBB_LIBRARY)
+    message(STATUS "Found TBB: ${TBB_LIBRARY}")
+endif()
+
+# ---------------------------------------------------------------------------
 # Subdirectories. Chapters are added as they are implemented.
 # ---------------------------------------------------------------------------
 add_subdirectory(common)
@@ -62,3 +70,6 @@ add_subdirectory(chapter05_iterators)
 add_subdirectory(chapter06_algorithms)
 add_subdirectory(chapter07_memory)
 add_subdirectory(chapter08_metaprogramming)
+add_subdirectory(chapter09_lazy_evaluation)
+add_subdirectory(chapter10_concurrency)
+add_subdirectory(chapter11_parallel_stl)

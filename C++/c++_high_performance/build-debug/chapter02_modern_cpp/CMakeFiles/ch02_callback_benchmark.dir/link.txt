@@ -1,1 +1,0 @@
-/usr/bin/c++ -g -Wl,--dependency-file=CMakeFiles/ch02_callback_benchmark.dir/link.d CMakeFiles/ch02_callback_benchmark.dir/callable_overhead/benchmark.cpp.o -o ch02_callback_benchmark  ../common/libchp_common.a

@@ -1,1 +1,0 @@
-/usr/bin/c++ -g -Wl,--dependency-file=CMakeFiles/ch02_lambda_example.dir/link.d CMakeFiles/ch02_lambda_example.dir/lambda_basics/example.cpp.o -o ch02_lambda_example  ../common/libchp_common.a

@@ -1,1 +1,0 @@
-/usr/bin/c++ -g -Wl,--dependency-file=CMakeFiles/ch01_lls_benchmark.dir/link.d CMakeFiles/ch01_lls_benchmark.dir/linked_list_search/benchmark.cpp.o CMakeFiles/ch01_lls_benchmark.dir/linked_list_search/baseline.cpp.o CMakeFiles/ch01_lls_benchmark.dir/linked_list_search/optimized.cpp.o -o ch01_lls_benchmark  ../common/libchp_common.a

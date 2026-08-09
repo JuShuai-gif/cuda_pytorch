@@ -1,0 +1,16 @@
+# parallel_pipeline: parallel map/filter/reduce pipeline
+
+add_executable(parallel_pipeline_example example.cpp)
+if(ENABLE_PROJECT_TESTS)
+    add_executable(parallel_pipeline_tests tests.cpp)
+endif()
+if(ENABLE_PROJECT_BENCHMARKS)
+    add_executable(parallel_pipeline_benchmark benchmark.cpp)
+endif()
+target_link_libraries(parallel_pipeline_example PRIVATE ${TBB_LIBRARY})
+if(ENABLE_PROJECT_TESTS)
+    target_link_libraries(parallel_pipeline_tests PRIVATE ${TBB_LIBRARY})
+endif()
+if(ENABLE_PROJECT_BENCHMARKS)
+    target_link_libraries(parallel_pipeline_benchmark PRIVATE ${TBB_LIBRARY})
+endif()

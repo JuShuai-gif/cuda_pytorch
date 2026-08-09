@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(cpp_concurrency_learning VERSION 1.0 LANGUAGES CXX)
+project(cpp_concurrency_learning VERSION 1.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -63,6 +63,9 @@ add_subdirectory(src/chapter-16)
 
 # Chapter 17: Engineering Practices
 add_subdirectory(src/chapter-17)
+
+# Chapter 18: Edge VLA inference pipeline
+add_subdirectory(src/chapter-18)
 
 # Industrial Concurrency Project
 add_subdirectory(project/industrial-concurrency-project)

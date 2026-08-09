@@ -1,1 +1,0 @@
-/usr/bin/c++ -O2 -g -DNDEBUG -fsanitize=address,undefined -Wl,--dependency-file=CMakeFiles/ch04_aos_vs_soa_tests.dir/link.d CMakeFiles/ch04_aos_vs_soa_tests.dir/aos_vs_soa/tests.cpp.o CMakeFiles/ch04_aos_vs_soa_tests.dir/aos_vs_soa/baseline.cpp.o CMakeFiles/ch04_aos_vs_soa_tests.dir/aos_vs_soa/optimized.cpp.o -o ch04_aos_vs_soa_tests  ../common/libchp_common.a

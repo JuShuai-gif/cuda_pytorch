@@ -1,1 +1,0 @@
-/usr/bin/c++ -g -Wl,--dependency-file=CMakeFiles/ch02_rule_of_tests.dir/link.d CMakeFiles/ch02_rule_of_tests.dir/rule_of_three_five_zero/tests.cpp.o -o ch02_rule_of_tests  ../common/libchp_common.a

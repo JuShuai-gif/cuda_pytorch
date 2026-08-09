@@ -1,1 +1,0 @@
-/usr/bin/c++ -g -Wl,--dependency-file=CMakeFiles/ch01_lvc_tests.dir/link.d CMakeFiles/ch01_lvc_tests.dir/loop_vs_count/tests.cpp.o CMakeFiles/ch01_lvc_tests.dir/loop_vs_count/baseline.cpp.o CMakeFiles/ch01_lvc_tests.dir/loop_vs_count/optimized.cpp.o -o ch01_lvc_tests  ../common/libchp_common.a

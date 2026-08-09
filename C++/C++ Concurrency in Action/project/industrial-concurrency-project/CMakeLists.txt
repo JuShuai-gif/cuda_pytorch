@@ -71,6 +71,13 @@ target_link_libraries(test_task_scheduler PRIVATE task_scheduler_static)
 add_executable(test_stress tests/test_stress.cpp)
 target_link_libraries(test_stress PRIVATE task_scheduler_static)
 
+# Release default NDEBUG must not silently remove assert-based tests.
+foreach(test_target IN ITEMS test_thread_pool test_task_queue test_task_scheduler test_stress)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${test_target} PRIVATE -UNDEBUG)
+    endif()
+endforeach()
+
 # ============================================================================
 # 示例程序（每个均可独立编译）
 # ============================================================================

@@ -1,0 +1,4 @@
+add_executable(ch18_01_edge_vla_pipeline 01_edge_vla_pipeline.cpp)
+target_link_libraries(ch18_01_edge_vla_pipeline PRIVATE Threads::Threads)
+add_test(NAME ch18_edge_vla_pipeline_self_test COMMAND ch18_01_edge_vla_pipeline --self-test)
+set_tests_properties(ch18_edge_vla_pipeline_self_test PROPERTIES TIMEOUT 10)

@@ -1,2 +1,0 @@
-/usr/bin/ar qc libchp_common.a CMakeFiles/chp_common.dir/benchmark.cpp.o CMakeFiles/chp_common.dir/statistics.cpp.o CMakeFiles/chp_common.dir/system_info.cpp.o
-/usr/bin/ranlib libchp_common.a
