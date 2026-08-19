@@ -7,9 +7,10 @@
 //   - Creating StandardInstrumentations for pass pipeline introspection
 //   - Simulating the effect of -print-before-all and -verify-each
 //
-// Build with LLVM 17+:
+// Build with the repository baseline, LLVM 20.1.x:
 //   clang++ example2.cpp $(llvm-config --cxxflags --ldflags --libs core passes irreader support) -o example2
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
@@ -21,11 +22,14 @@
 #include "llvm/Passes/StandardInstrumentations.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <memory>
+#include <utility>
+
 using namespace llvm;
 
 // ──────────────── A pass that deliberately transforms IR ────────────────
 struct DemoTransformPass : public PassInfoMixin<DemoTransformPass> {
-  PreservedAnalyses run(Function &F, FunctionAnalysisManager &FAM) {
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &) {
     bool Changed = false;
     for (BasicBlock &BB : F) {
       for (Instruction &I : make_early_inc_range(BB)) {
@@ -95,7 +99,6 @@ int main() {
 
   StandardInstrumentations SI(Context, /*DebugLogging=*/true,
                               /*VerifyEachPass=*/true, PrintOpts);
-  SI.registerCallbacks(PIC);
 
   // ──────────────── Set up pass managers with instrumentation ────────────────
   PassBuilder PB;
@@ -111,7 +114,8 @@ int main() {
   PB.registerCGSCCAnalyses(CGAM);
   PB.registerFunctionAnalyses(FAM);
   PB.registerLoopAnalyses(LAM);
-  FAM.registerPass([&] { return LAM; });
+  PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+  SI.registerCallbacks(PIC, &MAM);
 
   // ──────────────── Create and run pipeline ────────────────
   ModulePassManager MPM;

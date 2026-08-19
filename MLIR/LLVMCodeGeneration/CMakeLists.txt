@@ -1,58 +1,56 @@
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.20)
 project(LLVMCodeGeneration VERSION 1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+option(LLVM_CODEGEN_STRICT_VERSION
+    "Reject LLVM versions outside the book's 20.1.x API baseline" ON)
+option(LLVM_CODEGEN_WARNINGS_AS_ERRORS
+    "Compile examples with warnings treated as errors" OFF)
 
 # -----------------------------------------------------------------------------
-# Find LLVM
-# Set LLVM_DIR to your LLVM build or install prefix, e.g.:
-#   cmake -DLLVM_DIR=/path/to/llvm/lib/cmake/llvm .
+# Find LLVM. The book's snippets use LLVM 20.1.1. LLVM's C++ API is not
+# source-stable across releases, so fail during configuration instead of
+# producing dozens of missing-header/link errors later.
+#
+# Set LLVM_DIR to the matching package directory, e.g.:
+#   cmake -S . -B build \
+#     -DLLVM_DIR=/opt/llvm-20.1.1/lib/cmake/llvm
 # -----------------------------------------------------------------------------
-find_package(LLVM CONFIG QUIET)
-if(NOT LLVM_FOUND)
-    message(STATUS "LLVM not found via find_package. Trying to locate manually...")
-    # Try common locations
-    set(LLVM_HINTS
-        /usr/lib/llvm-19
-        /usr/lib/llvm-18
-        /usr/lib/llvm-17
-        /usr/lib/llvm-16
-        /usr/lib/llvm
-        /usr/local/llvm
-    )
-    find_path(LLVM_INCLUDE_DIRS llvm/IR/LLVMContext.h
-        HINTS ${LLVM_HINTS}
-        PATH_SUFFIXES include
-    )
-    if(LLVM_INCLUDE_DIRS)
-        message(STATUS "  Found LLVM include: ${LLVM_INCLUDE_DIRS}")
-    else()
-        message(WARNING "LLVM headers not found. Set LLVM_DIR or LLVM_INCLUDE_DIRS manually.")
-    endif()
-else()
-    message(STATUS "LLVM found: ${LLVM_PACKAGE_VERSION}")
-    include_directories(${LLVM_INCLUDE_DIRS})
-    add_definitions(${LLVM_DEFINITIONS})
+find_package(LLVM CONFIG REQUIRED)
+
+if(LLVM_CODEGEN_STRICT_VERSION AND
+   NOT LLVM_PACKAGE_VERSION MATCHES "^20\\.1(\\.|$)")
+    message(FATAL_ERROR
+        "LLVM ${LLVM_PACKAGE_VERSION} is outside the supported 20.1.x "
+        "baseline. Use a matching LLVM_DIR, or configure with "
+        "-DLLVM_CODEGEN_STRICT_VERSION=OFF for an explicit porting experiment.")
 endif()
 
-# If LLVM was found via find_package, map library names
-if(LLVM_FOUND)
-    llvm_map_components_to_libnames(LLVM_LIBS
-        core support irreader asmparser bitreader bitwriter
-        analysis transformsutils scalaropts ipo vectorize
-        target targetparser mc mcparser codegen
-        passes instrumentation objcarcopts
-    )
-    message(STATUS "LLVM libraries: ${LLVM_LIBS}")
-endif()
+message(STATUS "LLVM package version: ${LLVM_PACKAGE_VERSION}")
+message(STATUS "LLVM package directory: ${LLVM_DIR}")
+message(STATUS "LLVM tools directory: ${LLVM_TOOLS_BINARY_DIR}")
+
+separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND "${LLVM_DEFINITIONS}")
+
+llvm_map_components_to_libnames(LLVM_LIBS
+    core support irreader asmparser bitreader bitwriter
+    analysis transformutils scalaropts ipo vectorize
+    target targetparser mc mcparser codegen
+    passes instrumentation objcarcopts
+    native nativecodegen nativeasmparser nativeasmprinter
+)
+message(STATUS "LLVM libraries: ${LLVM_LIBS}")
 
 # -----------------------------------------------------------------------------
 # Helper function: add per-chapter example executables
 # Usage: add_chapter(ChapterName file1.cpp file2.cpp ...)
 # -----------------------------------------------------------------------------
 function(add_chapter CHAPTER_NAME)
-    file(GLOB CH_SRC "${CMAKE_SOURCE_DIR}/src/${CHAPTER_NAME}/*.cpp")
+    file(GLOB CH_SRC CONFIGURE_DEPENDS
+        "${CMAKE_SOURCE_DIR}/src/${CHAPTER_NAME}/*.cpp")
     foreach(SRC_FILE ${CH_SRC})
         get_filename_component(EXE_NAME ${SRC_FILE} NAME_WE)
         set(TARGET_NAME "${CHAPTER_NAME}_${EXE_NAME}")
@@ -60,9 +58,20 @@ function(add_chapter CHAPTER_NAME)
         target_include_directories(${TARGET_NAME} PRIVATE
             ${LLVM_INCLUDE_DIRS}
         )
-        if(LLVM_FOUND)
-            target_link_libraries(${TARGET_NAME} ${LLVM_LIBS})
+        target_compile_options(${TARGET_NAME} PRIVATE
+            ${LLVM_DEFINITIONS_LIST}
+            -Wall
+            -Wextra
+            -Wpedantic
+        )
+        if(LLVM_CODEGEN_WARNINGS_AS_ERRORS)
+            target_compile_options(${TARGET_NAME} PRIVATE -Werror)
         endif()
+        target_link_libraries(${TARGET_NAME} PRIVATE ${LLVM_LIBS})
+        set_target_properties(${TARGET_NAME} PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY
+                "${CMAKE_BINARY_DIR}/bin/${CHAPTER_NAME}"
+        )
     endforeach()
 endfunction()
 
@@ -113,4 +122,4 @@ add_chapter(Chapter20_Lowering_of_the_Stack_Layout)
 add_chapter(Chapter21_Getting_Started_with_the_Assembler)
 
 message(STATUS "LLVM Code Generation project configured successfully.")
-message(STATUS "Build with: cmake --build .")
+message(STATUS "Build examples with: cmake --build ${CMAKE_BINARY_DIR}")

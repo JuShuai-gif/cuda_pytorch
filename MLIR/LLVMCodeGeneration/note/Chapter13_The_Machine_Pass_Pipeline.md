@@ -618,6 +618,29 @@ class AITargetPassConfig : public TargetPassConfig {
 };
 ```
 
+## 工业落地：修改 Machine pipeline 的验收门禁
+
+新增、删除或移动一个 machine pass 时，至少回答：
+
+- 它要求 SSA、NoVRegs、TracksLiveness 等哪些 MachineFunction properties？
+- 它运行在 regalloc 前还是后？操作虚拟寄存器还是物理寄存器？
+- 它修改 CFG、live intervals、slot indexes 或 register pressure 后，哪些分析仍然有效？
+- 对所有 subtarget 都启用，还是受 feature/cpu/opt-level 控制？
+- 编译时间与代码质量收益是否覆盖新增复杂度？
+
+开发阶段可启用 machine verifier 并在 pass 前后保存 MIR；CI 除 lit 回归外还要比较：
+
+```text
+编译时间 / 峰值内存
+汇编或对象文件大小
+spill/reload 数量与栈帧大小
+关键指令数、分支数、寄存器压力
+目标机 benchmark 的均值、方差与尾延迟
+```
+
+不要仅凭单个 kernel 的汇编更短就调整全局 pipeline。pass 顺序变化可能改善一个 subtarget，
+同时破坏另一个 subtarget 的 pattern、调度或寄存器压力。
+
 ## 总结
 
 Machine pass pipeline 是 LLVM 后端的核心执行框架，管理 Machine IR 从 ISel 输出到最终代码的全过程：

@@ -14,10 +14,11 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/IR/Verifier.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Utils/Cloning.h"
 
 using namespace llvm;
 
@@ -35,17 +36,21 @@ public:
     SmallVector<Function *, 8> ToDelete;
 
     for (Function &F : M) {
-      if (F.isDeclaration() || !F.hasAddressTaken()) {
-        if (F.user_empty() && &F != M.getFunction("main")) {
-          ToDelete.push_back(&F);
-          Changed = true;
-        }
-      }
+      if (!F.user_empty())
+        continue;
+
+      // An unused externally visible definition can still be called by code
+      // outside this module, so only discard definitions whose linkage says
+      // they may be dropped.  Unused declarations define no implementation
+      // and are also safe to remove.
+      if (F.isDeclaration() || F.isDiscardableIfUnused())
+        ToDelete.push_back(&F);
     }
 
-    for (Function *F : ToDelete) {
+    for (Function *F : ToDelete)
       F->eraseFromParent();
-    }
+
+    Changed = !ToDelete.empty();
 
     return Changed ? PreservedAnalyses::none()
                    : PreservedAnalyses::all();
@@ -68,12 +73,14 @@ llvm::PassPluginLibraryInfo getCleanupPluginInfo() {
           }};
 }
 
+} // anonymous namespace
+
+// Keep the plugin entry point outside the anonymous namespace so a shared
+// library exports the symbol that opt looks up with -load-pass-plugin.
 extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
 llvmGetPassPluginInfo() {
   return getCleanupPluginInfo();
 }
-
-} // anonymous namespace
 
 // ---------------------------------------------------------------------------
 // Main: Creates an LLVM IR module that demonstrates test patterns.
@@ -125,12 +132,11 @@ int main() {
     UsedBuilder.CreateRet(ConstantInt::get(Type::getInt32Ty(Context), 99));
 
     // Make main depend on used_helper
-    Builder.SetInsertPoint(&MainF->getEntryBlock().front());
+    Instruction *OldReturn = MainF->getEntryBlock().getTerminator();
+    Builder.SetInsertPoint(OldReturn);
     Value *CallResult = Builder.CreateCall(UsedF, {}, "call_res");
     Builder.CreateRet(CallResult);
-    // Remove the old ret
-    MainF->getEntryBlock().getTerminator()->eraseFromParent();
-    Builder.SetInsertPoint(&MainF->getEntryBlock());
+    OldReturn->eraseFromParent();
   }
 
   // -----------------------------------------------------------------------
@@ -145,9 +151,18 @@ int main() {
   PB.registerModuleAnalyses(MAM);
 
   outs() << "; Before cleanup:\n";
+  if (verifyModule(M, &errs())) {
+    errs() << "ERROR: Input module verification failed!\n";
+    return 1;
+  }
   M.print(outs(), nullptr);
 
   MPM.run(M, MAM);
+
+  if (verifyModule(M, &errs())) {
+    errs() << "ERROR: Module verification failed after cleanup!\n";
+    return 1;
+  }
 
   outs() << "\n; After cleanup:\n";
   M.print(outs(), nullptr);

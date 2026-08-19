@@ -8,11 +8,14 @@
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/CFG.h"
+#include "llvm/IR/Verifier.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/IRReader/IRReader.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <memory>
 
 using namespace llvm;
 
@@ -26,15 +29,14 @@ entry:
   br i1 %cmp, label %done, label %loop
 
 loop:
-  %a_phi = phi i32 [ %a, %entry ], [ %b_next, %loop ]
+  %a_phi = phi i32 [ %a, %entry ], [ %b_phi, %loop ]
   %b_phi = phi i32 [ %b, %entry ], [ %mod, %loop ]
   %mod = srem i32 %a_phi, %b_phi
-  %b_next = call i32 @gcd(i32 %b_phi, i32 %mod)
   %cmp_loop = icmp eq i32 %mod, 0
   br i1 %cmp_loop, label %done, label %loop
 
 done:
-  %result = phi i32 [ %a, %entry ], [ %b_phi, %loop ], [ %b_next, %loop ]
+  %result = phi i32 [ %a, %entry ], [ %b_phi, %loop ]
   ret i32 %result
 }
 
@@ -53,6 +55,10 @@ int main() {
   std::unique_ptr<Module> M = parseAssemblyString(SampleIR, Err, Context);
   if (!M) {
     Err.print("example2", errs());
+    return 1;
+  }
+  if (verifyModule(*M, &errs())) {
+    errs() << "example2: parsed module is not valid LLVM IR\n";
     return 1;
   }
 

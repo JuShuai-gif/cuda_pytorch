@@ -8,7 +8,7 @@
 //   - Common instructions: add, mul, icmp, br, ret, load, store, alloca
 //   - Building a complete module
 //
-// Build with LLVM 17+:
+// Build with the repository baseline, LLVM 20.1.x:
 //   clang++ example1.cpp $(llvm-config --cxxflags --ldflags --libs core irreader) -o example1
 
 #include "llvm/IR/BasicBlock.h"

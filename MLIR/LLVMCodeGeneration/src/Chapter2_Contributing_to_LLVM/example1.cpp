@@ -14,6 +14,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <gtest/gtest.h>
+#include <memory>
 #include <string>
 
 // Test fixture - LLVM provides TestBase classes in the source tree
@@ -62,7 +63,9 @@ TEST_F(LLVMBasicsTest, CreateFunction) {
 
   // Verify function properties
   EXPECT_EQ(F->getName(), "foo");
-  EXPECT_FALSE(F->isDeclaration());   // has no body yet but is not marked decl
+  // In LLVM IR, a Function with no basic blocks is a declaration, regardless
+  // of whether it was created with Function::Create or parsed from text.
+  EXPECT_TRUE(F->isDeclaration());
   EXPECT_EQ(F->arg_size(), 2u);
   EXPECT_EQ(F->getReturnType(), llvm::Type::getInt32Ty(*Context));
   EXPECT_EQ(F->getParent(), &M);

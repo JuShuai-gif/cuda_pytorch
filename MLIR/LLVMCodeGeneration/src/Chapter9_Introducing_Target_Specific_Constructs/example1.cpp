@@ -8,7 +8,7 @@
 //   - Inspecting TargetMachine properties (data layout, triple, relocation model)
 //   - Basic TargetTransformInfo usage through TargetMachine
 //
-// Build with LLVM 17+:
+// Build with the repository baseline, LLVM 20.1.x:
 //   clang++ example1.cpp $(llvm-config --cxxflags --ldflags --libs all-targets core) -o example1
 
 #include "llvm/IR/LLVMContext.h"

@@ -7,7 +7,7 @@
 //   - Creating a simple Function pass with the new pass manager
 //   - Running a pass pipeline and observing debug output
 //
-// Build with LLVM 17+:
+// Build with the repository baseline, LLVM 20.1.x:
 //   clang++ example1.cpp $(llvm-config --cxxflags --ldflags --libs core passes irreader support) -o example1
 //
 // Usage:
@@ -15,16 +15,21 @@
 //   ./example1 -debug                    # all debug output
 //   ./example1 -debug-only=ch10-pass     # only our pass's debug output
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/IR/Verifier.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <memory>
+#include <utility>
 
 using namespace llvm;
 
@@ -34,7 +39,7 @@ using namespace llvm;
 
 // ──────────────── A simple function pass with debug logging ────────────────
 struct Ch10DemoPass : public PassInfoMixin<Ch10DemoPass> {
-  PreservedAnalyses run(Function &F, FunctionAnalysisManager &FAM) {
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &) {
     LLVM_DEBUG(dbgs() << "[ch10-pass] Entering pass for function: "
                        << F.getName() << "\n");
 
@@ -43,7 +48,7 @@ struct Ch10DemoPass : public PassInfoMixin<Ch10DemoPass> {
       LLVM_DEBUG(dbgs() << "[ch10-pass]   BasicBlock: " << BB.getName()
                          << " (" << BB.size() << " instructions)\n");
 
-      for (Instruction &I : BB) {
+      for (Instruction &I : make_early_inc_range(BB)) {
         LLVM_DEBUG(dbgs() << "[ch10-pass]     " << I.getOpcodeName()
                            << ": " << I << "\n");
 
@@ -55,6 +60,7 @@ struct Ch10DemoPass : public PassInfoMixin<Ch10DemoPass> {
             if (ConstOp1->isZero()) {
               LLVM_DEBUG(dbgs() << "[ch10-pass]       -> Optimizing add with zero\n");
               I.replaceAllUsesWith(Op0);
+              I.eraseFromParent();
               Changed = true;
             }
           }
@@ -65,7 +71,8 @@ struct Ch10DemoPass : public PassInfoMixin<Ch10DemoPass> {
     LLVM_DEBUG(dbgs() << "[ch10-pass] Exiting pass for function: "
                        << F.getName() << " (Changed=" << Changed << ")\n");
 
-    // Preserve all analyses since we only do simple replacement
+    // Replacing and erasing an instruction invalidates value-sensitive
+    // analyses, even though the CFG itself is unchanged.
     return Changed ? PreservedAnalyses::none() : PreservedAnalyses::all();
   }
 };
@@ -120,6 +127,11 @@ int main(int argc, char **argv) {
   LLVMContext Context;
   auto M = buildTestModule(Context);
 
+  if (verifyModule(*M, &errs())) {
+    errs() << "ERROR: input module is invalid\n";
+    return 1;
+  }
+
   outs() << "=== Before Pass ===\n";
   M->print(outs(), nullptr);
   outs() << "\n";
@@ -135,7 +147,7 @@ int main(int argc, char **argv) {
   PB.registerCGSCCAnalyses(CGAM);
   PB.registerFunctionAnalyses(FAM);
   PB.registerLoopAnalyses(LAM);
-  FAM.registerPass([&] { return LAM; });
+  PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
   // Create a module pass manager and add our pass
   ModulePassManager MPM;
@@ -145,6 +157,11 @@ int main(int argc, char **argv) {
 
   // Run the pipeline
   MPM.run(*M, MAM);
+
+  if (verifyModule(*M, &errs())) {
+    errs() << "ERROR: pass produced invalid IR\n";
+    return 1;
+  }
 
   outs() << "=== After Pass ===\n";
   M->print(outs(), nullptr);

@@ -10,7 +10,7 @@ LLVM IR 的设计遵循几个核心原则：
 1. **SSA（Static Single Assignment）形式**：每个值只被定义一次。这大幅简化了数据流分析和优化算法的实现。
 2. **低级但目标无关**：比 C 低级（有显式的内存操作、控制流），但比汇编高级（没有寄存器分配、没有指令编码）。
 3. **类型安全**：强类型系统在编译时捕获大量错误，是 Pass verifier 的基础。
-4. **可序列化**：同时支持文本格式（`.ll`）和二进制位码（`.bc`），后者具有向后兼容保证。
+4. **可序列化**：同时支持文本格式（`.ll`）和二进制位码（`.bc`）。新版 LLVM 对旧位码提供较强的读取兼容，但调试元数据等信息存在特殊规则，不能把它当成无条件、双向兼容的长期存档格式。
 
 ### 标识符的三个命名空间
 
@@ -33,7 +33,7 @@ LLVM IR 的类型系统是其最强大的特性之一，对 AI 编译器尤其�
 - 向量：`<N x type>`，如 `<4 x float>`、`<16 x i8>`。
 - 可伸缩向量：`<vscale x N x type>`，用于 ARM SVE 和 RISC-V V 扩展。
 
-**标签类型（Label）**：`label` 仅用于 `br` 和 `phi` 指令，表示基本块的地址。
+**标签类型（Label）**：基本块是 `label` 类型的值。它出现在 `br`、`switch`、`invoke`、`indirectbr` 等控制流指令以及 `phi` 的 incoming block 标注中；不能把它当作普通整数或通用指针运算。
 
 **聚合类型（Aggregate Types）**：
 - 结构体：`{type1, type2, ...}`（字面量）或 `%MyType = type { ... }`（命名）。
@@ -138,7 +138,7 @@ MLIR 的 LLVM Dialect 提供了与 LLVM IR 完全对应的操作（`mlir::LLVM::
 |------|---------------|----------------|
 | 人类可读性 | 是 | 否 |
 | 文件大小 | 较大 | 紧凑（~1/10） |
-| 向后兼容 | 不保证 | 保证（自动升级） |
+| 兼容性 | 语法可能变化，不保证旧文本可直接读取 | 新工具通常可读取旧位码并自动升级；旧工具不能读取任意新位码，部分元数据有例外 |
 | 使用场景 | 开发/调试/测试 | 分发/持久化/LTO |
 | 修改方式 | 直接文本编辑 | opt 工具转换 |
 
@@ -330,6 +330,29 @@ define void @my_kernel(ptr addrspace(1) %input, ptr addrspace(1) %output) {
 }
 ```
 
+## 工业落地：LLVM IR 也是接口契约
+
+当一个进程、缓存或编译阶段把 `.ll/.bc` 交给另一个消费者时，真正的契约不只有指令文本：
+
+- `target triple` 和 `DataLayout` 决定指针宽度、对齐、结构体布局和合法地址空间。
+- calling convention、函数/参数属性和 visibility 决定 ABI，不能在序列化时随意丢弃。
+- `nsw/nuw/exact`、fast-math flags、poison/undef/freeze 参与语义，不能当优化提示忽略。
+- TBAA、alias scope、range 等元数据可能影响优化；调试元数据则允许在升级时按不同规则处理。
+- 新工具通常能读取旧 bitcode，但旧工具不能读取任意新 bitcode，MIR 更不适合作为跨版本协议。
+
+生产系统应给 IR 缓存键加入 LLVM 版本、pipeline 版本、triple、CPU/features 和关键编译选项。
+缓存命中后仍先运行 verifier；版本或 DataLayout 不匹配时直接重建，比“尽量读一下”更安全。
+
+调试 IR 时优先保留以下最小信息：
+
+```llvm
+target triple = "..."
+target datalayout = "..."
+; 触发问题所需的函数、属性、声明和元数据
+```
+
+删掉 triple 或属性后 bug 消失，并不代表缩减成功，而可能是已经换了编译契约。
+
 ## 总结
 
 1. **LLVM IR 的核心地位**：作为中端优化的唯一表示，LLVM IR 承载了所有的 target-independent 优化。理解 LLVM IR 是理解所有 LLVM-based 编译器（包括 MLIR-based）的基础。
@@ -453,7 +476,7 @@ AutoUpgrade::UpgradeFunctionAttributes()
 - `!tbaa` 元数据的格式演进
 - 指令 flags 的重命名
 
-**生产经验**：在 CI 中缓存 `.bc` 文件（LTO 的中间产物）时务必记录 LLVM 版本号。新旧 `.bc` 文件的混用可能导致静默的错误代码生成，因为自动升级并非对所有改变都保持语义等价。
+**生产经验**：在 CI 中缓存 `.bc` 文件（LTO 的中间产物）时务必记录 LLVM 版本号、target triple、DataLayout 和关键编译选项。跨版本读取后重新运行 verifier 与语义回归；对缓存不匹配优先选择失效重建，而不是假设 AutoUpgrade 能处理所有生产契约。
 
 ### GEP（getelementptr）的工业级使用模式
 

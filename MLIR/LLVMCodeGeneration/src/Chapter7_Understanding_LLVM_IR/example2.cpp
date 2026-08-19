@@ -6,7 +6,7 @@
 //   - Building a function that uses the @llvm.vector.reduce.add intrinsic
 //   - Using getelementptr (GEP) for aggregate type field access
 //
-// Build with LLVM 17+:
+// Build with the repository baseline, LLVM 20.1.x:
 //   clang++ example2.cpp $(llvm-config --cxxflags --ldflags --libs core irreader) -o example2
 
 #include "llvm/IR/Constants.h"

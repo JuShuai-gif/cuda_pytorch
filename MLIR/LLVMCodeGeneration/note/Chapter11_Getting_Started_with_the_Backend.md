@@ -429,17 +429,20 @@ body: |
 
 ### 示例 2：Triton 的 PTX 生成路径中的 Machine IR
 
-Triton 编译器内部用 C++ 直接生成 LLVM IR（不经过 MLIR），然后调用 LLVM 的 NVPTX 后端。
-关键 Machine IR 阶段包括：
+现代 Triton 使用基于 MLIR 的多级 IR：Triton IR / TritonGPU IR 逐步降低到 LLVM dialect，
+再翻译为标准 LLVM IR，最后调用 LLVM NVPTX 后端。不要把“最终交给 LLVM IR”误解为“不经过 MLIR”。
+关键边界可以抽象为：
 
 ```
-LLVM IR:     %sum = call i32 @llvm.nvvm.lg2.approx.f(i32 %x)
+LLVM IR:     %y = call float @llvm.nvvm.lg2.approx.f(float %x)
              ↓ (NVPTX DAGToDAGISel)
-Machine IR:  %v0:Int32Regs = LG2_approx_i32_only %v1
+Machine IR:  %v0:float32regs = <NVPTX lg2 opcode> %v1
+             ↓ (NVPTX AsmPrinter)
+PTX:         lg2.approx.f32 %f0, %f1;
 ```
 
-这里 `LLVM IR` 中的 intrinsic `@llvm.nvvm.lg2.approx.f` 被 NVPTX 的 SDISel
-匹配为特定的 `NVPTXISD::LG2` SDNode，再选择为 PTX 指令 `lg2.approx.f32`。
+这里的 Machine opcode 名称会随 LLVM 版本变化，学习时应通过 `llc -stop-after=<pass>`
+观察本机 LLVM 20.1.x 的真实 MIR，而不是把教学用名字当成稳定 API。
 
 ### 示例 3：自定义后端的基本流程
 
@@ -452,6 +455,28 @@ Machine IR:  %v0:Int32Regs = LG2_approx_i32_only %v1
 6. 创建 MyTargetRegisterInfo.cpp（TargetRegisterInfo 子类）
 ```
 
+## 工业落地：把 MIR 作为机器 pass 的回归边界
+
+MIR 最适合回答“某个 MachineFunction pass 是否正确”，而不是充当跨版本交换格式：
+
+```bash
+# 在目标 pass 附近截断，生成真实 MIR
+llc -stop-after=finalize-isel input.ll -o case.mir
+
+# 隔离运行一个机器 pass
+llc -run-pass=<machine-pass-name> case.mir -o - | FileCheck case.mir
+
+# 删除默认字段，降低测试对无关输出的敏感度
+llc -simplify-mir case.mir -o simplified.mir
+```
+
+提交 MIR 回归时必须保留 target triple、触发 bug 的寄存器 class/bank、隐式操作数、
+MachineMemOperand 和必要的 MachineFunction properties。虚拟寄存器编号、block ID、debug
+位置若与测试目标无关，不应被 `CHECK-NEXT` 全量锁死。
+
+机器 verifier 通过也不代表 ABI 正确。涉及 call、callee-saved、stack object 或 register mask 的
+改动，还要继续生成对象文件并做链接/运行测试。
+
 ## 总结
 
 Machine IR 是 LLVM 后端的核心 IR，位于 LLVM IR 和汇编代码之间。它的关键特性包括：
@@ -459,7 +484,7 @@ Machine IR 是 LLVM 后端的核心 IR，位于 LLVM IR 和汇编代码之间。
 - **操作数类型多样**：寄存器、立即数、符号、寄存器掩码、栈帧索引等
 - **隐式操作数建模**：硬件约束（如 flags 寄存器）和 ABI 约束（如 call 的 sp/lr）
 - **灵活的寄存器层次**：sub-register、register tuples、register units 支持复杂硬件
-- **SSA ↔ 非 SSA 转换**：Machine IR 可以自由转换，SSA 状态由虚拟寄存器定义次数决定
+- **SSA → 非 SSA 是阶段边界**：PHI elimination、two-address lowering 和寄存器分配之后，不能假设还能无成本恢复 SSA；pass 必须声明并检查所需的 MachineFunction properties
 - **TableGen 驱动**：寄存器、指令的描述通过 .td 文件声明，TableGen backend 生成 C++ boilerplate
 
 **与 AI 编译器的关系**：

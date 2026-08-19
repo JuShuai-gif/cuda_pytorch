@@ -498,52 +498,24 @@ FlatBuffer 格式（IREE 自定义）:
 └──────────────────────────────────────────┘
 ```
 
-### ELF for GPU 和函数调用重定位
+### CPU 目标文件与 GPU 制品封装必须分层理解
 
-GPU kernel 的代码加载需要特殊处理：
+对 x86/AArch64 等目标，LLVM MC layer 可以直接产生 ELF/Mach-O/COFF，fixup 由
+`MCObjectWriter` 转换成目标格式定义的 relocation。NVPTX 后端则主要输出 PTX 文本；
+`ptxas` 或 CUDA driver JIT 再生成 cubin。host 侧 fatbinary 如何封装 PTX/cubin，和
+NVPTX AsmPrinter 发射 PTX，是两个不同阶段，不能虚构一个 `NVPTXObjectWriter` 把二者混在一起。
 
-```
-传统 CPU ELF:
-  main.c → main.o (ELF) → linker → a.out (ELF) → loader → process
-  重定位在 link time 或 load time 解决
+生产排查时分别保存并检查：
 
-GPU Kernel:
-  kernel.cu → kernel.o (ELF with PTX/cubin sections) → CUDA driver
-  - cubin 嵌入在 ELF 的 .nv_fatbin section 中
-  - 函数调用重定位在 CUDA driver 加载时解决
-  - device code 的函数调用是 PC-relative（同一 cubin 内）
+```bash
+# CPU/标准 ELF：LLVM 自己生成并检查对象文件
+llc -filetype=obj input.bc -o input.o
+llvm-readobj --file-headers --sections --symbols --relocations input.o
+llvm-objdump -dr input.o
 
-AI 模型中的函数调用重定位:
-  ┌─────────────────────────┐
-  │  Host code (CPU)        │
-  │  - kernel<<<...>>>()    │ ← CUDA runtime API
-  │    → 调用需要通过 driver │   重定位到正确的 kernel 入口
-  │  - library calls        │
-  └─────────┬───────────────┘
-            │
-  ┌─────────▼───────────────┐
-  │  Device code (GPU)      │
-  │  - device functions     │
-  │    → PC-relative calls   │ ← 在同一 cubin 内无需重定位
-  │  - __global__ functions │   跨 cubin 的调用需要通过 PTX .callprototype
-  └─────────────────────────┘
-```
-
-**LLVM 中处理 GPU 特有的 ELF Sections：**
-
-```cpp
-// NVPTX 后端的 AsmPrinter 可以生成：
-//   .nv_fatbin section: 包含所有 GPU 代数的 cubin
-//   .nv_global section: 全局变量
-//   .nv_constant section: 常量数据
-
-// 在 MCObjectWriter 中:
-void NVPTXObjectWriter::writeObject(MCAssembler &Asm,
-                                     const MCAsmLayout &Layout) {
-  // 写入标准的 ELF header
-  // 写入 .nv_fatbin section（包含 cubin binary blob）
-  // 写入重定位信息（host ←→ device 函数指针）
-}
+# NVIDIA：分别观察 PTX 和 ptxas 输出，寄存器数/spill 以 ptxas 报告为准
+llc -march=nvptx64 input.bc -o input.ptx
+ptxas -arch=sm_80 -v input.ptx -o input.cubin
 ```
 
 ## 示例说明
@@ -631,38 +603,43 @@ cubin (二进制，嵌入到 fatbinary 中):
   → CUDA driver 在 kernel launch 时加载 cubin 到 GPU
 ```
 
-### 示例 3：ELF 重定位在 AI 模型中的应用
+### 示例 3：用工具确认真实重定位，而不是猜名称
 
+```bash
+# 生成保留外部函数调用的对象文件
+clang -target aarch64-linux-gnu -c caller.c -o caller.o
+
+# 同时查看符号和 relocation
+llvm-readobj --symbols --relocations caller.o
+llvm-objdump -dr caller.o
 ```
-AI 模型的函数调用场景:
-  主机端调用:
-    main → cudaLaunchKernel("matmul_kernel", ...)
-            → 需要知道 matmul_kernel 在 cubin 中的地址
 
-  设备端调用:
-    __global__ void attention_kernel(...) {
-      ...
-      softmax_kernel<<<...>>>(...);  // dynamic parallelism
-      ...
-    }
+你应在 AArch64 上看到该 ABI/对象格式定义的真实 relocation（外部调用常见为
+`R_AARCH64_CALL26`）；换成 x86-64 后名称和编码会改变。CUDA cubin 的 relocation
+由 NVIDIA 工具链和其对象格式决定，不应在 LLVM NVPTX 教学代码里臆造 `R_CUDA_*`
+枚举。工业文档必须以当前工具输出和格式规范为准。
 
-ELF 重定位条目:
-  R_CUDA_DEVICE_FUNCTION_16    // 16-bit PC-relative, same cubin
-  R_CUDA_DEVICE_FUNCTION_32    // 32-bit PC-relative, same cubin
-  R_CUDA_GLOBAL_VARIABLE_64    // 64-bit address of global symbol
-  R_CUDA_KERNEL_FUNCTION_64    // 64-bit address of kernel entry
+## 工业落地：对象文件是必须验收的产品边界
 
-在 LLVM MC Layer 中的处理:
-  // 在 MCObjectWriter 中记录:
-  recordRelocation(Fragment, Fixup, Target, FixedValue) {
-    if (是 device function call 在同一 cubin 内):
-      → 生成 R_CUDA_DEVICE_FUNCTION_32 重定位
-    elif (是跨 cubin 的调用):
-      → 生成 stub 符号 + R_CUDA_KERNEL_FUNCTION_64 重定位
-    elif (是 global variable 访问):
-      → 生成 R_CUDA_GLOBAL_VARIABLE_64 重定位
-  }
+后端能输出 `.s` 不代表工具链完成。发布前至少检查：
+
+```bash
+llvm-readobj --file-headers --sections --symbols --relocations output.o
+llvm-objdump -dr --no-show-raw-insn output.o
 ```
+
+验收项包括：
+
+- 文件格式、架构、endianness、ABI flags 与 code model 正确。
+- section 名称、权限、对齐和 COMDAT/group 符合平台约定。
+- 符号 binding、visibility、size、TLS 模型与链接预期一致。
+- relocation 的类型、addend、作用 section 和目标符号正确。
+- prologue/epilogue、栈对齐、callee-saved、CFI/unwind 信息可被系统工具读取。
+- debug build 的 DWARF/CodeView 可用，strip 后生产制品不泄漏不应发布的信息。
+- 静态/动态链接、加载、执行和最小 ABI 互操作测试通过。
+
+CPU `.o`、PTX、cubin、SPIR-V 是不同产品边界，应分别使用对应工具验证。尤其不要用 PTX
+文本“看起来正确”替代 `ptxas` 的寄存器、spill、错误报告和目标 GPU 运行测试。
 
 ## 总结
 

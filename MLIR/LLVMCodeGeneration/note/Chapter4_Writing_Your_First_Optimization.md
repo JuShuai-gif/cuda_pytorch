@@ -371,8 +371,10 @@ APInt Val32(32, 1000000);   // 32 位值
 APInt Val64(64, 0xFFFFFFFFFFFFFFFFULL);
 
 // 常量运算
-APInt Sum = Val32 + Val8;   // 自动提升到合适位宽
-APInt Prod = Val32 * Val64;
+APInt Val8As32 = Val8.zext(32);
+APInt Sum = Val32 + Val8As32;  // 二元运算前必须显式统一位宽
+APInt Val32As64 = Val32.sext(64);
+APInt Prod = Val32As64 * Val64;
 
 // 创建 ConstantInt
 ConstantInt *C8 = ConstantInt::get(Context, Val8);
@@ -380,6 +382,8 @@ ConstantInt *C32 = ConstantInt::get(Context, Val32);
 ```
 
 **为什么需要 APInt 而非 `int64_t`**：LLVM IR 支持任意位宽的整数（`i1`, `i7`, `i19`, `i256`, ...）。只有 `APInt` 能精确表示所有可能的位宽。
+
+**生产陷阱**：`APInt` 不会像 C/C++ 整数那样做 usual arithmetic conversions。多数二元运算要求两侧位宽相同；需要根据 IR 的有符号/无符号语义显式选择 `sext`、`zext` 或 `trunc`。扩展方式选错会在高位为 1 的输入上产生静默错编。
 
 ### 使用 isa/dyn_cast/cast 进行类型检查
 
@@ -519,6 +523,32 @@ void analyzeUsers(Value *V) {
 ```
 
 ---
+
+## 工业落地：一个优化怎样才允许合入
+
+### 正确性门禁
+
+1. **先写不应触发的反例**：有 `nsw/nuw/exact`、poison、undef、不同位宽、向量、地址空间和边界常量时会怎样？
+2. **复用公共折叠器**：本章 `example1.cpp` 现在使用 `ConstantFoldInstruction`，避免手写 APInt 时把 `add nsw i8 127, 1` 错折成 `-128`；LLVM 正确结果是 poison。
+3. **变换前后都验证**：输入非法时应立即拒绝，变换后用 verifier 捕获支配、类型和 CFG 错误。
+4. **非平凡代数改写用 Alive2 或等价的形式化/差分验证**，不要仅凭几个手写样例判断正确。
+
+### 工程验收顺序
+
+```bash
+# 1. IR 合法性和单 pass 回归
+opt -passes='my-pass,verify' -S input.ll | FileCheck input.ll
+
+# 2. 每个 pass 后验证，定位第一个破坏 IR 的阶段
+opt -passes='default<O2>' -verify-each input.bc -o candidate.bc
+
+# 3. baseline/candidate 使用同一输入做语义差分
+# 4. 再比较编译时间、代码大小和目标机运行性能
+```
+
+FileCheck 只验证结构，不证明语义等价；benchmark 只证明某组输入上的性能，也不证明合法性。
+这四类证据必须分开保存。对 `PreservedAnalyses` 拿不准时先返回 `none()`：分析失效声明错误可能让
+后续 pass 使用陈旧结果，属于正确性问题，不只是编译速度问题。
 
 ## 总结
 

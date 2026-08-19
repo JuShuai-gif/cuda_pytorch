@@ -3,13 +3,14 @@
 //
 // Algorithm:
 // 1. Iterate through all instructions in a function
-// 2. For each instruction, check if all operands are constant
-// 3. If so, compute the result at compile time using APInt
-// 4. Replace the instruction with the computed constant
+// 2. Ask LLVM's ConstantFoldInstruction to preserve all IR semantics
+// 3. Replace foldable instructions with the returned Constant/PoisonValue
+// 4. Erase the obsolete instruction without invalidating traversal
 //
-// This demonstrates: SSA traversal, use-def chains, APInt arithmetic,
-// replaceAllUsesWith, and LLVM's RTTI (isa/dyn_cast).
+// This demonstrates: SSA traversal, use-def chains, DataLayout-aware folding,
+// replaceAllUsesWith, safe deletion, and verifier-driven development.
 
+#include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Function.h"
@@ -19,180 +20,42 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/IR/InstrTypes.h"
-#include "llvm/ADT/APInt.h"
+#include "llvm/IR/NoFolder.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <memory>
 
 using namespace llvm;
 
 // ---------------------------------------------------------------------------
-// Simple constant propagation: if all operands of an instruction are
-// constant integers, compute the result at compile time and replace.
+// Simple constant propagation using LLVM's canonical folding implementation.
+// Hand-written APInt folding is deliberately avoided: it is easy to mishandle
+// nsw/nuw/exact flags, poison, oversize shifts, vectors, or target DataLayout.
 //
 // Returns true if the IR was modified, false otherwise.
 // ---------------------------------------------------------------------------
 bool myConstantPropagation(Function &F) {
   bool Changed = false;
+  const DataLayout &DL = F.getParent()->getDataLayout();
 
-  // We iterate over basic blocks, then instructions.
-  // Use a worklist approach: collect instructions to replace, then process.
-  SmallVector<std::pair<Instruction *, APInt>, 8> Replacements;
+  // Snapshot instructions so erasing one never invalidates traversal.
+  SmallVector<Instruction *, 32> Worklist;
+  for (BasicBlock &BB : F)
+    for (Instruction &I : BB)
+      Worklist.push_back(&I);
 
-  for (BasicBlock &BB : F) {
-    for (Instruction &I : BB) {
-      // Skip terminators (br, ret, switch, etc.) - not handled in this pass
-      if (I.isTerminator())
-        continue;
+  for (Instruction *I : Worklist) {
+    if (I->isTerminator())
+      continue;
 
-      // Skip phi nodes - they need special handling
-      if (isa<PHINode>(I))
-        continue;
+    Constant *Folded = ConstantFoldInstruction(I, DL);
+    if (!Folded)
+      continue;
 
-      // Only handle binary operations and icmp for this example
-      // These are the most common constant-foldable instructions
-      APInt Result;
-      bool Foldable = false;
-
-      // Collect constant operands
-      SmallVector<APInt, 2> ConstOps;
-      for (unsigned i = 0; i < I.getNumOperands(); ++i) {
-        if (auto *CI = dyn_cast<ConstantInt>(I.getOperand(i))) {
-          ConstOps.push_back(CI->getValue());
-        } else {
-          // Non-constant operand - skip this instruction
-          break;
-        }
-      }
-
-      // All operands must be constant
-      if (ConstOps.size() != I.getNumOperands())
-        continue;
-
-      // Perform constant folding based on opcode
-      unsigned Opcode = I.getOpcode();
-      switch (Opcode) {
-        // Arithmetic operations
-        case Instruction::Add:
-          Result = ConstOps[0] + ConstOps[1];
-          Foldable = true;
-          break;
-        case Instruction::Sub:
-          Result = ConstOps[0] - ConstOps[1];
-          Foldable = true;
-          break;
-        case Instruction::Mul:
-          Result = ConstOps[0] * ConstOps[1];
-          Foldable = true;
-          break;
-        case Instruction::SDiv:
-          if (!ConstOps[1].isZero()) {
-            Result = ConstOps[0].sdiv(ConstOps[1]);
-            Foldable = true;
-          }
-          break;
-        case Instruction::UDiv:
-          if (!ConstOps[1].isZero()) {
-            Result = ConstOps[0].udiv(ConstOps[1]);
-            Foldable = true;
-          }
-          break;
-        case Instruction::SRem:
-          if (!ConstOps[1].isZero()) {
-            Result = ConstOps[0].srem(ConstOps[1]);
-            Foldable = true;
-          }
-          break;
-        case Instruction::URem:
-          if (!ConstOps[1].isZero()) {
-            Result = ConstOps[0].urem(ConstOps[1]);
-            Foldable = true;
-          }
-          break;
-        // Bitwise operations
-        case Instruction::And:
-          Result = ConstOps[0] & ConstOps[1];
-          Foldable = true;
-          break;
-        case Instruction::Or:
-          Result = ConstOps[0] | ConstOps[1];
-          Foldable = true;
-          break;
-        case Instruction::Xor:
-          Result = ConstOps[0] ^ ConstOps[1];
-          Foldable = true;
-          break;
-        case Instruction::Shl:
-          Result = ConstOps[0].shl(ConstOps[1]);
-          Foldable = true;
-          break;
-        case Instruction::LShr:
-          Result = ConstOps[0].lshr(ConstOps[1]);
-          Foldable = true;
-          break;
-        case Instruction::AShr:
-          Result = ConstOps[0].ashr(ConstOps[1]);
-          Foldable = true;
-          break;
-        // Integer comparisons
-        case Instruction::ICmp: {
-          auto *ICmpInst = cast<ICmpInst>(&I);
-          bool CmpResult = false;
-          switch (ICmpInst->getPredicate()) {
-            case ICmpInst::ICMP_EQ:  CmpResult = ConstOps[0].eq(ConstOps[1]); break;
-            case ICmpInst::ICMP_NE:  CmpResult = ConstOps[0].ne(ConstOps[1]); break;
-            case ICmpInst::ICMP_UGT: CmpResult = ConstOps[0].ugt(ConstOps[1]); break;
-            case ICmpInst::ICMP_UGE: CmpResult = ConstOps[0].uge(ConstOps[1]); break;
-            case ICmpInst::ICMP_ULT: CmpResult = ConstOps[0].ult(ConstOps[1]); break;
-            case ICmpInst::ICMP_ULE: CmpResult = ConstOps[0].ule(ConstOps[1]); break;
-            case ICmpInst::ICMP_SGT: CmpResult = ConstOps[0].sgt(ConstOps[1]); break;
-            case ICmpInst::ICMP_SGE: CmpResult = ConstOps[0].sge(ConstOps[1]); break;
-            case ICmpInst::ICMP_SLT: CmpResult = ConstOps[0].slt(ConstOps[1]); break;
-            case ICmpInst::ICMP_SLE: CmpResult = ConstOps[0].sle(ConstOps[1]); break;
-            default: break;
-          }
-          // i1 result for comparisons
-          Result = APInt(1, CmpResult ? 1 : 0);
-          Foldable = true;
-          break;
-        }
-        default:
-          // Unhandled opcode - skip
-          break;
-      }
-
-      if (Foldable) {
-        // Create the new constant and replace the instruction
-        LLVMContext &Ctx = F.getContext();
-        Type *I32 = Type::getInt32Ty(Ctx);
-        Type *I1  = Type::getInt1Ty(Ctx);
-
-        // Get the appropriate type for the result
-        Type *ResTy = I.getType();
-        ConstantInt *NewConst = nullptr;
-
-        if (ResTy->isIntegerTy(1)) {
-          NewConst = ConstantInt::get(I1, Result);
-        } else {
-          // Truncate or extend APInt to match the result bitwidth
-          unsigned BitWidth = ResTy->getIntegerBitWidth();
-          APInt AdjustedResult = Result.sextOrTrunc(BitWidth);
-          NewConst = ConstantInt::get(Ctx, AdjustedResult);
-        }
-
-        // Replace all uses of the instruction with the new constant
-        I.replaceAllUsesWith(NewConst);
-
-        // Mark for deletion
-        Replacements.push_back({&I, Result});
-        Changed = true;
-      }
-    }
-  }
-
-  // Erase the replaced instructions after finishing iteration
-  // (We must not modify the instruction list while iterating over it)
-  for (auto &Pair : Replacements) {
-    Pair.first->eraseFromParent();
+    I->replaceAllUsesWith(Folded);
+    I->eraseFromParent();
+    Changed = true;
   }
 
   return Changed;
@@ -205,6 +68,7 @@ std::unique_ptr<Module> buildTestModule(LLVMContext &Ctx) {
   auto M = std::make_unique<Module>("ConstPropTest", Ctx);
   Type *I32 = Type::getInt32Ty(Ctx);
   Type *I1  = Type::getInt1Ty(Ctx);
+  Type *I8  = Type::getInt8Ty(Ctx);
 
   // Function 1: Simple arithmetic with constants
   // int f1(int x) { return (2 + 3) * x; }
@@ -213,7 +77,7 @@ std::unique_ptr<Module> buildTestModule(LLVMContext &Ctx) {
     FunctionType *FT = FunctionType::get(I32, {I32}, false);
     Function *F = Function::Create(FT, Function::ExternalLinkage, "f1_arith", *M);
     BasicBlock *BB = BasicBlock::Create(Ctx, "entry", F);
-    IRBuilder<> B(BB);
+    IRBuilder<NoFolder> B(BB);
 
     Value *Two  = ConstantInt::get(I32, 2);
     Value *Three = ConstantInt::get(I32, 3);
@@ -230,7 +94,7 @@ std::unique_ptr<Module> buildTestModule(LLVMContext &Ctx) {
     FunctionType *FT = FunctionType::get(I32, {I32}, false);
     Function *F = Function::Create(FT, Function::ExternalLinkage, "f2_nested", *M);
     BasicBlock *BB = BasicBlock::Create(Ctx, "entry", F);
-    IRBuilder<> B(BB);
+    IRBuilder<NoFolder> B(BB);
 
     Value *C10 = ConstantInt::get(I32, 10);
     Value *C3  = ConstantInt::get(I32, 3);
@@ -250,14 +114,12 @@ std::unique_ptr<Module> buildTestModule(LLVMContext &Ctx) {
     FunctionType *FT = FunctionType::get(I1, {}, false);
     Function *F = Function::Create(FT, Function::ExternalLinkage, "f3_icmp", *M);
     BasicBlock *BB = BasicBlock::Create(Ctx, "entry", F);
-    IRBuilder<> B(BB);
+    IRBuilder<NoFolder> B(BB);
 
     Value *C5 = ConstantInt::get(I32, 5);
     Value *C3 = ConstantInt::get(I32, 3);
     Value *Cmp = B.CreateICmpSGT(C5, C3, "cmp");
-    // ZExt to i32 for return
-    Value *Ext = B.CreateZExt(Cmp, I32, "ext");
-    B.CreateRet(Ext);
+    B.CreateRet(Cmp);
   }
 
   // Function 4: Bitwise operations on constants
@@ -267,7 +129,7 @@ std::unique_ptr<Module> buildTestModule(LLVMContext &Ctx) {
     FunctionType *FT = FunctionType::get(I32, {}, false);
     Function *F = Function::Create(FT, Function::ExternalLinkage, "f4_bitwise", *M);
     BasicBlock *BB = BasicBlock::Create(Ctx, "entry", F);
-    IRBuilder<> B(BB);
+    IRBuilder<NoFolder> B(BB);
 
     Value *FF = ConstantInt::get(I32, 0xFF);
     Value *OF = ConstantInt::get(I32, 0x0F);
@@ -275,6 +137,21 @@ std::unique_ptr<Module> buildTestModule(LLVMContext &Ctx) {
     Value *And1 = B.CreateAnd(FF, OF, "and");     // 0xFF & 0x0F = 0x0F
     Value *Or1  = B.CreateOr(And1, TEN, "or");     // 0x0F | 0x10 = 0x1F
     B.CreateRet(Or1);
+  }
+
+  // Function 5: poison-aware folding.
+  // `add nsw i8 127, 1` is poison, not the wrapped integer -128.
+  {
+    FunctionType *FT = FunctionType::get(I8, {}, false);
+    Function *F = Function::Create(FT, Function::ExternalLinkage,
+                                   "f5_nsw_overflow", *M);
+    BasicBlock *BB = BasicBlock::Create(Ctx, "entry", F);
+    IRBuilder<NoFolder> B(BB);
+
+    Value *Max = ConstantInt::get(I8, 127);
+    Value *One = ConstantInt::get(I8, 1);
+    Value *Overflow = B.CreateNSWAdd(Max, One, "overflow");
+    B.CreateRet(Overflow);
   }
 
   return M;
@@ -286,6 +163,10 @@ int main() {
 
   outs() << "=== Before Constant Propagation ===\n";
   auto M = buildTestModule(Context);
+  if (verifyModule(*M, &errs())) {
+    errs() << "ERROR: Input module verification failed!\n";
+    return 1;
+  }
   M->print(outs(), nullptr);
 
   outs() << "\n=== Running Constant Propagation ===\n";

@@ -396,27 +396,14 @@ IREE / Triton MLIR 流程:
 
 ### Triton 的 PTX Emitting 与 MC Layer
 
-Triton 编译器生成 PTX 时，不走 MCInstPrinter 的文本路径，而是直接使用 MCCodeEmitter：
+Triton 先在 MLIR 层完成布局、tiling、软件流水等变换，再降低到 LLVM dialect/LLVM IR；
+LLVM NVPTX 后端最终通过 `NVPTXAsmPrinter` 发射 PTX 文本。这个路径不是
+“Triton 直接构造 NVPTX MachineInstr”，也不是普通目标的 `MCCodeEmitter → .o` 二进制路径：
 
-```cpp
-// Triton 内部 NVPTX 代码生成流程（简化）
-class TritonNVPTXMCInstLower {
-    // 将 Triton 的 IR 操作映射到 NVPTX MachineInstr
-    void lower_tt_dot(const DotOp &op, MachineIRBuilder &builder) {
-        // tt.dot → NVPTX::MMA (Matrix Multiply-Accumulate)
-        auto MIB = builder.buildInstr(NVPTX::MMA_F32);
-        MIB.addReg(dst).addReg(srcA).addReg(srcB).addReg(acc);
-    }
-};
-
-// NVPTX AsmPrinter 最终输出 PTX 文本
-void NVPTXAsmPrinter::emitInstruction(const MachineInstr *MI) {
-    // 对于 PTX，emitInstruction 直接输出 PTX 文本
-    // （不经过二进制编码，因为 PTX 是虚拟 ISA）
-    MCInst TmpInst;
-    lowerToMCInst(*MI, TmpInst);
-    EmitToStreamer(*OutStreamer, TmpInst);
-}
+```text
+Triton IR → TritonGPU IR → LLVM dialect → LLVM IR
+           → NVPTX CodeGen/Machine IR → NVPTXAsmPrinter → PTX text
+           → ptxas/JIT compiler → cubin/SASS
 ```
 
 ### CUDA PTX 生成的完整 Pipeline
@@ -444,7 +431,7 @@ PTX 文本字符串
 
 **生产经验**：
 - PTX 与其他 ISA 不同，MCInst 到 PTX 文本是直接格式化输出，不经过二进制编码
-- 这就是为什么 NVPTX MCCodeEmitter 的实现非常薄——PTX 本质上是文本格式
+- 不应假设 NVPTX 存在一条可用于 cubin 的 `MCCodeEmitter/ObjectWriter` 路径；cubin 属于 NVIDIA 工具链的下一阶段
 - 对于自定义 AI 加速器使用 MC Layer 时，同样需要考虑：你的输出是文本还是二进制？
   - 文本 → 重载 MCInstPrinter
   - 二进制 → 重载 MCCodeEmitter
@@ -470,7 +457,8 @@ LLVM IR → Machine IR → MCInst → MCCodeEmitter → 二进制 .o 文件
 LLVM IR → Machine IR → MCInst → 自定义文本格式
 ```
 类似 CUDA PTX 模式：生成设备无关的文本表示，由 runtime 做最终编译。
-这是最灵活的方案，也是 AI 编译器中最常见的方案（Triton、IREE 都是这种模式）。
+这种方案适合需要保留外部驱动/JIT 最终决策的设备。Triton 的 CUDA 路径使用 PTX；
+IREE 则因目标而异，CPU、SPIR-V、CUDA 等后端不能概括为同一种文本输出模式。
 
 ## 示例说明
 

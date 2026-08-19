@@ -230,7 +230,7 @@ llvm/
 ### C API 的战略意义
 
 `include/llvm-c/` 目录包含 LLVM 的 C API。对 AI 编译器工程师来说：
-- **稳定性**：C API 保持向后兼容，适合用于长期维护的工具链集成
+- **稳定性**：C API 采用 best-effort 稳定策略，通常比 C++ API 更适合长期集成，但不是永久的源码/二进制兼容保证；跨版本升级仍要阅读 release notes 并跑兼容测试
 - **语言绑定**：Python 的 llvmlite、Rust 的 llvm-sys 等绑定都基于 C API
 - **性能权衡**：C API 不如 C++ API 功能丰富，但与 LLVM 版本的耦合度低
 - **MLIR C API**：MLIR 也从 LLVM 借鉴了 C API 模式（`mlir/include/mlir-c/`）
@@ -334,6 +334,36 @@ func.func @matmul(%A: memref<8x8xf32>, %B: memref<8x8xf32>, %C: memref<8x8xf32>)
 
 ---
 
+## 工业落地：把“能构建”升级为“可复现”
+
+原书示例基于 LLVM 20.1.1。本项目默认以 20.1.x 为兼容窗口，是因为 LLVM C++ API、
+pass 名称和 MIR 格式会随版本演进。生产环境不能只记录“LLVM 20”，至少要固化：
+
+```text
+llvm-project release + commit
+CMake/Ninja 版本与完整配置参数
+host 编译器、链接器、stdlib 版本
+LLVM_ENABLE_ASSERTIONS 与 CMAKE_BUILD_TYPE
+LLVM_TARGETS_TO_BUILD / LLVM_ENABLE_PROJECTS
+容器镜像 digest 或工具链制品号
+```
+
+一套可交付的构建至少经过以下门禁：
+
+```bash
+# 快速开发门禁
+ninja check-llvm
+
+# 只验证本次改动相关测试，失败时显示完整命令
+llvm-lit -sv llvm/test/<affected-area>
+
+# 后端改动还要覆盖对应 target
+llvm-lit -sv llvm/test/CodeGen/<Target>
+```
+
+不要在同一构建目录里切换 LLVM 大版本、host compiler 或断言配置；CMake cache 会保留
+旧探测结果。CI 应使用全新的 build 目录，并把 `CMakeCache.txt`、版本输出和失败命令作为制品保存。
+
 ## 总结
 
 ### 技术要点清单
@@ -367,7 +397,7 @@ func.func @matmul(%A: memref<8x8xf32>, %B: memref<8x8xf32>, %C: memref<8x8xf32>)
 - **Google**：内部使用基于 LLVM 的工具链编译所有 C++ 代码（包括 TensorFlow 的核心）
 - **Apple**：所有 Apple 平台的编译器（iOS、macOS、watchOS、visionOS）都基于 LLVM/Clang。Apple 也是 M1/M2 GPU 后端、GlobalISel、寄存器分配器等关键组件的维护者
 - **Meta**：开发了 Glow（AI 推理编译器）和一系列 LLVM 贡献，包括 ThinLTO 和 PGO 基础设施
-- **NVIDIA**：CUDA 编译器（nvcc 的 LLVM 版本）使用 LLVM 的 NVPTX 后端生成 GPU 代码
+- **NVIDIA GPU 生态**：LLVM/Clang 的 CUDA 和 OpenMP offload 路径，以及 Triton 等项目，会使用 LLVM NVPTX 后端生成 PTX；不要据此把 NVIDIA 的专有 `nvcc` 实现简单等同为“LLVM 版本”
 - **AMD**：ROCm 平台使用 LLVM 的 AMDGPU 后端生成 GPU 代码
 
 ### 对 AI 编译器工程师的核心建议

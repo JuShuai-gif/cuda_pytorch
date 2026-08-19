@@ -14,8 +14,10 @@
 #include "llvm/Pass.h"
 #include "llvm/PassRegistry.h"
 #include "llvm/Analysis/LoopInfo.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Utils/Local.h"
+
+#include <memory>
 
 using namespace llvm;
 
@@ -115,7 +117,6 @@ public:
 
   bool runOnFunction(Function &F) override {
     bool Changed = false;
-    SmallVector<Instruction *, 8> ToRemove;
 
     for (BasicBlock &BB : F) {
       // Look for conditional branches with constant conditions
@@ -129,26 +130,14 @@ public:
                << "Simplifying constant branch in " << F.getName()
                << "::" << BB.getName() << "\n";
 
-        BasicBlock *TakenBB = CI->isOne()
-            ? BI->getSuccessor(0)   // true branch
-            : BI->getSuccessor(1);  // false branch
-
-        // Replace the conditional branch with an unconditional branch
-        BranchInst::Create(TakenBB, BI);
-        BI->eraseFromParent();
-        Changed = true;
+        // Use LLVM's CFG utility instead of erasing the branch by hand.  The
+        // helper also removes the obsolete predecessor from successor PHIs
+        // and deletes the now-dead condition when it is safe to do so.
+        Changed |= ConstantFoldTerminator(&BB, /*DeleteDeadConditions=*/true);
       }
     }
 
-    // Clean up blocks that may have become unreachable
-    // (A more complete pass would use DominatorTree for this)
-
     return Changed;
-  }
-
-  void getAnalysisUsage(AnalysisUsage &AU) const override {
-    // We modify the CFG but don't need specific analyses
-    AU.setPreservesCFG();  // This is true - we only simplify branches
   }
 
   StringRef getPassName() const override {
@@ -223,6 +212,10 @@ int main() {
   auto M = buildModule(Context);
 
   outs() << "=== Before Legacy Pass Pipeline ===\n";
+  if (verifyModule(*M, &errs())) {
+    errs() << "ERROR: Input module verification failed!\n";
+    return 1;
+  }
   M->print(outs(), nullptr);
   outs() << "\n";
 

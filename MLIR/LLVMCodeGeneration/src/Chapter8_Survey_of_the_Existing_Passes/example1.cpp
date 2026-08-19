@@ -7,7 +7,7 @@
 //   - Using ValueTracking to compute known bits
 //   - Building a small test module containing a loop
 //
-// Build with LLVM 17+:
+// Build with the repository baseline, LLVM 20.1.x:
 //   clang++ example1.cpp $(llvm-config --cxxflags --ldflags --libs core analysis irreader) -o example1
 
 #include "llvm/Analysis/DominanceFrontier.h"
@@ -101,12 +101,14 @@ int main() {
   PassBuilder PB;
   LoopAnalysisManager LAM;
   FunctionAnalysisManager FAM;
+  CGSCCAnalysisManager CGAM;
   ModuleAnalysisManager MAM;
 
   PB.registerFunctionAnalyses(FAM);
+  PB.registerCGSCCAnalyses(CGAM);
   PB.registerModuleAnalyses(MAM);
   PB.registerLoopAnalyses(LAM);
-  FAM.registerPass([&] { return LAM; });
+  PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
   // ──────────────── Run DominatorTree analysis ────────────────
   DominatorTree &DT = FAM.getResult<DominatorTreeAnalysis>(*F);

@@ -15,15 +15,23 @@
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/ADT/DepthFirstIterator.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
+
+#include <memory>
+#include <utility>
 
 using namespace llvm;
 
 // ---------------------------------------------------------------------------
 // Analysis: DeadBlockDetector
-// An analysis that identifies basic blocks with no predecessors
-// (other than the entry block). Demonstrates the AnalysisInfoMixin pattern.
+// An analysis that identifies every basic block not reachable from entry.
+// Checking only pred_size(BB) == 0 is insufficient: an unreachable cycle, or
+// a chain rooted at a dead block, can still give every member a predecessor.
+// Demonstrates the AnalysisInfoMixin pattern.
 // ---------------------------------------------------------------------------
 namespace {
 
@@ -48,15 +56,16 @@ public:
   Result run(Function &F, FunctionAnalysisManager &) {
     Result Info;
 
-    for (BasicBlock &BB : F) {
-      // Entry block always has 0 predecessors but is not "dead"
-      if (&BB == &F.getEntryBlock())
-        continue;
+    if (F.empty())
+      return Info;
 
-      // Check if this block has any predecessors
-      if (pred_size(&BB) == 0) {
+    SmallPtrSet<BasicBlock *, 16> Reachable;
+    for (BasicBlock *BB : depth_first_ext(&F, Reachable))
+      (void)BB;
+
+    for (BasicBlock &BB : F) {
+      if (!Reachable.contains(&BB))
         Info.DeadBlocks.push_back(&BB);
-      }
     }
 
     return Info;
@@ -131,20 +140,17 @@ public:
     outs() << "  [NewPM::RemoveDeadBlocks] " << F.getName()
            << ": Removing " << Info.DeadBlocks.size() << " dead block(s)\n";
 
-    for (BasicBlock *BB : Info.DeadBlocks) {
+    for (const BasicBlock *BB : Info.DeadBlocks)
       outs() << "    Removing dead block: " << BB->getName() << "\n";
-      // We must also remove this block from any phi node uses
-      BB->replaceAllUsesWith(UndefValue::get(BB->getType()));
-      BB->eraseFromParent();
-    }
 
-    // We modified the CFG, so analyses that depend on CFG structure
-    // (like LoopInfo, DominatorTree) are not preserved.
-    // But we preserve our own DeadBlockDetector analysis since we
-    // removed all dead blocks.
-    PreservedAnalyses PA;
-    PA.preserve<DeadBlockDetector>();
-    return PA;
+    // Delete the unreachable region as one set.  LLVM updates successor PHIs
+    // and handles references such as blockaddress correctly; replacing block
+    // operands with undef by hand can silently produce malformed IR.
+    DeleteDeadBlocks(Info.DeadBlocks);
+
+    // Do not preserve DeadBlockDetector: its cached result owns pointers to
+    // the blocks just deleted.  Returning none prevents stale-pointer reuse.
+    return PreservedAnalyses::none();
   }
 
   static StringRef name() { return "RemoveDeadBlocks"; }
@@ -159,24 +165,41 @@ std::unique_ptr<Module> buildModule(LLVMContext &Ctx) {
   auto M = std::make_unique<Module>("NewPMDemo", Ctx);
   Type *I32 = Type::getInt32Ty(Ctx);
 
-  // Function 1: has an unreachable block
+  // Function 1: covers an orphan block, an unreachable chain/cycle, and a
+  // PHI edge that must be repaired while dead blocks are deleted.
   {
     FunctionType *FT = FunctionType::get(I32, {I32}, false);
     Function *F = Function::Create(FT, Function::ExternalLinkage,
                                    "has_dead_block", *M);
     BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", F);
     BasicBlock *LiveBB  = BasicBlock::Create(Ctx, "live", F);
-    BasicBlock *DeadBB  = BasicBlock::Create(Ctx, "dead", F); // no predecessors
+    BasicBlock *DeadToLive = BasicBlock::Create(Ctx, "dead.to.live", F);
+    BasicBlock *DeadRoot = BasicBlock::Create(Ctx, "dead.root", F);
+    BasicBlock *DeadCycleA = BasicBlock::Create(Ctx, "dead.cycle.a", F);
+    BasicBlock *DeadCycleB = BasicBlock::Create(Ctx, "dead.cycle.b", F);
 
     IRBuilder<> B(EntryBB);
     B.CreateBr(LiveBB);
 
     B.SetInsertPoint(LiveBB);
-    B.CreateRet(F->arg_begin());
+    PHINode *Result = B.CreatePHI(I32, 2, "result");
+    Result->addIncoming(F->getArg(0), EntryBB);
+    Result->addIncoming(ConstantInt::get(I32, 999), DeadToLive);
+    B.CreateRet(Result);
 
-    // DeadBB has code but no predecessors - it's unreachable
-    B.SetInsertPoint(DeadBB);
-    B.CreateRet(ConstantInt::get(I32, 999));
+    // This dead block points into live code. DeleteDeadBlocks must remove its
+    // incoming value from the PHI in LiveBB.
+    B.SetInsertPoint(DeadToLive);
+    B.CreateBr(LiveBB);
+
+    // These blocks form an unreachable region in which the cycle members do
+    // have predecessors; a pred_size(BB) == 0 detector would miss them.
+    B.SetInsertPoint(DeadRoot);
+    B.CreateBr(DeadCycleA);
+    B.SetInsertPoint(DeadCycleA);
+    B.CreateBr(DeadCycleB);
+    B.SetInsertPoint(DeadCycleB);
+    B.CreateBr(DeadCycleA);
   }
 
   // Function 2: all blocks reachable
@@ -188,12 +211,12 @@ std::unique_ptr<Module> buildModule(LLVMContext &Ctx) {
     BasicBlock *OtherBB = BasicBlock::Create(Ctx, "other", F);
 
     IRBuilder<> B(EntryBB);
-    Value *Cmp = B.CreateICmpSGT(F->arg_begin(),
+    Value *Cmp = B.CreateICmpSGT(F->getArg(0),
                                   ConstantInt::get(I32, 0), "cmp");
     B.CreateCondBr(Cmp, OtherBB, OtherBB); // both paths go to OtherBB
 
     B.SetInsertPoint(OtherBB);
-    B.CreateRet(F->arg_begin());
+    B.CreateRet(F->getArg(0));
   }
 
   return M;
@@ -205,6 +228,10 @@ int main() {
   auto M = buildModule(Context);
 
   outs() << "=== Before New PM Pipeline ===\n";
+  if (verifyModule(*M, &errs())) {
+    errs() << "ERROR: Input module verification failed!\n";
+    return 1;
+  }
   M->print(outs(), nullptr);
   outs() << "\n";
 
@@ -212,8 +239,12 @@ int main() {
   // Set up the new pass manager infrastructure
   // -----------------------------------------------------------------------
 
-  // Create the analysis managers
+  // Create all four analysis managers. Adaptors rely on the proxy analyses
+  // installed by crossRegisterProxies; registering only FAM/MAM is incomplete.
+  LoopAnalysisManager LAM;
   FunctionAnalysisManager FAM;
+  CGSCCAnalysisManager CGAM;
+  ModuleAnalysisManager MAM;
 
   // Register our custom analysis with the FunctionAnalysisManager
   // This tells the manager how to construct the analysis when needed.
@@ -222,7 +253,11 @@ int main() {
   // Also register standard LLVM analyses our pass might use
   // (LoopAnalysis, DominatorTreeAnalysis, etc.)
   PassBuilder PB;
+  PB.registerLoopAnalyses(LAM);
   PB.registerFunctionAnalyses(FAM);
+  PB.registerCGSCCAnalyses(CGAM);
+  PB.registerModuleAnalyses(MAM);
+  PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
   // Create the function pass manager and add passes
   FunctionPassManager FPM;
@@ -240,9 +275,6 @@ int main() {
   // ModulePassManager wrapper to run function passes on all functions
   ModulePassManager MPM;
   MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
-
-  ModuleAnalysisManager MAM;
-  PB.registerModuleAnalyses(MAM);
 
   MPM.run(*M, MAM);
   outs() << "\n";

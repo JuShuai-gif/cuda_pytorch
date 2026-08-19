@@ -10,8 +10,11 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Dominators.h"
+#include "llvm/IR/Verifier.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <memory>
 
 using namespace llvm;
 
@@ -201,20 +204,17 @@ void analyzeDominance(Function &F) {
   for (BasicBlock &BB : F) {
     for (Instruction &I : BB) {
       for (unsigned OpIdx = 0; OpIdx < I.getNumOperands(); ++OpIdx) {
-        Value *Op = I.getOperand(OpIdx);
+        Use &OperandUse = I.getOperandUse(OpIdx);
+        Value *Op = OperandUse.get();
         if (auto *OpI = dyn_cast<Instruction>(Op)) {
-          BasicBlock *DefBB = OpI->getParent();
-          BasicBlock *UseBB = I.getParent();
-          if (DT.dominates(DefBB, UseBB)) {
-            // OK: definition dominates use
-          } else if (DT.dominates(UseBB, DefBB)) {
-            // Use dominates definition - this is normal for phi nodes
-            // (phi in merge block references values from predecessors)
-          } else {
+          // This overload checks instruction order within a block and treats
+          // PHI operands as uses on their incoming CFG edges.
+          if (!DT.dominates(OpI, OperandUse)) {
             outs() << "    WARNING: Definition of ";
             OpI->printAsOperand(outs(), false);
-            outs() << " in " << DefBB->getName();
-            outs() << " does not dominate use in " << UseBB->getName() << "\n";
+            outs() << " does not dominate operand #" << OpIdx << " of ";
+            I.printAsOperand(outs(), false);
+            outs() << "\n";
           }
         }
       }
@@ -253,6 +253,11 @@ void demonstrateCrossFunctionUseDef(Module &M) {
 int main() {
   LLVMContext Context;
   auto M = buildTestModule(Context);
+
+  if (verifyModule(*M, &errs())) {
+    errs() << "ERROR: Input module verification failed!\n";
+    return 1;
+  }
 
   outs() << "; Test Module IR:\n";
   M->print(outs(), nullptr);
